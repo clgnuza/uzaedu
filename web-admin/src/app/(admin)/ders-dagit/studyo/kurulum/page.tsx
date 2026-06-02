@@ -31,10 +31,12 @@ import {
   Pencil,
   Trash2,
   ExternalLink,
+  ChevronRight,
 } from 'lucide-react';
 import { dayLabel } from '@/lib/ders-dagit-labels';
 import { sortClassSections } from '@/lib/class-section-sort';
 import { dedupeSectionAliases } from '@/lib/class-section-canonical';
+import { invalidateDersDagitSectionsCache } from '@/hooks/use-ders-dagit-sections';
 import { ValidationIssuesList } from '@/components/ders-dagit/validation-issues-list';
 import { schoolSetupCapabilities } from '@/lib/school-profile-capabilities';
 import { toast } from 'sonner';
@@ -53,10 +55,34 @@ type ClassProfile = {
 };
 
 const STAT_LINKS = [
-  { key: 'classCount', label: 'Şube (sınıf)', href: '/ders-dagit/studyo/kurulum', icon: Settings2 },
-  { key: 'teacherCount', label: 'Öğretmen', href: '/ders-dagit/studyo/ogretmenler', icon: Users },
-  { key: 'subjectCount', label: 'Ders', href: '/ders-dagit/studyo/dersler', icon: BookOpen },
-  { key: 'assignmentCount', label: 'Atama', href: '/ders-dagit/studyo/atamalar', icon: ListChecks },
+  {
+    key: 'classCount',
+    label: 'Şube (sınıf)',
+    href: '/ders-dagit/studyo/kurulum#sinif-profilleri',
+    hint: 'Sınıf profilleri',
+    icon: Settings2,
+  },
+  {
+    key: 'teacherCount',
+    label: 'Öğretmen',
+    href: '/ders-dagit/studyo/ogretmenler',
+    hint: 'Öğretmen listesi',
+    icon: Users,
+  },
+  {
+    key: 'subjectCount',
+    label: 'Ders',
+    href: '/ders-dagit/studyo/dersler',
+    hint: 'Ders kataloğu',
+    icon: BookOpen,
+  },
+  {
+    key: 'assignmentCount',
+    label: 'Atama',
+    href: '/ders-dagit/studyo/atamalar',
+    hint: 'Ders atamaları',
+    icon: ListChecks,
+  },
 ] as const;
 
 export default function KurulumPage() {
@@ -93,7 +119,7 @@ export default function KurulumPage() {
     try {
       await apiFetch(`/ders-dagit/studios/${studio.id}/teachers/sync`, { token, method: 'POST' });
       toast.success('Öğretmenler senkronlandı');
-      await refresh({ force: true });
+      void refresh({ light: true });
       await load();
     } catch {
       toast.error('Senkron başarısız');
@@ -112,8 +138,9 @@ export default function KurulumPage() {
       });
       toast.success(dto.id ? 'Profil güncellendi' : 'Sınıf profili kaydedildi');
       setEditingProfile(null);
+      invalidateDersDagitSectionsCache(studio.id);
       await load();
-      await refresh({ force: true });
+      void refresh({ light: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Kayıt başarısız');
       throw e;
@@ -127,8 +154,9 @@ export default function KurulumPage() {
       await apiFetch(`/ders-dagit/studios/${studio.id}/class-profiles/${id}`, { token, method: 'DELETE' });
       toast.success('Profil silindi');
       if (editingProfile?.id === id) setEditingProfile(null);
+      invalidateDersDagitSectionsCache(studio.id);
       await load();
-      await refresh({ force: true });
+      void refresh({ light: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Silinemedi');
     }
@@ -157,19 +185,37 @@ export default function KurulumPage() {
       <DdSetupChecklist overview={overview} />
 
       <div className={`${DD_GRID} sm:grid-cols-2 lg:grid-cols-4`}>
-        {STAT_LINKS.map(({ key, label, href, icon: Icon }) => (
-          <Link key={key} href={href} className="dd-glass-panel block rounded-xl p-3 transition-transform hover:scale-[1.01]">
-            <div className="flex items-center gap-2">
-              <span className="dd-icon-badge !size-8 !rounded-lg">
-                <Icon className="size-4" />
-              </span>
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-                <p className="text-xl font-bold tabular-nums">{c?.[key as keyof typeof c] ?? 0}</p>
+        {STAT_LINKS.map(({ key, label, href, hint, icon: Icon }) => {
+          const val = c?.[key as keyof typeof c] ?? 0;
+          return (
+            <Link
+              key={key}
+              href={href}
+              title={`${hint} — ${val} kayıt`}
+              aria-label={`${label}: ${val} — ${hint} sayfasına git`}
+              className="group dd-glass-panel block rounded-xl p-3 outline-none ring-offset-background transition hover:border-[rgb(var(--dd-accent))]/35 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="dd-icon-badge !size-8 !rounded-lg">
+                    <Icon className="size-4" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+                    <p className="text-xl font-bold tabular-nums transition-colors group-hover:text-[rgb(var(--dd-accent))]">
+                      {val}
+                    </p>
+                  </div>
+                </div>
+                <ChevronRight
+                  className="size-4 shrink-0 text-muted-foreground opacity-0 transition group-hover:opacity-100"
+                  aria-hidden
+                />
               </div>
-            </div>
-          </Link>
-        ))}
+              <p className="mt-1 truncate text-[10px] text-muted-foreground group-hover:text-foreground">{hint}</p>
+            </Link>
+          );
+        })}
       </div>
 
       <div className={`${DD_GRID} md:grid-cols-2`}>
@@ -238,13 +284,13 @@ export default function KurulumPage() {
               });
               setSchoolProfile(dto);
               toast.success('Okul profili kaydedildi');
-              await refresh({ force: true });
+              void refresh({ light: true });
             }}
           />
         </CardContent>
       </DdCard>
 
-      <DdCard>
+      <DdCard id="sinif-profilleri" className="scroll-mt-24">
         <CardHeader className={DD_CARD_HEADER}>
           <CardTitle className="text-base">Sınıf profilleri</CardTitle>
         </CardHeader>

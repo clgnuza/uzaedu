@@ -2,6 +2,7 @@ const assert = require('assert');
 const { runConstraintSolver } = require('../dist/ders-dagit/ders-dagit.solver');
 const { improveWithLocalSearch } = require('../dist/ders-dagit/ders-dagit.local-search');
 const { runCspSolver } = require('../dist/ders-dagit/ders-dagit.solver-csp');
+const { runAscLikeSearch } = require('../dist/ders-dagit/ders-dagit.search');
 
 const ctx = {
   max_lesson_per_day: 8,
@@ -10,6 +11,7 @@ const ctx = {
   parallel_groups: new Set(),
   group_modes: new Map(),
   active_rules: { max_two_per_day: { active: true, weight: 10 } },
+  section_rules: new Map(),
   teacher_limits: [
     {
       user_id: 't1',
@@ -31,6 +33,11 @@ const ctx = {
   room_constraints: new Map(),
   building_travel_matrix: new Map([['b1:b2', 2]]),
   school_profile: { type: 'anadolu_lise', internship_days: [], internship_sections: [] },
+  dual_education_enabled: false,
+  pm_first_lesson: 5,
+  section_shift: new Map(),
+  teacher_shift: new Map(),
+  group_member_sections: new Map(),
   section_schedules: new Map(),
   section_internship_from_profiles: new Map(),
   studio_period: { work_days: [1, 2, 3, 4, 5], long_breaks: [{ after_lesson: 4, blocked_slots: 1 }], lessons_per_day_by_dow: {} },
@@ -121,3 +128,70 @@ assert.ok(
 );
 
 console.log('ders-dagit-solver.test OK', { placed: r2.placed, score: r2.score, csp: rc.placed });
+
+// Soft kural bloklamasın: important_early artık placementBlocked ile kilitlemez.
+const lateOnlyCtx = {
+  ...ctx,
+  max_lesson_per_day: 6,
+  max_lesson_by_day: new Map([[1, 6], [2, 6], [3, 6], [4, 6], [5, 6]]),
+  blocked_lesson_nums: new Set([1, 2, 3, 4, 5]),
+  active_rules: { ...ctx.active_rules, important_early: { active: true, weight: 6 } },
+};
+const lateOnlyAssign = [
+  {
+    ...assignments[0],
+    id: 'late1',
+    weekly_hours: 1,
+    max_per_day: null,
+    min_days_per_week: null,
+  },
+];
+const rl = runConstraintSolver(lateOnlyAssign, lateOnlyCtx);
+assert.strictEqual(rl.placed, 1, 'important_early should not block only late slot');
+assert.ok(rl.entries.some((e) => e.lesson_num === 6), 'placed in late slot');
+
+// ASC-benzeri arama: hard-feasible kalmalı.
+const small = [
+  {
+    id: 'sa',
+    class_sections: ['5A'],
+    subject_name: 'Fen',
+    weekly_hours: 3,
+    teacher_ids: ['t1'],
+    group_id: null,
+    room_ids: [],
+    max_per_day: 2,
+    min_days_per_week: 2,
+    fixed_slots: [],
+    place_first: false,
+    options: {},
+  },
+  {
+    id: 'sb',
+    class_sections: ['5A'],
+    subject_name: 'Türkçe',
+    weekly_hours: 3,
+    teacher_ids: ['t2'],
+    group_id: null,
+    room_ids: [],
+    max_per_day: 2,
+    min_days_per_week: 2,
+    fixed_slots: [],
+    place_first: false,
+    options: {},
+  },
+];
+const seed = runConstraintSolver(small, ctx);
+const run = runAscLikeSearch(small, ctx, { deadline_ms: 250, priority: 'fast', seed });
+assert.ok(run.meta && run.meta.iterations >= 0, 'search meta');
+const occ = new Set();
+for (const e of run.result.entries) {
+  const k1 = `${e.day_of_week}:${e.lesson_num}:c:${e.class_section}`;
+  assert.ok(!occ.has(k1), 'no class clash');
+  occ.add(k1);
+  if (e.user_id) {
+    const k2 = `${e.day_of_week}:${e.lesson_num}:t:${e.user_id}`;
+    assert.ok(!occ.has(k2), 'no teacher clash');
+    occ.add(k2);
+  }
+}

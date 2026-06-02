@@ -100,6 +100,10 @@ export function TimetablePublishPanel({ programId }: { programId: string }) {
     if (!token || !studio || !pid) return;
     const p = await fetchPublishPreview(token, studio.id, pid);
     setPreview(p);
+    if (!p.can_publish) {
+      toast.error(p.blockers.join(' · ') || 'Yayın engellendi');
+      return;
+    }
     setRiskAck(false);
     setConfirmOpen(true);
   }
@@ -204,7 +208,18 @@ export function TimetablePublishPanel({ programId }: { programId: string }) {
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
                   <Stat label="Ders saati" value={String(preview.entry_count)} />
                   <Stat label="Çakışma" value={String(preview.clash_count)} bad={preview.clash_count > 0} />
-                  <Stat label="Yerleşmemiş" value={String(preview.unplaced_count)} warn={preview.unplaced_count > 0} />
+                  <Stat
+                    label="Yerleşme"
+                    value={`%${preview.placement_percent}`}
+                    warn={preview.unplaced_hours > 0}
+                    bad={preview.unplaced_hours > 0}
+                  />
+                  <Stat
+                    label="Yerleşmemiş"
+                    value={`${preview.unplaced_count} · ${preview.unplaced_hours} sa`}
+                    warn={preview.unplaced_count > 0}
+                    bad={preview.unplaced_count > 0}
+                  />
                   <Stat label="Doğrulama hatası" value={String(preview.validation_error_count)} bad={preview.validation_error_count > 0} />
                   <Stat label="Uyarı" value={String(preview.validation_warn_count)} />
                   <Stat label="Skor" value={preview.program.score != null ? String(preview.program.score) : '—'} />
@@ -219,7 +234,11 @@ export function TimetablePublishPanel({ programId }: { programId: string }) {
 
             <StudioValidationGate overview={overview} action="publish">
               <div className="flex flex-wrap gap-2">
-                <Button type="button" disabled={!pid || loadingPreview} onClick={() => void openPublishConfirm()}>
+                <Button
+                  type="button"
+                  disabled={!pid || loadingPreview || !preview?.can_publish}
+                  onClick={() => void openPublishConfirm()}
+                >
                   <Send className="mr-1.5 size-4" />
                   Okula yayınla…
                 </Button>

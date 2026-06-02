@@ -41,6 +41,7 @@ import { DdCatalogAssignmentsHint } from '@/components/ders-dagit/dd-catalog-ass
 import { normalizeClassSectionNamesFromPool } from '@/lib/class-section-canonical';
 import { useDersDagitSections } from '@/hooks/use-ders-dagit-sections';
 import { useDersDagitClassProfiles } from '@/hooks/use-ders-dagit-class-profiles';
+import { notifyDersDagitAssignmentsChanged } from '@/lib/ders-dagit-assignments-sync';
 
 type PeriodsRes = {
   duty_max_lessons: number | null;
@@ -112,6 +113,7 @@ export default function OgretmenlerPage() {
   );
   const [addOpen, setAddOpen] = useState(false);
   const assignmentsRef = useRef<HTMLElement>(null);
+  const loadSeq = useRef(0);
 
   const colorIndex = useMemo(() => new Map(rows.map((t, i) => [t.id, i])), [rows]);
   const active = useMemo(() => rows.find((t) => t.id === activeId) ?? null, [rows, activeId]);
@@ -123,8 +125,17 @@ export default function OgretmenlerPage() {
     [rows],
   );
   const roomNameById = useMemo(() => new Map(rooms.map((r) => [r.id, r.name])), [rooms]);
-  const extraSectionKeys = useMemo(() => assignments.flatMap((a) => a.class_sections ?? []), [assignments]);
-  const { sections: allSections, reload: reloadSections } = useDersDagitSections(extraSectionKeys);
+  const extraSectionKeys = useMemo(() => {
+    const uniq = new Set<string>();
+    for (const a of assignments) {
+      for (const s of a.class_sections ?? []) {
+        const t = String(s ?? '').trim();
+        if (t) uniq.add(t);
+      }
+    }
+    return Array.from(uniq).slice(0, 256);
+  }, [assignments]);
+  const { sections: allSections } = useDersDagitSections(extraSectionKeys);
   const assignmentStatsByUserId = useMemo(() => {
     const m = new Map<string, { count: number; hours: number }>();
     for (const a of assignments) {
@@ -177,46 +188,69 @@ export default function OgretmenlerPage() {
     if (!token || !studio) return;
     if (!window.confirm('Bu ders ataması silinsin mi?')) return;
     await apiFetch(`/ders-dagit/studios/${studio.id}/assignments/${id}`, { token, method: 'DELETE' });
+    setAssignments((prev) => prev.filter((a) => a.id !== id));
     toast.success('Atama silindi');
     if (listActiveId === id) setListActiveId(null);
-    await load();
   }
+
+  const reloadAssignments = useCallback(async () => {
+    if (!token || !studio) return;
+    const asn = await apiFetch<Assignment[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token });
+    const pool = asn.flatMap((a) => a.class_sections ?? []);
+    setAssignments(
+      asn.map((row) => ({
+        ...row,
+        class_sections: normalizeClassSectionNamesFromPool(row.class_sections ?? [], pool),
+      })),
+    );
+    notifyDersDagitAssignmentsChanged(studio.id);
+  }, [token, studio]);
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
+    const seq = ++loadSeq.current;
     setLoading(true);
     try {
-      const [list, per, asn, sub, rm, gr, secs] = await Promise.all([
+      const [list, per] = await Promise.all([
         apiFetch<TeacherConfig[]>(`/ders-dagit/studios/${studio.id}/teachers`, { token }),
         apiFetch<PeriodsRes>(`/ders-dagit/studios/${studio.id}/periods`, { token }).catch(() => null),
-        apiFetch<Assignment[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token }).catch(() => []),
-        apiFetch<SubjectRow[]>(`/ders-dagit/studios/${studio.id}/subjects`, { token }).catch(() => []),
-        apiFetch<RoomRow[]>('/ders-dagit/rooms', { token }).catch(() => []),
-        apiFetch<{ groups: GroupRow[] }>(`/ders-dagit/studios/${studio.id}/groups`, { token }).catch(() => ({
-          groups: [],
-        })),
-        apiFetch<string[]>(`/ders-dagit/studios/${studio.id}/class-sections`, { token }).catch(() => []),
       ]);
-      const pool = [...(Array.isArray(secs) ? secs : []), ...asn.flatMap((a) => a.class_sections ?? [])];
+      if (seq !== loadSeq.current) return;
       setRows(list);
       setPeriods(per);
-      setAssignments(
-        asn.map((row) => ({
-          ...row,
-          class_sections: normalizeClassSectionNamesFromPool(row.class_sections ?? [], pool),
-        })),
-      );
-      setSubjects(sub);
-      setRooms(rm);
-      setGroups(gr.groups ?? []);
-      void reloadSections();
       setActiveId((prev) => prev ?? list[0]?.id ?? null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Yüklenemedi');
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
-  }, [token, studio, reloadSections]);
+
+    void (async () => {
+      try {
+        const [asn, sub, rm, gr] = await Promise.all([
+          apiFetch<Assignment[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token }).catch(() => []),
+          apiFetch<SubjectRow[]>(`/ders-dagit/studios/${studio.id}/subjects`, { token }).catch(() => []),
+          apiFetch<RoomRow[]>('/ders-dagit/rooms', { token }).catch(() => []),
+          apiFetch<{ groups: GroupRow[] }>(`/ders-dagit/studios/${studio.id}/groups`, { token }).catch(() => ({
+            groups: [],
+          })),
+        ]);
+        if (seq !== loadSeq.current) return;
+        const pool = asn.flatMap((a) => a.class_sections ?? []);
+        setAssignments(
+          asn.map((row) => ({
+            ...row,
+            class_sections: normalizeClassSectionNamesFromPool(row.class_sections ?? [], pool),
+          })),
+        );
+        setSubjects(sub);
+        setRooms(rm);
+        setGroups(gr.groups ?? []);
+      } catch {
+        // ignore
+      }
+    })();
+  }, [token, studio]);
 
   useEffect(() => {
     void load();
@@ -287,7 +321,7 @@ export default function OgretmenlerPage() {
       setBaselineDraft(JSON.stringify(draft));
       setDirty(false);
       await load();
-      await refresh({ force: true });
+      void refresh({ light: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Kayıt başarısız');
     } finally {
@@ -312,7 +346,7 @@ export default function OgretmenlerPage() {
       }
       toast.success(`${n} öğretmene uygulandı`);
       await load();
-      await refresh({ force: true });
+      void refresh({ light: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Toplu kayıt başarısız');
     } finally {
@@ -330,7 +364,7 @@ export default function OgretmenlerPage() {
       });
       toast.success(res?.added ? `${res.added} öğretmen eklendi` : 'Yeni öğretmen yok (liste güncel)');
       await load();
-      await refresh({ force: true });
+      void refresh({ light: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Senkron başarısız');
     } finally {
@@ -348,7 +382,7 @@ export default function OgretmenlerPage() {
       setActiveId(null);
       setDetailOpen(false);
       await load();
-      await refresh({ force: true });
+      void refresh({ light: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Silinemedi');
     } finally {
@@ -559,7 +593,7 @@ export default function OgretmenlerPage() {
                 </div>
               ) : null
             }
-            footer="Öğretmen seçince alttaki atamalara kayar · mini ızgara = zaman tablosu"
+            footer="Limit = haftalık yük kotası · Atanan = stüdyo dersleri · mini ızgara = uygunluk"
           />
 
           <DdEntityTimeDialog
@@ -640,7 +674,7 @@ export default function OgretmenlerPage() {
               groups={groups}
               sections={allSections}
               lockTeacherId={active.user_id}
-              onSaved={() => void load()}
+              onSaved={() => void reloadAssignments()}
             />
           )}
         </>

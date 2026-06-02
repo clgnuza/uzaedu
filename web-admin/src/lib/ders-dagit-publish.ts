@@ -6,6 +6,9 @@ export type PublishPreview = {
   clash_count: number;
   unplaced_count: number;
   unplaced_hours: number;
+  placement_percent: number;
+  required_hours: number;
+  placed_hours: number;
   validation_error_count: number;
   validation_warn_count: number;
   published_program: {

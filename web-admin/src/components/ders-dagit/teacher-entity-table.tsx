@@ -27,12 +27,30 @@ function shortName(name: string): string {
   return (p[0]!.slice(0, 3) + p[p.length - 1]!.slice(0, 3)).toUpperCase();
 }
 
-function totalHours(t: TeacherConfig): string {
+function weeklyLimitCell(t: TeacherConfig): { text: string; title: string; unset: boolean } {
   const m = t.mandatory_weekly_hours;
   const e = t.max_extra_weekly_hours;
-  if (m == null && e == null) return '—';
-  if (e != null && e > 0) return `${m ?? 0}+${e}`;
-  return String(m ?? 0);
+  if (m == null && e == null) {
+    return {
+      text: 'Girilmedi',
+      title: 'Haftalık yük limiti yok — öğretmeni seçip Saat limitleri sekmesinden girin.',
+      unset: true,
+    };
+  }
+  const mandatory = m ?? 0;
+  if (e != null && e > 0) {
+    const max = mandatory + e;
+    return {
+      text: `${mandatory}+${e}`,
+      title: `Zorunlu ${mandatory} saat/hafta, üst sınır ${max} (ek ders en fazla ${e})`,
+      unset: false,
+    };
+  }
+  return {
+    text: String(mandatory),
+    title: `Zorunlu ${mandatory} saat/hafta`,
+    unset: false,
+  };
 }
 
 export type TeacherAssignmentStats = { count: number; hours: number };
@@ -79,9 +97,15 @@ export function TeacherEntityTable({
             <th className="px-2 py-2 w-8" />
             <th className="px-2 py-2">Adı</th>
             <th className="px-2 py-2 hidden sm:table-cell">Kısa</th>
-            <th className="px-2 py-2 text-right">Saat</th>
-            <th className="px-2 py-2">Atama</th>
-            <th className="px-2 py-2">Zaman</th>
+            <th className="px-2 py-2 text-right whitespace-nowrap" title="Haftalık zorunlu ve ek ders üst sınırı">
+              Limit
+            </th>
+            <th className="px-2 py-2 whitespace-nowrap" title="Stüdyodaki ders atamaları (sayı ve saat/hafta)">
+              Atanan
+            </th>
+            <th className="px-2 py-2 whitespace-nowrap" title="Haftalık uygunluk özeti">
+              Uygunluk
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -90,6 +114,7 @@ export function TeacherEntityTable({
             const active = t.id === activeId;
             const variant = ddVariantAt(colorIndex.get(t.id) ?? 0);
             const asn = assignmentStats?.(t.user_id);
+            const limit = weeklyLimitCell(t);
             return (
               <tr
                 key={t.id}
@@ -104,17 +129,27 @@ export function TeacherEntityTable({
                 </td>
                 <td className="px-2 py-1.5 font-medium">{name}</td>
                 <td className="px-2 py-1.5 hidden sm:table-cell text-muted-foreground">{shortName(name)}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{totalHours(t)}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums" title={limit.title}>
+                  <span
+                    className={cn(
+                      limit.unset && 'text-[11px] font-normal italic text-muted-foreground',
+                    )}
+                  >
+                    {limit.text}
+                  </span>
+                </td>
                 <td className="px-2 py-1.5">
                   {asn && asn.count > 0 ? (
                     <span
                       className="dd-entity-status bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"
-                      title={`${asn.count} atama · ${asn.hours} haftalık saat`}
+                      title={`${asn.count} ders ataması · ${asn.hours} saat/hafta`}
                     >
-                      {asn.count} ders · {asn.hours}s
+                      {asn.count} ders · {asn.hours} s/hf
                     </span>
                   ) : (
-                    <span className="text-[11px] text-muted-foreground">Atanmadı</span>
+                    <span className="text-[11px] text-muted-foreground" title="Henüz ders ataması yok">
+                      Yok
+                    </span>
                   )}
                 </td>
                 <td className="px-2 py-1.5">
@@ -140,6 +175,10 @@ export function TeacherEntityTable({
           })}
         </tbody>
       </table>
+      <p className="mt-2 px-1 text-[10px] leading-snug text-muted-foreground">
+        <span className="font-medium text-foreground/80">Limit</span> = program üretiminde haftalık yük kotası.{' '}
+        <span className="font-medium text-foreground/80">Atanan</span> = bu stüdyodaki gerçek ders atamaları.
+      </p>
     </DdEntityTableShell>
   );
 }

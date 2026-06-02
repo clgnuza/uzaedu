@@ -58,7 +58,7 @@ export const DERS_DAGIT_RULE_CATALOG: DersDagitRuleDef[] = [
     default_weight: 8,
   },
   { key: 'four_plus_consecutive', label_tr: 'Günde 4 saatten fazla ardışık ders yok', kind: 'soft', default_active: false, default_weight: 5 },
-  { key: 'important_early', label_tr: 'Önemli dersler günün erken saatlerinde', kind: 'soft', default_active: true, default_weight: 6 },
+  { key: 'important_early', label_tr: 'Önemli dersler günün erken saatlerinde', kind: 'soft', default_active: false, default_weight: 6 },
   { key: 'minimize_teacher_gaps', label_tr: 'Öğretmenin boş saatleri az', kind: 'soft', default_active: true, default_weight: 12 },
   { key: 'minimize_work_days', label_tr: 'Öğretmenin geldiği gün sayısı az', kind: 'soft', default_active: false, default_weight: 8 },
   { key: 'minimize_building_moves', label_tr: 'Bina değiştirme az', kind: 'soft', default_active: false, default_weight: 6 },

@@ -213,7 +213,16 @@ export async function apiFetch<T>(
       }
       const err = new Error(text) as ApiError;
       err.code = body?.code;
-      err.details = body?.details;
+      const rawIssues = (body as { issues?: unknown }).issues;
+      const rawViolations = (body as { violations?: unknown }).violations;
+      err.details = body?.details ?? {};
+      if (Array.isArray(rawIssues) && rawIssues.length) {
+        err.details = { ...err.details, issues: rawIssues };
+      }
+      if (Array.isArray(rawViolations) && rawViolations.length) {
+        err.details = { ...err.details, violations: rawViolations };
+      }
+      if (!Object.keys(err.details).length) err.details = undefined;
       err.status = res.status;
       if (
         body?.code === 'MODULE_ACTIVATION_REQUIRED' &&

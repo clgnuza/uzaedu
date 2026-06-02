@@ -1,5 +1,7 @@
 /** Şube bazlı ders slot durumu (MTAL / farklı günlük ders sayısı) */
 
+import { sectionsEquivalent } from './class-section-canonical';
+import { sortClassSections } from './class-section-sort';
 import { maxLessonsForDay, type StudioPeriodConfig } from './ders-dagit.period';
 
 export type SectionSlotState = 'available' | 'closed' | 'internship' | 'lunch';
@@ -53,6 +55,29 @@ export function sectionSchedulesToJson(map: Map<string, SectionScheduleConfig>):
   const out: Record<string, SectionScheduleConfig> = {};
   for (const [k, v] of map) out[k] = v;
   return out;
+}
+
+export function parseExcludedClassSections(raw: unknown): Set<string> {
+  if (!Array.isArray(raw)) return new Set();
+  const out = new Set<string>();
+  for (const item of raw) {
+    const s = String(item ?? '').trim();
+    if (s) out.add(s);
+  }
+  return out;
+}
+
+export function excludedClassSectionsToJson(excluded: Set<string>): string[] {
+  return sortClassSections([...excluded]);
+}
+
+export function isClassSectionExcluded(section: string, excluded: Set<string>): boolean {
+  const t = section.trim();
+  if (!t) return false;
+  for (const ex of excluded) {
+    if (sectionsEquivalent(t, ex)) return true;
+  }
+  return false;
 }
 
 export function maxLessonsForSectionDay(

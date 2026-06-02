@@ -13,7 +13,7 @@ import {
   dayMaxLessons,
   effectiveSlotState,
   setCellState,
-  setDayMaxLessons,
+  periodLessonCountForDay,
   scheduleForSchoolType,
   setInternshipDays,
   type LongBreakDef,
@@ -21,7 +21,7 @@ import {
   type SectionSlotState,
 } from '@/lib/section-schedule';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import Link from 'next/link';
 
 type Props = {
   schoolType?: string | null;
@@ -104,6 +104,13 @@ export function SectionScheduleGrid({
           </p>
         </div>
       ) : null}
+      <p className="text-[11px] text-muted-foreground">
+        Günlük ders sayısı ve öğle arası{' '}
+        <Link href="/ders-dagit/studyo/donem" className="font-medium text-primary underline">
+          Program merkezi dönem ayarları
+        </Link>
+        ile aynıdır; burada yalnızca müsait / kapalı / staj hücreleri düzenlenir.
+      </p>
       <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label="Boyama aracı">
         <span className="text-xs font-medium text-muted-foreground">Seçili durum:</span>
         {paintStates.map((st) => {
@@ -175,30 +182,11 @@ export function SectionScheduleGrid({
                 <tr key={d}>
                   <th scope="row" className="border-r bg-muted/40 px-1 py-1 align-middle">
                     <div className="font-semibold text-muted-foreground">{weekdayShort(d)}</div>
-                    <div className="mt-0.5 flex items-center justify-center gap-0.5">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-5 w-5 px-0 text-[9px]"
-                        aria-label={`${dayLabel(d)} ders sayısını azalt`}
-                        disabled={max <= 1}
-                        onClick={() => applyChange(setDayMaxLessons(schedule, d, max - 1))}
-                      >
-                        −
-                      </Button>
-                      <span className="w-5 font-mono text-[9px]">{max}</span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-5 w-5 px-0 text-[9px]"
-                        aria-label={`${dayLabel(d)} ders sayısını artır`}
-                        disabled={max >= schoolMaxLessons}
-                        onClick={() => applyChange(setDayMaxLessons(schedule, d, max + 1))}
-                      >
-                        +
-                      </Button>
+                    <div
+                      className="mt-0.5 font-mono text-[9px] text-muted-foreground"
+                      title="Dönem ayarlarındaki günlük ders sayısı"
+                    >
+                      {periodLessonCountForDay(d, schoolMaxLessons, studioLessonsByDow)} ders
                     </div>
                   </th>
                   {dayCols.map((col, idx) => {
@@ -263,8 +251,8 @@ export function SectionScheduleGrid({
             · <span className="font-medium text-violet-700 dark:text-violet-300">{slotCounts.lunchCells}</span> öğle
           </>
         ) : null}{' '}
-        · <span className="font-medium text-foreground">{slotCounts.lessonCells}</span> ders hücresi. Satır = gün; +/− =
-        ders sayısı (öğle hariç).
+        · <span className="font-medium text-foreground">{slotCounts.lessonCells}</span> ders hücresi. Satır = gün;
+        ders sayısı dönem ayarlarından gelir (öğle hariç).
       </p>
     </div>
   );

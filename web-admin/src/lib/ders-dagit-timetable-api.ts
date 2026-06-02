@@ -53,6 +53,7 @@ export type EditorContext = {
     subject_name: string;
     class_section: string;
     remaining_hours: number;
+    user_id: string | null;
     teacher_label: string | null;
   }>;
   clashes: Array<{ entry_id: string; code: string; message: string; day_of_week?: number; lesson_num?: number }>;

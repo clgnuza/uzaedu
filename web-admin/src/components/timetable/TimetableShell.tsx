@@ -8,7 +8,7 @@ import { TimetableGrid, type TimetableDragSource } from './TimetableGrid';
 import { TimetableSidebar } from './TimetableSidebar';
 import { CollisionResolveDialog } from './CollisionResolveDialog';
 import { TimetableEntryEditDialog } from './TimetableEntryEditDialog';
-import { TimetableUnplacedTray } from './TimetableUnplacedTray';
+import { TimetableUnplacedTray, type UnplacedRow } from './TimetableUnplacedTray';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -32,12 +32,13 @@ import { TimetableQuickLinks } from './TimetableQuickLinks';
 import { TimetableHealthStrip } from './TimetableHealthStrip';
 import { TimetableSimulationBar } from './TimetableSimulationBar';
 import { TimetablePrintHeader } from './TimetablePrintHeader';
-import { patchEntry } from '@/lib/ders-dagit-timetable-api';
 import { slotHighlightKey } from '@/lib/timetable-grid-build';
 import { buildTimetableCompare, maxStackedInCell } from '@/lib/timetable-compare';
 import { buildSlotClosures } from '@/lib/timetable-slot-closures';
-import { validatePoolPlace, validateTimetableMove } from '@/lib/timetable-move-validation';
+import { validateTimetableMove } from '@/lib/timetable-move-validation';
+import { listOkPoolSlotsWithClosures, parsePoolAssignmentId, planPoolPlacement } from '@/lib/timetable-pool-place';
 import { clashAtSlot, clashEntryIds } from '@/lib/timetable-clash';
+import { useRouter } from 'next/navigation';
 import {
   applySimulationDraft,
   buildClashesFromEntries,
@@ -46,6 +47,16 @@ import {
 import { toast } from 'sonner';
 import { applyDocumentPrintMode } from '@/components/ders-dagit/ReportPrintSettings';
 import { loadReportPrintMode } from '@/lib/ders-dagit-report-settings';
+import {
+  entriesInGridDayColumn,
+  type TimetableCellMenuHandlers,
+  type TimetableEmptySlotMenuHandlers,
+} from '@/lib/timetable-cell-menu';
+import { findConsecutivePartner } from '@/lib/timetable-double-block';
+import { filterEntriesForPreview } from '@/lib/timetable-preview-filter';
+import type { TimetablePreviewTarget } from '@/lib/timetable-preview-types';
+import { TimetablePreviewDialog } from './TimetablePreviewDialog';
+import { planlamaIliskileriUrl } from '@/lib/dd-entity-scope';
 import './timetable-print.css';
 
 type ProgramRow = DdProgramRow;
@@ -92,6 +103,7 @@ export function TimetableShell({
   initialAutoPrint?: boolean;
   onProgramIdChange?: (id: string) => void;
 }) {
+  const router = useRouter();
   const { token } = useAuth();
   const { studio } = useDersDagitStudio();
   const editor = useTimetableEditor(token, studio?.id ?? null);
@@ -113,6 +125,8 @@ export function TimetableShell({
   const [highlightSlotKey, setHighlightSlotKey] = useState<string | null>(null);
   const [placementMode, setPlacementMode] = useState<'drag' | 'click'>('drag');
   const [pickedEntryId, setPickedEntryId] = useState<string | null>(null);
+  const [pickedPoolAssignmentId, setPickedPoolAssignmentId] = useState<string | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<TimetablePreviewTarget | null>(null);
   const [dragSource, setDragSource] = useState<TimetableDragSource>(null);
   const [collision, setCollision] = useState<{
     entryId: string;
@@ -142,7 +156,7 @@ export function TimetableShell({
       const removed = opts?.removedId;
       const pick =
         opts?.selectId ?? (removed && cur === removed ? list[0]?.id : list.some((p) => p.id === cur) ? cur : list[0]?.id);
-      if (pick && pick !== cur) await editor.load(pick);
+      if (pick && pick !== cur) await editor.load(pick, { validation: true });
       onProgramIdChange?.(pick ?? '');
     },
     [token, studio, editor.programId, editor.load, onProgramIdChange],
@@ -231,12 +245,22 @@ export function TimetableShell({
   }, [simulate, simPending.length]);
 
   useEffect(() => {
-    const pid = initialProgramId ?? programs[0]?.id;
-    if (pid && pid !== editor.programId) void editor.load(pid);
-  }, [initialProgramId, programs, editor.programId, editor.load]);
+    if (!token || !studio || !initialProgramId) return;
+    void editor.load(initialProgramId, { validation: true });
+  }, [initialProgramId, token, studio, editor.load]);
 
+  const firstProgramId = programs[0]?.id;
   useEffect(() => {
-    if (editor.programId) onProgramIdChange?.(editor.programId);
+    if (!token || !studio || initialProgramId || editor.programId || !firstProgramId) return;
+    void editor.load(firstProgramId, { validation: true });
+  }, [initialProgramId, firstProgramId, token, studio, editor.programId, editor.load]);
+
+  const lastUrlProgramId = useRef('');
+  useEffect(() => {
+    const id = editor.programId;
+    if (!id || id === lastUrlProgramId.current) return;
+    lastUrlProgramId.current = id;
+    onProgramIdChange?.(id);
   }, [editor.programId, onProgramIdChange]);
 
   useEffect(() => {
@@ -257,6 +281,55 @@ export function TimetableShell({
   }, [editor.ctx, simulate, draftEntries]);
 
   const ctx = displayCtx;
+
+  const pickedUnplaced = useMemo(() => {
+    if (!pickedPoolAssignmentId || !ctx) return null;
+    return ctx.unplaced.find((u) => u.assignment_id === pickedPoolAssignmentId) ?? null;
+  }, [pickedPoolAssignmentId, ctx]);
+
+  const poolPlacementView = useMemo((): 'class' | 'teacher' | null => {
+    if (!pickedUnplaced) return null;
+    if (pickedUnplaced.user_id && ctx?.teachers.some((t) => t.id === pickedUnplaced.user_id)) {
+      return 'teacher';
+    }
+    return 'class';
+  }, [pickedUnplaced, ctx?.teachers]);
+
+  const effectiveDragSource: TimetableDragSource = useMemo(() => {
+    if (dragSource) return dragSource;
+    if (pickedUnplaced) return { type: 'pool', classSection: pickedUnplaced.class_section };
+    return null;
+  }, [dragSource, pickedUnplaced]);
+
+  const selectUnplacedLesson = useCallback(
+    (row: UnplacedRow) => {
+      setPickedEntryId(null);
+      setPickedPoolAssignmentId(row.assignment_id);
+      setPlacementMode('click');
+      const hasTeacher =
+        !!row.user_id && !!editor.ctx?.teachers.some((t) => t.id === row.user_id);
+      if (hasTeacher && row.user_id) {
+        setView('teacher');
+        setFilterId(row.user_id);
+      } else {
+        setView('class');
+        setFilterId(row.class_section);
+      }
+    },
+    [editor.ctx?.teachers],
+  );
+
+  const clearPoolSelection = useCallback(() => {
+    setPickedPoolAssignmentId(null);
+    setDragSource(null);
+  }, []);
+
+  useEffect(() => {
+    if (!pickedPoolAssignmentId || !ctx) return;
+    if (!ctx.unplaced.some((u) => u.assignment_id === pickedPoolAssignmentId)) {
+      clearPoolSelection();
+    }
+  }, [ctx?.unplaced, pickedPoolAssignmentId, clearPoolSelection, ctx]);
 
   const simClashIds = useMemo(
     () => (draftEntries ? clashEntryIds(draftEntries) : editor.clashIds),
@@ -323,25 +396,17 @@ export function TimetableShell({
   useEffect(() => {
     if (view === 'all') return;
     const opts = filterOptions;
-    if (!opts.length) {
-      if (filterId) setFilterId('');
-      return;
-    }
-    if (initialFilterId && opts.some((o) => o.id === initialFilterId)) {
-      if (filterId !== initialFilterId) setFilterId(initialFilterId);
-      return;
-    }
-    if (initialAutoPrint) {
-      const concrete = opts.filter((o) => o.id !== FILTER_ALL);
-      if (concrete.length && (!filterId || filterId === FILTER_ALL)) {
-        setFilterId(concrete[0]!.id);
-        return;
+    setFilterId((current) => {
+      if (!opts.length) return '';
+      if (initialFilterId && opts.some((o) => o.id === initialFilterId)) return initialFilterId;
+      if (initialAutoPrint) {
+        const concrete = opts.filter((o) => o.id !== FILTER_ALL);
+        if (concrete.length && (!current || current === FILTER_ALL)) return concrete[0]!.id;
       }
-    }
-    if (!filterId || !opts.some((o) => o.id === filterId)) {
-      setFilterId(FILTER_ALL);
-    }
-  }, [editor.programId, view, filterOptions, filterId, initialAutoPrint, initialFilterId]);
+      if (!current || !opts.some((o) => o.id === current)) return FILTER_ALL;
+      return current;
+    });
+  }, [editor.programId, view, filterOptions, initialAutoPrint, initialFilterId]);
 
   const teacherUnavailable = useMemo(() => {
     if (!editor.ctx || view !== 'teacher' || !filterId || filterId === FILTER_ALL) return undefined;
@@ -399,7 +464,7 @@ export function TimetableShell({
     setBusyLocal(true);
     try {
       const n = await applySimulationDraft(token, studio.id, editor.programId, simBaseline, draftEntries);
-      await editor.load(editor.programId);
+      await editor.load(editor.programId, { validation: true });
       discardSimulation();
       toast.success(n === 1 ? '1 taşıma kaydedildi' : `${n} taşıma kaydedildi`);
     } catch (e) {
@@ -434,30 +499,170 @@ export function TimetableShell({
     return maxStackedInCell([ctx.entries, compareCtx.entries], effectiveFilter);
   }, [compareCtx, ctx, effectiveFilter]);
 
-  const gridCommon = (c: NonNullable<typeof displayCtx>) => ({
-    entries: c.entries,
-    workDays: c.period.work_days ?? [1, 2, 3, 4, 5],
-    maxLesson: c.max_lesson,
-    lessonSchedule: c.period.lesson_schedule ?? [],
-    lessonScheduleWeekend: c.period.lesson_schedule_weekend,
-    gridMeta: c.grid ?? EMPTY_GRID,
-    teacherUnavailable,
-    clashIds: simulate ? simClashIds : editor.clashIds,
-    filter: effectiveFilter,
-    matrixAxis: compareCtx ? undefined : matrixAxisForView(view, filterId, matrixAxis),
-    displayMode: view === 'all' && !effectiveFilter ? ('all' as const) : undefined,
-    teachers: c.teachers,
-    classSections: c.class_sections,
-    rooms: c.rooms,
-    zoom,
-    highlightSlotKey,
-    compareLayout: !!compareCtx,
-    compareEntryStatus: compareMaps?.entryById,
-    compareSlotStatus: compareMaps?.slotByKey,
-    stackMinByCell: compareStackMin,
-    onLockEntry: simulate ? undefined : (id: string, locked: boolean) => void editor.toggleLock(id, locked),
-    onDeleteEntry: simulate ? undefined : (id: string) => void editor.removeEntry(id),
-  });
+  const previewNeighbors = useMemo(() => {
+    const c = displayCtx ?? editor.ctx;
+    if (!previewTarget || !c) return {};
+    if (previewTarget.mode === 'teacher') {
+      const list = c.teachers;
+      const i = list.findIndex((t) => t.id === previewTarget.id);
+      return {
+        prev:
+          i > 0
+            ? {
+                mode: 'teacher' as const,
+                id: list[i - 1]!.id,
+                title: list[i - 1]!.label,
+                subtitle: 'Öğretmen',
+              }
+            : undefined,
+        next:
+          i >= 0 && i < list.length - 1
+            ? {
+                mode: 'teacher' as const,
+                id: list[i + 1]!.id,
+                title: list[i + 1]!.label,
+                subtitle: 'Öğretmen',
+              }
+            : undefined,
+      };
+    }
+    if (previewTarget.mode === 'class') {
+      const list = c.class_sections;
+      const i = list.indexOf(previewTarget.id);
+      return {
+        prev:
+          i > 0
+            ? { mode: 'class' as const, id: list[i - 1]!, title: list[i - 1]!, subtitle: 'Sınıf' }
+            : undefined,
+        next:
+          i >= 0 && i < list.length - 1
+            ? { mode: 'class' as const, id: list[i + 1]!, title: list[i + 1]!, subtitle: 'Sınıf' }
+            : undefined,
+      };
+    }
+    const list = c.rooms;
+    const i = list.findIndex((r) => r.id === previewTarget.id);
+    return {
+      prev:
+        i > 0
+          ? { mode: 'room' as const, id: list[i - 1]!.id, title: list[i - 1]!.name, subtitle: 'Derslik' }
+          : undefined,
+      next:
+        i >= 0 && i < list.length - 1
+          ? { mode: 'room' as const, id: list[i + 1]!.id, title: list[i + 1]!.name, subtitle: 'Derslik' }
+          : undefined,
+    };
+  }, [previewTarget, displayCtx, editor.ctx]);
+
+  const cellMenuHandlers = useMemo((): TimetableCellMenuHandlers | undefined => {
+    if (simulate) return undefined;
+    const ctxRef = () => displayCtx ?? editor.ctx;
+    const allEntries = () => ctxRef()?.entries ?? [];
+    const previewCtx = () => {
+      const c = ctxRef();
+      if (!c) return undefined;
+      return {
+        entries: c.entries,
+        workDays: c.period.work_days ?? [1, 2, 3, 4, 5],
+        maxLesson: c.max_lesson,
+      };
+    };
+    return {
+      preview: previewCtx(),
+      onEdit: setEditEntry,
+      onLock: (id, locked) => void editor.toggleLock(id, locked),
+      onDelete: (id) => void editor.removeEntry(id),
+      onRemoveAssignmentSlots: (entry) => {
+        if (!entry.assignment_id) return;
+        const ids = allEntries()
+          .filter((e) => e.assignment_id === entry.assignment_id)
+          .map((e) => e.id);
+        if (!ids.length) return;
+        if (!window.confirm(`${ids.length} atama kartı kaldırılsın mı?`)) return;
+        void editor.removeEntries(ids, `${ids.length} kart kaldırıldı`);
+      },
+      onClearSlots: (ids) => {
+        if (!ids.length) return;
+        if (!window.confirm(`${ids.length} kart silinsin mi?`)) return;
+        void editor.removeEntries(ids);
+      },
+      onChangeRoom: (id, roomId) => void editor.setEntryRoom(id, roomId),
+      onNavigateView: (mode, id) => {
+        setView(mode);
+        setFilterId(id);
+      },
+      onOpenPreview: setPreviewTarget,
+      onFindClass: (entry) => {
+        setView('class');
+        setFilterId(entry.class_section);
+      },
+      onFindTeacher: (entry) => {
+        if (!entry.user_id) return;
+        setView('teacher');
+        setFilterId(entry.user_id);
+      },
+      onFindRoom: (entry) => {
+        if (!entry.room_id) return;
+        setView('room');
+        setFilterId(entry.room_id);
+      },
+      onMergeDoubles: async (entry) => {
+        const c = ctxRef();
+        if (!c) return;
+        let partner = findConsecutivePartner(entry, c.entries);
+        if (!partner) {
+          const occupied = c.entries.some(
+            (e) => e.day_of_week === entry.day_of_week && e.lesson_num === entry.lesson_num + 1,
+          );
+          if (occupied) {
+            toast.error('Sonraki saat dolu');
+            return;
+          }
+          if (!entry.assignment_id) {
+            toast.error('Atama bağlantısı yok');
+            return;
+          }
+          const row = c.unplaced.find((u) => u.assignment_id === entry.assignment_id);
+          if (!row?.remaining_hours) {
+            toast.error('Atamanın boş saati kalmadı');
+            return;
+          }
+          try {
+            await editor.placeUnplaced(entry.assignment_id, entry.day_of_week, entry.lesson_num + 1, {
+              silent: true,
+            });
+          } catch {
+            return;
+          }
+          partner = findConsecutivePartner(entry, editor.ctx?.entries ?? []) ?? null;
+        }
+        if (!partner) {
+          toast.error('Çiftli oluşturulamadı');
+          return;
+        }
+        await editor.toggleLock(entry.id, true);
+        await editor.toggleLock(partner.id, true);
+        toast.success('Çiftli blok (iki kart kilitli)');
+      },
+      onSplitDoubles: async (entry) => {
+        const partner = findConsecutivePartner(entry, allEntries());
+        if (!partner) {
+          toast.error('Çiftli blok yok');
+          return;
+        }
+        await editor.toggleLock(entry.id, false);
+        await editor.toggleLock(partner.id, false);
+        toast.success('Çiftli ayrıldı');
+      },
+      onOpenAssignments: (entry) => {
+        const q = new URLSearchParams();
+        q.set('section', entry.class_section);
+        if (entry.user_id) q.set('teacher', entry.user_id);
+        router.push(`/ders-dagit/studyo/atamalar?${q.toString()}`);
+      },
+      onOpenValidation: () => router.push('/ders-dagit/studyo/dogrulama'),
+    };
+  }, [simulate, displayCtx, editor, router]);
 
   const reloadAudit = useCallback(async () => {
     if (!token || !studio) return;
@@ -477,6 +682,67 @@ export function TimetableShell({
         teacherUnavailable,
       ),
     [teacherUnavailable],
+  );
+
+  const executePoolPlace = useCallback(
+    async (assignmentId: string, day: number, lesson: number) => {
+      const c = displayCtx ?? editor.ctx;
+      if (!c) return false;
+      if (simulate) {
+        toast.message('Deneme modunda havuzdan yerleştirme kaydedilmez');
+        return false;
+      }
+      const closures = slotClosuresForCtx(c);
+      const plan = planPoolPlacement(assignmentId, day, lesson, c, closures);
+      if (!plan.ok) {
+        toast.error(plan.message);
+        return false;
+      }
+      try {
+        if (plan.relocateEntryId && plan.relocateTo) {
+          await editor.moveEntry(
+            plan.relocateEntryId,
+            plan.relocateTo.day,
+            plan.relocateTo.lesson,
+          );
+        }
+        await editor.placeUnplaced(assignmentId, plan.day, plan.lesson, { silent: true });
+        const moved =
+          plan.relocateEntryId != null &&
+          (plan.day !== day || plan.lesson !== lesson || plan.relocateTo != null);
+        if (plan.day !== day || plan.lesson !== lesson) {
+          toast.success(`Uygun saat bulundu — ${plan.lesson}. ders, gün ${plan.day}`);
+        } else if (moved) {
+          toast.success('Mevcut ders taşındı, yerleştirildi');
+        } else {
+          toast.success('Yerleştirildi');
+        }
+        if (pickedPoolAssignmentId === assignmentId) {
+          setPickedPoolAssignmentId(null);
+          setDragSource(null);
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [
+      displayCtx,
+      editor.ctx,
+      editor.moveEntry,
+      editor.placeUnplaced,
+      pickedPoolAssignmentId,
+      simulate,
+      slotClosuresForCtx,
+    ],
+  );
+
+  const placePickedPoolAt = useCallback(
+    (day: number, lesson: number) => {
+      if (!pickedPoolAssignmentId) return;
+      void executePoolPlace(pickedPoolAssignmentId, day, lesson);
+    },
+    [pickedPoolAssignmentId, executePoolPlace],
   );
 
   const requestMove = useCallback(
@@ -521,6 +787,94 @@ export function TimetableShell({
     [displayCtx, editor.ctx, editor.moveEntry, simulate, applyLocalMove, slotClosuresForCtx],
   );
 
+  const emptySlotMenuHandlers = useMemo((): TimetableEmptySlotMenuHandlers | undefined => {
+    if (simulate) return undefined;
+    const c = displayCtx ?? editor.ctx;
+    if (!c) return undefined;
+    const preview = {
+      entries: c.entries,
+      workDays: c.period.work_days ?? [1, 2, 3, 4, 5],
+      maxLesson: c.max_lesson,
+    };
+    return {
+      preview,
+      filterMode: effectiveFilter?.mode,
+      filterId: effectiveFilter?.id,
+      onPlaceAt: (day, lesson) => {
+        if (pickedPoolAssignmentId) void executePoolPlace(pickedPoolAssignmentId, day, lesson);
+        else if (pickedEntryId) requestMove(pickedEntryId, day, lesson);
+        else toast.message('Önce havuzdan ders veya tablodan kart seçin');
+      },
+      onClearColumn: (day) => {
+        const ids = entriesInGridDayColumn(c.entries, day, effectiveFilter).map((e) => e.id);
+        if (!ids.length) return;
+        if (!window.confirm(`${ids.length} kart silinsin mi? (gün sütunu)`)) return;
+        void editor.removeEntries(ids);
+      },
+      onClearSlots: (ids) => {
+        if (!ids.length) return;
+        if (!window.confirm(`${ids.length} kart silinsin mi? (ders satırı)`)) return;
+        void editor.removeEntries(ids);
+      },
+      onNavigateView: (mode, id) => {
+        setView(mode);
+        setFilterId(id);
+      },
+      onOpenPreview: setPreviewTarget,
+      onOpenConstraints: () => {
+        const sec = effectiveFilter?.mode === 'class' ? effectiveFilter.id : undefined;
+        router.push(planlamaIliskileriUrl(sec ? { section: sec } : {}));
+      },
+    };
+  }, [
+    simulate,
+    displayCtx,
+    editor,
+    effectiveFilter,
+    pickedPoolAssignmentId,
+    pickedEntryId,
+    executePoolPlace,
+    requestMove,
+    router,
+  ]);
+
+  const gridCommon = (c: NonNullable<typeof displayCtx>) => ({
+    entries: c.entries,
+    workDays: c.period.work_days ?? [1, 2, 3, 4, 5],
+    maxLesson: c.max_lesson,
+    lessonSchedule: c.period.lesson_schedule ?? [],
+    lessonScheduleWeekend: c.period.lesson_schedule_weekend,
+    gridMeta: c.grid ?? EMPTY_GRID,
+    teacherUnavailable,
+    clashIds: simulate ? simClashIds : editor.clashIds,
+    filter: effectiveFilter,
+    matrixAxis: compareCtx ? undefined : matrixAxisForView(view, filterId, matrixAxis),
+    displayMode: view === 'all' && !effectiveFilter ? ('all' as const) : undefined,
+    teachers: c.teachers,
+    classSections: c.class_sections,
+    rooms: c.rooms,
+    zoom,
+    highlightSlotKey,
+    compareLayout: !!compareCtx,
+    compareEntryStatus: compareMaps?.entryById,
+    compareSlotStatus: compareMaps?.slotByKey,
+    stackMinByCell: compareStackMin,
+    cellMenuHandlers: cellMenuHandlers
+      ? {
+          ...cellMenuHandlers,
+          rooms: c.rooms,
+          preview: cellMenuHandlers.preview ?? {
+            entries: c.entries,
+            workDays: c.period.work_days ?? [1, 2, 3, 4, 5],
+            maxLesson: c.max_lesson,
+          },
+        }
+      : undefined,
+    emptySlotMenuHandlers,
+    onLockEntry: simulate ? undefined : (id: string, locked: boolean) => void editor.toggleLock(id, locked),
+    onDeleteEntry: simulate ? undefined : (id: string) => void editor.removeEntry(id),
+  });
+
   const onGridDragEnd = useCallback(
     (ev: DragEndEvent) => {
       setPoolDrag(null);
@@ -537,23 +891,15 @@ export function TimetableShell({
       const day = Number(m[1]);
       const lesson = Number(m[2]);
       const active = String(ev.active.id);
-      const closures = slotClosuresForCtx(c);
       if (active.startsWith('pool-')) {
-        const assignmentId = active.slice(5);
-        const unplaced = c.unplaced.find((u) => u.assignment_id === assignmentId);
-        const section = unplaced?.class_section ?? '';
-        const v = validatePoolPlace(assignmentId, day, lesson, c.entries, section, closures);
-        if (!v.ok) {
-          toast.error(v.message);
-          return;
-        }
-        if (!simulate) void editor.placeUnplaced(assignmentId, day, lesson);
-        else toast.message('Deneme modunda havuzdan yerleştirme kaydedilmez');
+        const assignmentId = parsePoolAssignmentId(active);
+        if (!assignmentId) return;
+        void executePoolPlace(assignmentId, day, lesson);
         return;
       }
       requestMove(active, day, lesson);
     },
-    [displayCtx, editor.ctx, editor.placeUnplaced, requestMove, simulate, slotClosuresForCtx],
+    [displayCtx, editor.ctx, executePoolPlace, requestMove],
   );
 
   const editorBusy = editor.busy || busyLocal;
@@ -597,7 +943,9 @@ export function TimetableShell({
               value={editor.programId}
               onValueChange={(v) => {
                 setFilterId(view === 'all' ? '' : FILTER_ALL);
-                void editor.load(v);
+                lastUrlProgramId.current = v;
+                onProgramIdChange?.(v);
+                void editor.load(v, { validation: true });
               }}
               options={programs.map((p) => ({
                 value: p.id,
@@ -620,12 +968,16 @@ export function TimetableShell({
                     type="button"
                     size="sm"
                     variant={view === v ? 'default' : 'ghost'}
-                    className="h-7 px-2.5 text-xs"
+                    className={cn(
+                      'h-7 px-2.5 text-xs',
+                      poolPlacementView === v && pickedUnplaced && 'ring-2 ring-primary ring-offset-1',
+                    )}
                     onClick={() => {
                       setView(v);
                       setFilterId(v === 'all' ? '' : FILTER_ALL);
                       if (v === 'all') setMatrixAxis('teacher');
                       else if (v === 'class' || v === 'teacher' || v === 'room') setMatrixAxis(v);
+                      if (v !== poolPlacementView) clearPoolSelection();
                     }}
                   >
                     {label}
@@ -661,8 +1013,16 @@ export function TimetableShell({
             {view !== 'all' && (
               <DdSelectField
                 label="Filtre"
-                labelClassName="text-xs"
-                className="min-w-[140px] flex-1 sm:flex-none"
+                labelClassName={cn(
+                  'text-xs',
+                  poolPlacementView === view && pickedUnplaced && 'font-semibold text-primary',
+                )}
+                className={cn(
+                  'min-w-[140px] flex-1 sm:flex-none',
+                  poolPlacementView === view &&
+                    pickedUnplaced &&
+                    'rounded-lg ring-2 ring-primary/50 ring-offset-2',
+                )}
                 value={filterId}
                 onValueChange={setFilterId}
                 options={filterOptions.map((o) => ({ value: o.id, label: o.label }))}
@@ -717,6 +1077,7 @@ export function TimetableShell({
               onClick={() => {
                 setPlacementMode((m) => (m === 'drag' ? 'click' : 'drag'));
                 setPickedEntryId(null);
+                clearPoolSelection();
               }}
             >
               {placementMode === 'click' ? 'Tıkla-yerleştir' : 'Sürükle-bırak'}
@@ -782,9 +1143,11 @@ export function TimetableShell({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0 space-y-1">
               <TimetableLegend compareActive={!!compareCtx} compareCounts={compareMaps?.counts} />
-              {dragSource && placementMode === 'drag' && (
+              {(effectiveDragSource && (placementMode === 'drag' || pickedUnplaced)) && (
                 <p className="text-[10px] text-muted-foreground print:hidden">
-                  Hücre rengine göre bırakın: yeşil uygun, mavi takas, kırmızı çakışma, çizgili gri kapalı. İmleci hücre üstünde tutunca açıklama görünür.
+                  {pickedUnplaced && placementMode === 'click'
+                    ? 'Seçili ders için yeşil hücrelere tıklayın.'
+                    : 'Hücre rengine göre bırakın: yeşil uygun, mavi takas, kırmızı çakışma, çizgili gri kapalı.'}
                 </p>
               )}
             </div>
@@ -798,7 +1161,7 @@ export function TimetableShell({
             )}
           </div>
           <div className="flex flex-col gap-4 lg:flex-row">
-            <div ref={gridWrapRef} className="timetable-print-wrap min-w-0 flex-1 space-y-3">
+            <div ref={gridWrapRef} className="timetable-print-wrap min-w-0 max-w-full flex-1 space-y-3 overflow-hidden">
               <TimetablePrintHeader
                 schoolName={studio?.name}
                 academicYear={studio?.academic_year}
@@ -834,13 +1197,20 @@ export function TimetableShell({
                     {...gridCommon(ctx)}
                     editable
                     busy={editorBusy}
-                    dragSource={dragSource}
+                    dragSource={effectiveDragSource}
                     placementMode={placementMode}
                     pickedEntryId={pickedEntryId}
-                    onPickEntry={setPickedEntryId}
+                    onPickEntry={(id) => {
+                      setPickedEntryId(id);
+                      if (id) clearPoolSelection();
+                    }}
                     onMove={requestMove}
                     onDropRejected={(msg) => toast.error(msg)}
                     onSlotClick={(d, l) => {
+                      if (pickedPoolAssignmentId) {
+                        placePickedPoolAt(d, l);
+                        return;
+                      }
                       if (pickedEntryId) {
                         requestMove(pickedEntryId, d, l);
                         setPickedEntryId(null);
@@ -864,13 +1234,68 @@ export function TimetableShell({
                   </div>
                 )}
               </div>
-              <TimetableUnplacedTray unplaced={ctx.unplaced} busy={editorBusy || simulate} />
+              <TimetableUnplacedTray
+                unplaced={ctx.unplaced}
+                busy={editorBusy || simulate}
+                selectedId={pickedPoolAssignmentId}
+                onSelect={selectUnplacedLesson}
+                onClearSelection={clearPoolSelection}
+                actions={{
+                  onFocusClass: (row) => {
+                    setView('class');
+                    setFilterId(row.class_section);
+                    selectUnplacedLesson(row);
+                  },
+                  onFocusTeacher: (row) => {
+                    if (!row.user_id) {
+                      toast.error('Bu atamada öğretmen yok.');
+                      return;
+                    }
+                    setView('teacher');
+                    setFilterId(row.user_id);
+                    selectUnplacedLesson(row);
+                  },
+                  onAutoPlace: (row) => {
+                    const c = displayCtx ?? editor.ctx;
+                    if (!c) return;
+                    const slots = listOkPoolSlotsWithClosures(
+                      c,
+                      row.class_section,
+                      row.user_id ?? null,
+                      slotClosuresForCtx(c),
+                    );
+                    if (!slots[0]) {
+                      toast.error('Uygun boş saat bulunamadı.');
+                      return;
+                    }
+                    const s = slots[0]!;
+                    void executePoolPlace(row.assignment_id, s.day, s.lesson);
+                  },
+                  onOpenAssignments: (row) => {
+                    const q = new URLSearchParams();
+                    q.set('section', row.class_section);
+                    if (row.user_id) q.set('teacher', row.user_id);
+                    router.push(`/ders-dagit/studyo/atamalar?${q.toString()}`);
+                  },
+                  onCopyInfo: (row) => {
+                    const text = [
+                      row.subject_name,
+                      row.class_section,
+                      row.teacher_label ?? 'Öğretmen yok',
+                      `${row.remaining_hours} saat eksik`,
+                    ].join(' · ');
+                    void navigator.clipboard.writeText(text).then(
+                      () => toast.success('Panoya kopyalandı'),
+                      () => toast.error('Kopyalanamadı'),
+                    );
+                  },
+                }}
+              />
               <p className="text-[10px] text-muted-foreground print:hidden">
-                Yeşil/mavi/kırmızı = sürüklerken hücre · sağ tık · çift tık · Ctrl+Z
-                {placementMode === 'click' ? ' · kart seç → hücre tıkla' : ''}
+                Havuz: sürükle · tıkla · sağ tık menü · Ctrl+Z
               </p>
             </div>
-            <div className="print:hidden">
+            <div className="shrink-0 print:hidden">
               <TimetableSidebar
                 hideUnplaced
                 unplaced={ctx.unplaced}
@@ -915,10 +1340,34 @@ export function TimetableShell({
               <li>Esc — deneme modundan vazgeç</li>
               <li>Dene — taşımaları önizle, Kaydet ile yaz</li>
               <li>Çift tık — ders saatini düzenle</li>
-              <li>Sağ tık — kart menüsü</li>
+              <li>Sağ tık — kart / boş saat menüsü · görünüm önizlemesi</li>
             </ul>
           </DialogContent>
         </Dialog>
+
+        <TimetablePreviewDialog
+          open={!!previewTarget}
+          onOpenChange={(o) => !o && setPreviewTarget(null)}
+          target={previewTarget}
+          entries={
+            previewTarget
+              ? filterEntriesForPreview(
+                  (displayCtx ?? editor.ctx)?.entries ?? [],
+                  previewTarget.mode,
+                  previewTarget.id,
+                )
+              : []
+          }
+          workDays={(displayCtx ?? editor.ctx)?.period.work_days ?? [1, 2, 3, 4, 5]}
+          maxLesson={(displayCtx ?? editor.ctx)?.max_lesson ?? 8}
+          neighbors={previewNeighbors}
+          onSelectNeighbor={setPreviewTarget}
+          onOpenFullView={(t) => {
+            setView(t.mode);
+            setFilterId(t.id);
+            setPreviewTarget(null);
+          }}
+        />
 
         <TimetableEntryEditDialog
           entry={editEntry}
@@ -938,12 +1387,7 @@ export function TimetableShell({
             const lockChanged = !!editEntry.is_locked !== locked;
             if (moved) await editor.moveEntry(editEntry.id, day, lesson);
             if (lockChanged) await editor.toggleLock(editEntry.id, locked);
-            if (roomChanged) {
-              await patchEntry(token, studio.id, editor.programId, editEntry.id, {
-                room_id: roomId || null,
-              });
-              await editor.load(editor.programId);
-            }
+            if (roomChanged) await editor.setEntryRoom(editEntry.id, roomId || null);
             setEditEntry(null);
           }}
         />

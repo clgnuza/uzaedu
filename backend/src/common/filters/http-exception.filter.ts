@@ -96,6 +96,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
         const explicit = stringifyHttpExceptionMessage(rawMsg);
         message = explicit !== '' ? explicit : CODE_MESSAGES[code] || message;
         details = (body as { details?: Record<string, unknown> }).details;
+        const topIssues = (body as { issues?: unknown }).issues;
+        if (Array.isArray(topIssues)) {
+          details = { ...(details ?? {}), issues: topIssues };
+        }
       } else if (typeof body === 'object' && body !== null && 'message' in body) {
         const msg = (body as { message?: unknown }).message;
         const explicit = stringifyHttpExceptionMessage(msg);

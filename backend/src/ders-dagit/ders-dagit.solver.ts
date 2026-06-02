@@ -82,6 +82,8 @@ export type SolverContext = {
   parallel_groups: Set<string>;
   group_modes: Map<string, DersDagitGroupMode>;
   day_order?: number[];
+  /** Yerleştirme deneme sırası stratejisi (varyasyon üretimi için). */
+  assignment_order?: 'default' | 'hardest_first' | 'most_hours' | 'fewest_slots' | 'random';
   active_rules: RuleState;
   teacher_limits: TeacherLimit[];
   room_required: boolean;
@@ -329,6 +331,65 @@ function orderedDays(ctx: SolverContext): number[] {
   return out;
 }
 
+function shuffleInPlace<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+  }
+  return arr;
+}
+
+/** Bir atamanın kabaca "zorluğu" — yüksek = daha kısıtlı, önce denenmeli. */
+function assignmentDifficulty(a: SolverAssignment, ctx: SolverContext): number {
+  const hours = a.biweekly ? Math.ceil(a.weekly_hours / 2) : a.weekly_hours;
+  const teacherChoices = Math.max(1, a.teacher_ids.length);
+  const blockedSlots = a.unavailable_periods?.length ?? 0;
+  const perDayCap = a.max_per_day ?? ctx.max_lesson_per_day;
+  const fixedBoost = (a.fixed_slots?.length ?? 0) > 0 ? 30 : 0;
+  const blockBoost = ((a.options?.block_lessons as number | undefined) ?? 1) > 1 ? 15 : 0;
+  return (
+    hours * 4 +
+    blockedSlots * 3 +
+    fixedBoost +
+    blockBoost +
+    (a.min_days_per_week ?? 0) * 2 -
+    teacherChoices * 2 -
+    perDayCap
+  );
+}
+
+/** place_first her zaman önde; ardından seçilen stratejiye göre sıralanır. */
+function orderAssignmentsForSolve(
+  assignments: SolverAssignment[],
+  ctx: SolverContext,
+): SolverAssignment[] {
+  const strat = ctx.assignment_order ?? 'default';
+  const list = [...assignments];
+  const cmpHours = (a: SolverAssignment) =>
+    a.biweekly ? Math.ceil(a.weekly_hours / 2) : a.weekly_hours;
+  switch (strat) {
+    case 'random':
+      shuffleInPlace(list);
+      break;
+    case 'hardest_first':
+      list.sort((a, b) => assignmentDifficulty(b, ctx) - assignmentDifficulty(a, ctx));
+      break;
+    case 'most_hours':
+      list.sort((a, b) => cmpHours(b) - cmpHours(a));
+      break;
+    case 'fewest_slots':
+      list.sort(
+        (a, b) =>
+          (a.teacher_ids.length || 99) - (b.teacher_ids.length || 99) ||
+          cmpHours(b) - cmpHours(a),
+      );
+      break;
+    default:
+      break;
+  }
+  return list.sort((a, b) => (b.place_first ? 1 : 0) - (a.place_first ? 1 : 0));
+}
+
 export function runConstraintSolver(
   assignments: SolverAssignment[],
   ctx: SolverContext,
@@ -338,7 +399,7 @@ export function runConstraintSolver(
   const violations: string[] = [];
   const days = orderedDays(ctx);
 
-  const sorted = [...assignments].sort((a, b) => (b.place_first ? 1 : 0) - (a.place_first ? 1 : 0));
+  const sorted = orderAssignmentsForSolve(assignments, ctx);
 
   const placeOne = (
     a: SolverAssignment,

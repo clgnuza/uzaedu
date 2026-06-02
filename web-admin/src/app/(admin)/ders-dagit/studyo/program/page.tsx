@@ -1,12 +1,14 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { TimetableShell } from '@/components/timetable/TimetableShell';
 import { TimetablePublishPanel } from '@/components/timetable/TimetablePublishPanel';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
 function ProgramEditorInner() {
+  const router = useRouter();
+  const pathname = usePathname();
   const sp = useSearchParams();
   const programId = sp.get('id') ?? undefined;
   const compareId = sp.get('compare') ?? undefined;
@@ -19,6 +21,22 @@ function ProgramEditorInner() {
   const [activeProgramId, setActiveProgramId] = useState(programId ?? '');
   const showPublish = sp.get('panel') === 'publish';
   const autoPrint = sp.get('print') === '1';
+
+  const onProgramIdChange = useCallback(
+    (id: string) => {
+      setActiveProgramId(id);
+      if (!id) return;
+      const params = new URLSearchParams(sp.toString());
+      if (params.get('id') === id) return;
+      params.set('id', id);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [router, pathname, sp],
+  );
+
+  useEffect(() => {
+    if (programId) setActiveProgramId(programId);
+  }, [programId]);
 
   useEffect(() => {
     if (showPublish) {
@@ -36,7 +54,7 @@ function ProgramEditorInner() {
         initialView={initialView}
         initialFilterId={initialFilter}
         initialAutoPrint={autoPrint}
-        onProgramIdChange={setActiveProgramId}
+        onProgramIdChange={onProgramIdChange}
       />
       {!autoPrint && <TimetablePublishPanel programId={activeProgramId} />}
     </div>

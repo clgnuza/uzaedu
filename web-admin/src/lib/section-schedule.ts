@@ -172,15 +172,50 @@ export function countSectionSlots(
   return { lessonCells, lunchCells, total: lessonCells + lunchCells, placeable, closed, internship };
 }
 
+/** Program merkezi dönem → günlük ders sayısı (şube lessons_per_day_by_dow yalnızca eski kayıt uyumu) */
 export function dayMaxLessons(
   schedule: SectionScheduleConfig,
   day: number,
   schoolDefault: number,
   studioByDow?: Record<string, number>,
 ): number {
+  const fromStudio = studioByDow?.[String(day)];
+  if (fromStudio != null && fromStudio >= 1) return Math.min(schoolDefault, fromStudio);
   const fromSec = schedule.lessons_per_day_by_dow?.[String(day)];
   if (fromSec != null && fromSec >= 1) return Math.min(schoolDefault, fromSec);
+  return schoolDefault;
+}
+
+export function periodLessonCountForDay(
+  day: number,
+  schoolDefault: number,
+  studioByDow?: Record<string, number>,
+): number {
   const fromStudio = studioByDow?.[String(day)];
   if (fromStudio != null && fromStudio >= 1) return Math.min(schoolDefault, fromStudio);
   return schoolDefault;
+}
+
+/** Kayıtta dönemle aynı günlük sayıları şube kaydına yazma */
+export function alignSectionScheduleToPeriod(
+  schedule: SectionScheduleConfig,
+  schoolDefault: number,
+  studioByDow?: Record<string, number>,
+  workDays?: number[],
+): SectionScheduleConfig {
+  const days = workDays?.length ? workDays : [1, 2, 3, 4, 5];
+  const byDow = { ...(schedule.lessons_per_day_by_dow ?? {}) };
+  for (const d of days) {
+    const key = String(d);
+    const periodVal = periodLessonCountForDay(d, schoolDefault, studioByDow);
+    if (byDow[key] === periodVal) delete byDow[key];
+  }
+  for (const key of Object.keys(byDow)) {
+    const d = Number(key);
+    if (!days.includes(d)) delete byDow[key];
+  }
+  const next = { ...schedule };
+  if (Object.keys(byDow).length) next.lessons_per_day_by_dow = byDow;
+  else delete next.lessons_per_day_by_dow;
+  return next;
 }

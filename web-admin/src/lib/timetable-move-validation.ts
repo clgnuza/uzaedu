@@ -112,6 +112,7 @@ export function validatePoolPlace(
   entries: EditorEntry[],
   classSection: string,
   closures: Map<string, SlotClosure>,
+  teacherId?: string | null,
 ): MoveValidationResult {
   const closure = closureAt(closures, day, lesson);
   if (closure) {
@@ -124,8 +125,14 @@ export function validatePoolPlace(
   if (occupants.some((o) => o.class_section === classSection)) {
     return { ok: false, message: 'Bu sınıfın aynı saatte zaten dersi var.', status: 'occupied' };
   }
+  if (
+    teacherId &&
+    entries.some((e) => e.day_of_week === day && e.lesson_num === lesson && e.user_id === teacherId)
+  ) {
+    return { ok: false, message: 'Öğretmen bu saatte başka derste.', status: 'occupied' };
+  }
   if (occupants.length === 1) {
-    return { ok: false, message: 'Dolu saat — önce mevcut dersi taşıyın veya takas edin.', status: 'swap' };
+    return { ok: false, message: 'Dolu saat — bırakınca uygun boş saat aranır veya ders taşınır.', status: 'swap' };
   }
   void assignmentId;
   return { ok: true };

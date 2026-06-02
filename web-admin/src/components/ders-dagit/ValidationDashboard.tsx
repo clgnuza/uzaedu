@@ -122,7 +122,9 @@ export function ValidationDashboard({
           <ValidationRing pass={passCount} total={requiredChecks.length} />
           <div className="min-w-0 flex-1">
             <h1 className="text-lg font-semibold">Doğrulama özeti</h1>
-            <p className="text-xs text-muted-foreground">Kayıtlı stüdyo durumu (otomatik tarama yok).</p>
+            <p className="text-xs text-muted-foreground">
+              Kurulum + yerleştirilebilirlik: kapalı slot, ders yükü, şube yoğunluğu (üretim öncesi tahmin).
+            </p>
             <p className="text-sm text-muted-foreground">
               Tüm zorunlu şartlar {allRequiredPass ? 'sağlanıyor' : 'eksik'} — {errorCount} hata, {warnCount} uyarı
             </p>
@@ -177,6 +179,10 @@ export function ValidationDashboard({
                       ) : check.status === 'fail' ? (
                         <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
                           Üretimi engeller
+                        </span>
+                      ) : check.status === 'warn' ? (
+                        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                          Uyarı
                         </span>
                       ) : !check.required ? (
                         <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">

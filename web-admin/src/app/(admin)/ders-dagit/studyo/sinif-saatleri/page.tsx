@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
@@ -13,7 +13,12 @@ import { SectionEntityTable } from '@/components/ders-dagit/section-entity-table
 import { SectionScheduleGrid } from '@/components/ders-dagit/section-schedule-grid';
 import { Button } from '@/components/ui/button';
 import { normalizeSectionSchedulesResponse } from '@/lib/class-section-schedules-normalize';
-import { emptySchedule, scheduleForSchoolType, type SectionScheduleConfig } from '@/lib/section-schedule';
+import {
+  alignSectionScheduleToPeriod,
+  emptySchedule,
+  scheduleForSchoolType,
+  type SectionScheduleConfig,
+} from '@/lib/section-schedule';
 import { toast } from 'sonner';
 import type { PeriodConfig } from '@/components/ders-dagit/period-config-form';
 import type { SchoolProfileDto } from '@/components/ders-dagit/school-profile-form';
@@ -22,7 +27,11 @@ import { useSearchParams } from 'next/navigation';
 import { sectionsMatch } from '@/lib/class-section-canonical';
 import { atamalarUrl, planlamaIliskileriUrl } from '@/lib/dd-entity-scope';
 import { DdCatalogAssignmentsHint } from '@/components/ders-dagit/dd-catalog-assignments-hint';
-import { useDersDagitClassProfiles } from '@/hooks/use-ders-dagit-class-profiles';
+import {
+  invalidateClassProfilesCache,
+  useDersDagitClassProfiles,
+} from '@/hooks/use-ders-dagit-class-profiles';
+import { invalidateDersDagitSectionsCache } from '@/hooks/use-ders-dagit-sections';
 import {
   buildHoursBySection,
   sectionAssignmentStatus,
@@ -41,10 +50,12 @@ type PeriodsRes = {
   studio_period: PeriodConfig;
 };
 
+const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5] as const;
+
 export default function SinifSaatleriPage() {
   const { token } = useAuth();
   const { studio } = useDersDagitStudio();
-  const { profiles: classProfiles } = useDersDagitClassProfiles(studio?.id);
+  const { profiles: classProfiles, reload: reloadClassProfiles } = useDersDagitClassProfiles(studio?.id);
   const [assignments, setAssignments] = useState<LessonAssignmentRow[]>([]);
   const searchParams = useSearchParams();
   const [sections, setSections] = useState<string[]>([]);
@@ -60,46 +71,46 @@ export default function SinifSaatleriPage() {
   const [detailOpen, setDetailOpen] = useState(true);
   const [timeOpen, setTimeOpen] = useState(false);
   const [schoolType, setSchoolType] = useState<string | null>(null);
+  const loadSeq = useRef(0);
 
-  const load = useCallback(async () => {
-    if (!token || !studio) return;
+  const load = useCallback(async (): Promise<{ sections: string[] } | null> => {
+    if (!token || !studio) return null;
+    const seq = ++loadSeq.current;
     setLoading(true);
     try {
       const [sched, per, sp, asn] = await Promise.all([
         apiFetch<SchedulesRes>(`/ders-dagit/studios/${studio.id}/section-schedules`, { token }),
         apiFetch<PeriodsRes>(`/ders-dagit/studios/${studio.id}/periods`, { token }).catch(() => null),
         apiFetch<SchoolProfileDto>(`/ders-dagit/studios/${studio.id}/school-profile`, { token }).catch(() => null),
-        apiFetch<LessonAssignmentRow[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token }).catch(
-          () => [],
-        ),
+        apiFetch<LessonAssignmentRow[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token }).catch(() => []),
       ]);
+      if (seq !== loadSeq.current) return null;
+      const norm = normalizeSectionSchedulesResponse(sched.sections, sched.schedules);
+      const schedulesOnly: Record<string, SectionScheduleConfig> = {};
+      for (const sec of norm.sections) {
+        schedulesOnly[sec] = norm.schedules[sec] ?? emptySchedule();
+      }
+      setSections(norm.sections);
+      setSchedules(schedulesOnly);
+      setPeriods(per);
       setAssignments(asn);
       setSchoolType(sp?.type ?? null);
-      const norm = normalizeSectionSchedulesResponse(sched.sections, sched.schedules);
-      setSections(norm.sections);
-      setSchedules(norm.schedules);
-      setPeriods(per);
       setSection((prev) => {
         if (prev && norm.sections.includes(prev)) return prev;
         return norm.sections[0] || '';
       });
+      return { sections: norm.sections };
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Yüklenemedi');
+      return null;
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, [token, studio]);
 
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    const s = scheduleForSchoolType(schedules[section] ?? emptySchedule(), schoolType);
-    setDraft(s);
-    setBaseline(JSON.stringify(s));
-    setCopyTargets([]);
-  }, [section, schedules, schoolType]);
 
   useEffect(() => {
     if (loading) return;
@@ -115,9 +126,34 @@ export default function SinifSaatleriPage() {
   }, [loading, searchParams, sections]);
 
   const dirty = JSON.stringify(draft) !== baseline;
-  const workDays = periods?.work_days ?? [1, 2, 3, 4, 5];
+  const workDays = useMemo(
+    () => (periods?.work_days?.length ? periods.work_days : [...DEFAULT_WORK_DAYS]),
+    [periods?.work_days],
+  );
   const schoolMax = periods?.duty_max_lessons ?? 8;
+  const studioLessonsByDow = periods?.studio_period?.lessons_per_day_by_dow;
   const longBreaks = periods?.studio_period?.long_breaks;
+
+  const sectionScheduleSourceKey = useMemo(
+    () => JSON.stringify(schedules[section] ?? emptySchedule()),
+    [schedules, section],
+  );
+  const periodAlignKey = useMemo(
+    () => `${workDays.join(',')}|${schoolMax}|${JSON.stringify(studioLessonsByDow ?? {})}`,
+    [workDays, schoolMax, studioLessonsByDow],
+  );
+
+  useEffect(() => {
+    if (!section) return;
+    const s = scheduleForSchoolType(schedules[section] ?? emptySchedule(), schoolType);
+    const aligned = alignSectionScheduleToPeriod(s, schoolMax, studioLessonsByDow, workDays);
+    const nextBaseline = JSON.stringify(aligned);
+    setDraft((prev) => (JSON.stringify(prev) === nextBaseline ? prev : aligned));
+    setBaseline((prev) => (prev === nextBaseline ? prev : nextBaseline));
+    setCopyTargets([]);
+    // sectionScheduleSourceKey + periodAlignKey: içerik değişince; schedules referansı değil
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- schedules[section] sectionScheduleSourceKey ile senkron
+  }, [section, sectionScheduleSourceKey, schoolType, periodAlignKey]);
   const otherSections = sections.filter((s) => s !== section);
   const schedulesForList = useMemo(() => {
     if (!section) return schedules;
@@ -146,7 +182,15 @@ export default function SinifSaatleriPage() {
       const res = await apiFetch<SchedulesRes>(`/ders-dagit/studios/${studio.id}/section-schedules`, {
         token,
         method: 'PATCH',
-        body: { section, schedule: scheduleForSchoolType(draft, schoolType) },
+        body: {
+          section,
+          schedule: alignSectionScheduleToPeriod(
+            scheduleForSchoolType(draft, schoolType),
+            schoolMax,
+            studioLessonsByDow,
+            workDays,
+          ),
+        },
       });
       const norm = normalizeSectionSchedulesResponse(res.sections, res.schedules);
       const saved = scheduleForSchoolType(norm.schedules[section] ?? draft, schoolType);
@@ -162,6 +206,41 @@ export default function SinifSaatleriPage() {
     }
   }
 
+  async function removeFromList() {
+    if (!token || !studio || !section) return;
+    const removed = section;
+    const st = assignmentStatusBySection[removed];
+    if (st && st.assignedHours > 0) {
+      toast.error('Bu şubeye ders ataması var; önce atamalardan kaldırın.');
+      return;
+    }
+    if (
+      !window.confirm(
+        `"${removed}" listeden kaldırılsın mı? Kurulum profillerinden ve ders kataloğundaki şube saatleri silinir.`,
+      )
+    ) {
+      return;
+    }
+    ++loadSeq.current;
+    setSaving(true);
+    try {
+      await apiFetch<SchedulesRes>(
+        `/ders-dagit/studios/${studio.id}/class-sections?section=${encodeURIComponent(removed)}`,
+        { token, method: 'DELETE' },
+      );
+      invalidateClassProfilesCache(studio.id);
+      invalidateDersDagitSectionsCache(studio.id);
+      const fresh = await load();
+      void reloadClassProfiles(true);
+      if (!fresh?.sections.length) setDetailOpen(false);
+      toast.success(`${removed} listeden kaldırıldı`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Kaldırılamadı');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function copyToOthers() {
     if (!token || !studio || !copyTargets.length) return;
     setSaving(true);
@@ -171,7 +250,15 @@ export default function SinifSaatleriPage() {
         await apiFetch(`/ders-dagit/studios/${studio.id}/section-schedules`, {
           token,
           method: 'PATCH',
-          body: { section: sec, schedule: scheduleForSchoolType(draft, schoolType) },
+          body: {
+            section: sec,
+            schedule: alignSectionScheduleToPeriod(
+              scheduleForSchoolType(draft, schoolType),
+              schoolMax,
+              studioLessonsByDow,
+              workDays,
+            ),
+          },
         });
       }
       const resRaw = await apiFetch<SchedulesRes>(`/ders-dagit/studios/${studio.id}/section-schedules`, { token });
@@ -213,6 +300,9 @@ export default function SinifSaatleriPage() {
       case 'new':
         window.location.href = '/ders-dagit/studyo/kurulum';
         break;
+      case 'delete':
+        void removeFromList();
+        break;
       default:
         break;
     }
@@ -220,6 +310,7 @@ export default function SinifSaatleriPage() {
 
   const sectionActions = [
     { key: 'new' as const, label: 'Yeni şube (kurulum)' },
+    { key: 'delete' as const, label: 'Listeden kaldır', variant: 'destructive' as const, disabled: saving },
     { key: 'edit' as const, label: 'Güncelle' },
     { key: 'timetable' as const, label: 'Zaman tablosu' },
     { key: 'assign' as const, label: 'Ders atama' },
@@ -232,7 +323,7 @@ export default function SinifSaatleriPage() {
       <DdPageHeader
         icon={Grid3x3}
         title="Sınıflar"
-        description="Şube listesi kurulum + ders kataloğu + atamalardan gelir; atama kaydı burada değişmez."
+        description="Kurulumda seçilen şubeler, ders kataloğu ve atamalardan oluşur."
       />
 
       <DdCatalogAssignmentsHint />
@@ -359,20 +450,51 @@ export default function SinifSaatleriPage() {
               otherSections.length
                 ? () => {
                     setCopyTargets(otherSections);
-                    toast.info('Alttaki panelden hedef şubeleri işaretleyip Kopyala kullanın');
                   }
                 : undefined
             }
           >
-            <SectionScheduleGrid
-              schoolType={schoolType}
-              workDays={workDays}
-              schoolMaxLessons={schoolMax}
-              studioLessonsByDow={periods?.studio_period?.lessons_per_day_by_dow}
-              longBreaks={longBreaks}
-              schedule={draft}
-              onChange={setDraft}
-            />
+            <div className="space-y-4">
+              <SectionScheduleGrid
+                schoolType={schoolType}
+                workDays={workDays}
+                schoolMaxLessons={schoolMax}
+                studioLessonsByDow={periods?.studio_period?.lessons_per_day_by_dow}
+                longBreaks={longBreaks}
+                schedule={draft}
+                onChange={setDraft}
+              />
+              {otherSections.length > 0 && (
+                <div className="space-y-2 border-t pt-3">
+                  <p className="text-xs font-medium">Diğer şubelere kopyala</p>
+                  <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto">
+                    {otherSections.map((s) => (
+                      <label key={s} className="flex items-center gap-1 rounded border px-2 py-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={copyTargets.includes(s)}
+                          onChange={() =>
+                            setCopyTargets((prev) =>
+                              prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
+                            )
+                          }
+                        />
+                        {s}
+                      </label>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={!copyTargets.length || saving}
+                    onClick={() => void copyToOthers().then(() => setTimeOpen(false))}
+                  >
+                    Seçilenlere kopyala ({copyTargets.length})
+                  </Button>
+                </div>
+              )}
+            </div>
           </DdEntityTimeDialog>
         </>
       )}

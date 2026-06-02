@@ -7,6 +7,7 @@ import compression = require('compression');
 import cookieParser = require('cookie-parser');
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { httpPerfMiddleware } from './common/middleware/http-perf.middleware';
 import { env } from './config/env';
 import { corsOriginCallback } from './config/dev-cors';
 import { initFirebase, isFirebaseAdminReady } from './config/firebase';
@@ -47,6 +48,10 @@ async function bootstrap() {
     }),
   );
   app.use(urlencoded({ limit: '20mb', extended: true }));
+  if (env.perfLog) {
+    const threshold = parseInt(process.env.APP_PERF_THRESHOLD_MS || '400', 10);
+    app.use(httpPerfMiddleware(Number.isFinite(threshold) ? threshold : 400));
+  }
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
     new ValidationPipe({

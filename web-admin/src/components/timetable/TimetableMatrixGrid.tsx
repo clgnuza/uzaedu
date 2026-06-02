@@ -1,7 +1,9 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { GraduationCap, UserRound } from 'lucide-react';
+import { TimetableCellMenu } from './TimetableCellMenu';
+import { entriesInMatrixLessonRow, type TimetableCellMenuHandlers } from '@/lib/timetable-cell-menu';
 import { cn } from '@/lib/utils';
 import { entryCellColor } from '@/lib/timetable-colors';
 import {
@@ -19,6 +21,15 @@ import type { EditorEntry } from '@/lib/ders-dagit-timetable-api';
 export type MatrixAxis = 'teacher' | 'class' | 'room';
 
 const DAY_SHORT = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'] as const;
+
+const MATRIX_LABEL_COL = 136;
+const MATRIX_NUM_COL = 24;
+const MATRIX_DAY_COL = 68;
+
+function truncateMatrixLine(s: string, max: number): string {
+  const t = s.replace(/\s+/g, ' ').trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
 
 function teacherRowKey(e: EditorEntry): string {
   if (e.user_id) return `u:${e.user_id}`;
@@ -57,10 +68,20 @@ function MatrixMiniCell({
   entry,
   axis,
   toneIdx,
+  editable,
+  picked,
+  hasClash,
+  onContextMenu,
+  onDoubleClick,
 }: {
   entry: EditorEntry;
   axis: MatrixAxis;
   toneIdx: number;
+  editable: boolean;
+  picked: boolean;
+  hasClash: boolean;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onDoubleClick: () => void;
 }) {
   const line1 =
     axis === 'teacher'
@@ -70,7 +91,8 @@ function MatrixMiniCell({
         : entry.class_section;
   const line2 = entry.subject;
   const subShort = line2.replace(/\s+/g, ' ').trim();
-  const sub = subShort.length > 16 ? `${subShort.slice(0, 14)}…` : subShort;
+  const sub = truncateMatrixLine(subShort, 16);
+  const main = truncateMatrixLine(line1, 14);
 
   const teacherTone = MATRIX_TEACHER_CELL[matrixToneIndex(toneIdx, MATRIX_TEACHER_CELL.length)];
   const classTone = MATRIX_CLASS_CELL[matrixToneIndex(toneIdx, MATRIX_CLASS_CELL.length)];
@@ -82,9 +104,17 @@ function MatrixMiniCell({
   return (
     <div
       className={cn(
-        'min-w-[4rem] rounded-md border px-1 py-0.5 leading-tight',
+        'min-w-0 max-w-full overflow-hidden rounded-md border px-1 py-0.5 leading-tight',
         useToneClass ? toneClass : 'shadow-sm',
+        editable && 'cursor-context-menu',
+        picked && 'ring-1 ring-sky-500',
+        hasClash && 'ring-1 ring-destructive',
       )}
+      onContextMenu={onContextMenu}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onDoubleClick();
+      }}
       style={
         useToneClass
           ? undefined
@@ -97,7 +127,7 @@ function MatrixMiniCell({
       }
       title={`${line1} · ${line2}${entry.room_name ? ` · ${entry.room_name}` : ''}`}
     >
-      <div className="truncate text-[10px] font-bold leading-tight">{line1}</div>
+      <div className="truncate text-[10px] font-bold leading-tight">{main}</div>
       {sub ? <div className="truncate text-[9px] leading-tight opacity-90">{sub}</div> : null}
     </div>
   );
@@ -177,6 +207,12 @@ export function TimetableMatrixGrid({
   clashIds = new Set<string>(),
   zoom = 100,
   hideEmptyLessonRows = true,
+  editable = false,
+  pickedEntryId = null,
+  onEditEntry,
+  onLockEntry,
+  onDeleteEntry,
+  cellMenuHandlers,
 }: {
   entries: EditorEntry[];
   workDays: number[];
@@ -188,7 +224,15 @@ export function TimetableMatrixGrid({
   clashIds?: Set<string>;
   zoom?: number;
   hideEmptyLessonRows?: boolean;
+  editable?: boolean;
+  pickedEntryId?: string | null;
+  onEditEntry?: (entry: EditorEntry) => void;
+  onLockEntry?: (entryId: string, locked: boolean) => void;
+  onDeleteEntry?: (entryId: string) => void;
+  cellMenuHandlers?: TimetableCellMenuHandlers;
 }) {
+  const [menu, setMenu] = useState<{ entry: EditorEntry; x: number; y: number } | null>(null);
+  const canMenu = editable && !!(cellMenuHandlers ?? onEditEntry);
   const days = workDays.length ? workDays : [1, 2, 3, 4, 5];
   const lessonNums = useMemo(
     () => Array.from({ length: Math.max(1, maxLesson) }, (_, i) => i + 1),
@@ -268,9 +312,11 @@ export function TimetableMatrixGrid({
     );
   }
 
+  const tableMinWidth = MATRIX_LABEL_COL + MATRIX_NUM_COL + days.length * MATRIX_DAY_COL;
+
   return (
     <div
-      className="timetable-print-root overflow-auto rounded-xl border border-border bg-card shadow-sm"
+      className="timetable-print-root min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded-xl border border-border bg-card shadow-sm"
       style={{ zoom: zoom / 100 }}
       data-timetable-view={`matrix-${axis}`}
     >
@@ -286,21 +332,34 @@ export function TimetableMatrixGrid({
         {axis === 'teacher' && (
           <span className="hidden sm:inline">· her öğretmen farklı renk</span>
         )}
+        {canMenu && (
+          <span className="hidden sm:inline">· sağ tık menü · çift tık düzenle</span>
+        )}
       </div>
-      <table className="w-full min-w-[600px] border-collapse text-[10px]">
+      <table
+        className="w-full table-fixed border-collapse text-[10px]"
+        style={{ minWidth: tableMinWidth }}
+      >
+        <colgroup>
+          <col style={{ width: MATRIX_LABEL_COL }} />
+          <col style={{ width: MATRIX_NUM_COL }} />
+          {days.map((d) => (
+            <col key={d} style={{ width: MATRIX_DAY_COL }} />
+          ))}
+        </colgroup>
         <thead className="sticky top-0 z-20 bg-muted/95 backdrop-blur-sm">
           <tr>
-            <th className="sticky left-0 z-30 min-w-[8.5rem] max-w-[10rem] border-b border-r border-border bg-muted/95 px-2 py-1.5 text-left text-[11px] font-semibold">
+            <th className="sticky left-0 z-30 border-b border-r border-border bg-muted/95 px-2 py-1.5 text-left text-[11px] font-semibold">
               {axisLabel}
             </th>
-            <th className="w-6 border-b border-r border-border bg-muted/95 px-0.5 py-1.5 text-center text-[10px] font-semibold text-muted-foreground">
+            <th className="border-b border-r border-border bg-muted/95 px-0.5 py-1.5 text-center text-[10px] font-semibold text-muted-foreground">
               #
             </th>
             {days.map((d, i) => (
               <th
                 key={d}
                 className={cn(
-                  'min-w-[4.5rem] border-b border-r border-border px-0.5 py-1.5 text-center text-[10px] font-semibold',
+                  'border-b border-r border-border px-0.5 py-1.5 text-center text-[10px] font-semibold',
                   i % 2 === 1 && 'bg-muted/50',
                 )}
               >
@@ -350,13 +409,28 @@ export function TimetableMatrixGrid({
                   const cells = cellMap.get(`${rowKey}|${day}|${ln}`) ?? [];
                   const hasClash = cells.some((c) => clashIds.has(c.id));
                   return (
-                    <td key={day} className="border-b border-r border-border px-0.5 py-0.5 align-top">
+                    <td key={day} className="min-w-0 overflow-hidden border-b border-r border-border px-0.5 py-0.5 align-top">
                       {cells.length === 0 ? (
                         <span className="block py-2 text-center text-[8px] text-muted-foreground/30">·</span>
                       ) : (
                         <div className={cn('flex flex-col gap-0.5', hasClash && 'rounded-md ring-2 ring-destructive/80')}>
                           {cells.map((c) => (
-                            <MatrixMiniCell key={c.id} entry={c} axis={axis} toneIdx={rowIdx} />
+                            <MatrixMiniCell
+                              key={c.id}
+                              entry={c}
+                              axis={axis}
+                              toneIdx={rowIdx}
+                              editable={canMenu}
+                              picked={pickedEntryId === c.id}
+                              hasClash={clashIds.has(c.id)}
+                              onContextMenu={(e) => {
+                                if (!canMenu) return;
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setMenu({ entry: c, x: e.clientX, y: e.clientY });
+                              }}
+                              onDoubleClick={() => onEditEntry?.(c)}
+                            />
                           ))}
                         </div>
                       )}
@@ -368,6 +442,35 @@ export function TimetableMatrixGrid({
           })}
         </tbody>
       </table>
+      {menu && canMenu && (() => {
+        const handlers: TimetableCellMenuHandlers | undefined =
+          cellMenuHandlers ??
+          (onEditEntry
+            ? {
+                onEdit: onEditEntry,
+                onLock: onLockEntry,
+                onDelete: onDeleteEntry,
+              }
+            : undefined);
+        if (!handlers) return null;
+        const rowEntries = entriesInMatrixLessonRow(entries, menu.entry, axis);
+        const assignmentSlotCount = menu.entry.assignment_id
+          ? entries.filter((e) => e.assignment_id === menu.entry.assignment_id).length
+          : 0;
+        return (
+          <TimetableCellMenu
+            entry={menu.entry}
+            x={menu.x}
+            y={menu.y}
+            onClose={() => setMenu(null)}
+            handlers={handlers}
+            allEntries={entries}
+            assignmentSlotCount={assignmentSlotCount}
+            lessonRowCount={rowEntries.length}
+            clearSlotIds={rowEntries.map((e) => e.id)}
+          />
+        );
+      })()}
     </div>
   );
 }

@@ -18,6 +18,7 @@ import { inferDayDistribution } from '@/lib/lesson-distribution';
 import { AssignedLessonsPanel } from '@/components/ders-dagit/assigned-lessons-panel';
 import { LessonAssignmentDialog } from '@/components/ders-dagit/lesson-assignment-dialog';
 import { sectionsMatch } from '@/lib/class-section-canonical';
+import { compareClassSections } from '@/lib/class-section-sort';
 import {
   canonicalizeSectionList,
   computeDerslerWarnings,
@@ -51,6 +52,12 @@ import { SubjectSectionHoursTable } from '@/components/ders-dagit/subject-sectio
 import { DdCatalogAssignmentsHint } from '@/components/ders-dagit/dd-catalog-assignments-hint';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import {
+  DERS_DAGIT_ASSIGNMENTS_CHANGED,
+  type AssignmentsChangedDetail,
+  notifyDersDagitAssignmentsChanged,
+} from '@/lib/ders-dagit-assignments-sync';
+import { invalidateStudioValidationCache } from '@/hooks/use-studio-validation';
 import { AlertTriangle, BookOpen, ListChecks, Plus, RefreshCw, Search } from 'lucide-react';
 
 type Teacher = { user_id: string; display_name?: string };
@@ -198,6 +205,16 @@ export default function DerslerPage() {
   }, [load]);
 
   useEffect(() => {
+    const onAssignmentsChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<AssignmentsChangedDetail>).detail;
+      if (detail?.studioId && detail.studioId !== studio?.id) return;
+      void load();
+    };
+    window.addEventListener(DERS_DAGIT_ASSIGNMENTS_CHANGED, onAssignmentsChanged);
+    return () => window.removeEventListener(DERS_DAGIT_ASSIGNMENTS_CHANGED, onAssignmentsChanged);
+  }, [load, studio?.id]);
+
+  useEffect(() => {
     if (!selectedSubject) {
       setSubjectDraftName('');
       setSubjectDraftCode('');
@@ -220,11 +237,20 @@ export default function DerslerPage() {
     }
   }
 
-  const subjectDirty =
-    !!selectedSubject &&
-    (subjectDraftName !== selectedSubject.name ||
-      subjectDraftCode !== (selectedSubject.short_code ?? '') ||
-      JSON.stringify(subjectDraftHours) !== JSON.stringify(selectedSubject.class_hours ?? {}));
+  const subjectDirty = useMemo(() => {
+    if (!selectedSubject) return false;
+    const snap = (name: string, code: string, hours: Record<string, number>) => {
+      const merged = mergeRecordBySectionAlias(hours);
+      const keys = Object.keys(merged).sort(compareClassSections);
+      const sorted: Record<string, number> = {};
+      for (const k of keys) sorted[k] = merged[k]!;
+      return `${name.trim()}\0${code.trim()}\0${JSON.stringify(sorted)}`;
+    };
+    return (
+      snap(subjectDraftName, subjectDraftCode, subjectDraftHours) !==
+      snap(selectedSubject.name, selectedSubject.short_code ?? '', selectedSubject.class_hours ?? {})
+    );
+  }, [selectedSubject, subjectDraftName, subjectDraftCode, subjectDraftHours]);
 
   function openNewAssignment(sub?: DerslerSubject | null) {
     const s = sub ?? selectedSubject;
@@ -274,6 +300,8 @@ export default function DerslerPage() {
     toast.success('Atama silindi');
     if (listActiveId === id) setListActiveId(null);
     await load();
+    notifyDersDagitAssignmentsChanged(studio.id);
+    invalidateStudioValidationCache(studio.id);
   }
 
   async function addSubject() {
@@ -517,10 +545,13 @@ export default function DerslerPage() {
                   sections={allSections}
                   onChange={setSubjectDraftHours}
                 />
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button type="button" size="sm" disabled={!subjectDirty || subjectSaving} onClick={() => void saveSubjectDraft()}>
                     Dersi kaydet
                   </Button>
+                  {!subjectDirty ? (
+                    <span className="text-xs text-muted-foreground">Değişiklik yok</span>
+                  ) : null}
                   <Button
                     type="button"
                     size="sm"
@@ -607,7 +638,10 @@ export default function DerslerPage() {
           rooms={rooms}
           groups={groups}
           sections={allSections}
-          onSaved={() => void load()}
+          onSaved={() => {
+            void load();
+            if (studio?.id) notifyDersDagitAssignmentsChanged(studio.id);
+          }}
         />
       )}
     </div>

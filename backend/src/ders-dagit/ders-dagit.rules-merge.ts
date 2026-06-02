@@ -1,4 +1,4 @@
-import { MEB_PE_MUSIC_DEFAULT_DAYS } from './ders-dagit.rules';
+import { DERS_DAGIT_RULE_CATALOG, MEB_PE_MUSIC_DEFAULT_DAYS } from './ders-dagit.rules';
 import {
   importanceWeight,
   relationDefinition,
@@ -118,18 +118,22 @@ export function buildStrictRuleKeys(relations: PlanningRelationRow[]): {
   return { global, bySection };
 }
 
-/** Açık stüdyo/şube kurallarını üretimde zorunlu say (skor 100 / STRICT_RULES_VIOLATED). */
+const HARD_CATALOG_RULE_KEYS = new Set(
+  DERS_DAGIT_RULE_CATALOG.filter((r) => r.kind === 'hard').map((r) => r.key),
+);
+
+/** Yalnızca sert (hard) katalog kuralları — yumuşak/pedagoji skor cezası, üretimi kilitlemez. */
 export function augmentStrictKeysWithActiveRules(
   strictKeys: { global: Set<string>; bySection: Map<string, Set<string>> },
   studioRules: RuleState,
   sectionRules: Map<string, RuleState>,
 ): void {
   for (const [key, st] of Object.entries(studioRules)) {
-    if (st?.active) strictKeys.global.add(key);
+    if (st?.active && HARD_CATALOG_RULE_KEYS.has(key)) strictKeys.global.add(key);
   }
   for (const [sec, rules] of sectionRules) {
     for (const [key, st] of Object.entries(rules)) {
-      if (!st?.active) continue;
+      if (!st?.active || !HARD_CATALOG_RULE_KEYS.has(key)) continue;
       const set = strictKeys.bySection.get(sec) ?? new Set<string>();
       set.add(key);
       strictKeys.bySection.set(sec, set);

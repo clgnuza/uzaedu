@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
@@ -32,6 +32,10 @@ import {
 import { DdPageHeader } from '@/components/ders-dagit/dd-ui';
 import { ListChecks, Search } from 'lucide-react';
 import { DdCatalogAssignmentsHint } from '@/components/ders-dagit/dd-catalog-assignments-hint';
+import {
+  DERS_DAGIT_ASSIGNMENTS_CHANGED,
+  notifyDersDagitAssignmentsChanged,
+} from '@/lib/ders-dagit-assignments-sync';
 
 const EOKUL_FORMAT_OPTS = [
   { value: 'auto', label: 'Otomatik (tablo → ızgara)' },
@@ -116,9 +120,12 @@ export default function AtamalarPage() {
   const [listQuery, setListQuery] = useState('');
   const [listSection, setListSection] = useState('');
   const [advancedCapacityWarnings, setAdvancedCapacityWarnings] = useState<AssignmentCapacityWarning[]>([]);
+  const [purgingAll, setPurgingAll] = useState(false);
   const extraSectionKeys = useMemo(() => rows.flatMap((r) => r.class_sections ?? []), [rows]);
-  const { sections: studioSections, reload: reloadSections } = useDersDagitSections(extraSectionKeys);
+  const { sections: studioSections } = useDersDagitSections(extraSectionKeys);
   const { profiles: classProfiles } = useDersDagitClassProfiles(studio?.id);
+
+  const sectionPoolRef = useRef<string[]>([]);
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
@@ -136,6 +143,7 @@ export default function AtamalarPage() {
       apiFetch<string[]>(`/ders-dagit/studios/${studio.id}/class-sections`, { token }).catch(() => [] as string[]),
     ]);
     const pool = [...secs, ...a.flatMap((x) => x.class_sections ?? [])];
+    sectionPoolRef.current = pool;
     setSchoolType(sp.type);
     setRows(
       a.map((row) => ({
@@ -143,7 +151,6 @@ export default function AtamalarPage() {
         class_sections: normalizeClassSectionNamesFromPool(row.class_sections ?? [], pool),
       })),
     );
-    void reloadSections();
     setGroups(g.groups);
     setGroupId((prev) => prev || g.groups[0]?.id || '');
     setRooms(r);
@@ -151,11 +158,41 @@ export default function AtamalarPage() {
     setSubjects(sub);
     setRoomId((prev) => prev || r[0]?.id || '');
     setTeacherIds((prev) => (prev.length ? prev : t[0]?.user_id ? [t[0].user_id] : []));
-  }, [token, studio, reloadSections]);
+  }, [token, studio]);
+
+  const reloadAssignments = useCallback(
+    async (opts?: { broadcast?: boolean }) => {
+      if (!token || !studio) return;
+      const a = await apiFetch<Assignment[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token });
+      const pool = [
+        ...sectionPoolRef.current,
+        ...a.flatMap((x) => x.class_sections ?? []),
+      ];
+      sectionPoolRef.current = pool;
+      setRows(
+        a.map((row) => ({
+          ...row,
+          class_sections: normalizeClassSectionNamesFromPool(row.class_sections ?? [], pool),
+        })),
+      );
+      if (opts?.broadcast !== false) notifyDersDagitAssignmentsChanged(studio.id);
+    },
+    [token, studio],
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const onChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ studioId?: string }>).detail;
+      if (detail?.studioId && detail.studioId !== studio?.id) return;
+      void reloadAssignments({ broadcast: false });
+    };
+    window.addEventListener(DERS_DAGIT_ASSIGNMENTS_CHANGED, onChanged);
+    return () => window.removeEventListener(DERS_DAGIT_ASSIGNMENTS_CHANGED, onChanged);
+  }, [reloadAssignments, studio?.id]);
 
   useEffect(() => {
     if (scopeTeacher) setTeacherIds([scopeTeacher]);
@@ -259,7 +296,29 @@ export default function AtamalarPage() {
     await apiFetch(`/ders-dagit/studios/${studio.id}/assignments/${id}`, { token, method: 'DELETE' });
     toast.success('Silindi');
     if (listActiveId === id) setListActiveId(null);
-    await load();
+    await reloadAssignments();
+  }
+
+  async function deleteAllAssignments() {
+    if (!token || !studio || rows.length === 0) return;
+    const msg = scopeBanner
+      ? `Stüdyodaki ${rows.length} atamanın tamamı silinecek (şu anki filtre dışındakiler dahil). Geri alınamaz. Onaylıyor musunuz?`
+      : `${rows.length} ders atamasının tamamı kalıcı olarak silinecek. Geri alınamaz. Onaylıyor musunuz?`;
+    if (!window.confirm(msg)) return;
+    setPurgingAll(true);
+    try {
+      const res = await apiFetch<{ deleted: number }>(`/ders-dagit/studios/${studio.id}/assignments`, {
+        token,
+        method: 'DELETE',
+      });
+      toast.success(`${res.deleted} atama silindi`);
+      setListActiveId(null);
+      await reloadAssignments();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Silinemedi');
+    } finally {
+      setPurgingAll(false);
+    }
   }
 
   function loadToForm(r: Assignment) {
@@ -318,7 +377,7 @@ export default function AtamalarPage() {
         .catch(() => {
           if (!ctrl.signal.aborted) setAdvancedCapacityWarnings([]);
         });
-    }, 350);
+    }, 600);
     return () => {
       clearTimeout(timer);
       ctrl.abort();
@@ -368,7 +427,7 @@ export default function AtamalarPage() {
     setSubject('');
     setEditId(null);
     setFixedSlots([]);
-    await load();
+    await reloadAssignments();
     toast.success(editId ? 'Güncellendi' : 'Atama eklendi');
   }
 
@@ -433,6 +492,15 @@ export default function AtamalarPage() {
               <span className="hidden text-[11px] text-muted-foreground sm:inline">
                 Çift tık = düzenle · Yeni ders = sihirbaz
               </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                disabled={rows.length === 0 || purgingAll}
+                onClick={() => void deleteAllAssignments()}
+              >
+                {purgingAll ? 'Siliniyor…' : 'Tümünü sil'}
+              </Button>
             </div>
           }
           onSelect={setListActiveId}
@@ -455,7 +523,7 @@ export default function AtamalarPage() {
           rooms={rooms}
           groups={groups}
           sections={allSections}
-          onSaved={() => void load()}
+          onSaved={() => void reloadAssignments()}
         />
       )}
 
@@ -565,7 +633,7 @@ export default function AtamalarPage() {
                     );
                     setEokulPreview(null);
                     setEokulB64(null);
-                    await load();
+                    await reloadAssignments();
                   }}
                 >
                   İçe aktar (ekle)
@@ -595,7 +663,7 @@ export default function AtamalarPage() {
                     );
                     setEokulPreview(null);
                     setEokulB64(null);
-                    await load();
+                    await reloadAssignments();
                   }}
                 >
                   Değiştir (sil + aktar)
@@ -621,7 +689,7 @@ export default function AtamalarPage() {
                 { token, method: 'POST', body: {} },
               );
               toast.success(`${res.created} yeni${res.updated ? `, ${res.updated} güncellendi` : ''}`);
-              await load();
+              await reloadAssignments();
             }}
           >
             Katalogdan üret (ekle)
@@ -637,7 +705,7 @@ export default function AtamalarPage() {
                 { token, method: 'POST', body: { replace: true } },
               );
               toast.success(`${res.created} atama (katalog yenilendi)`);
-              await load();
+              await reloadAssignments();
             }}
           >
             Katalogdan değiştir
@@ -878,7 +946,7 @@ export default function AtamalarPage() {
                 { token, method: 'POST', body: { file_base64: b64 } },
               );
               toast.success(`${res.imported} satır`);
-              await load();
+              await reloadAssignments();
             }}
           />
         </CardContent>
@@ -910,7 +978,7 @@ export default function AtamalarPage() {
                 );
                 toast.success(`${res.imported} satır`);
                 setCsvText('');
-                await load();
+                await reloadAssignments();
               }}
             >
               İçe aktar

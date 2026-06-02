@@ -49,8 +49,13 @@ export class DersDagitController {
 
   @Get('studios/:studioId/overview')
   @Roles(UserRole.school_admin, UserRole.teacher)
-  overview(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {
-    return this.service.getStudioOverview(studioId, u.schoolId!);
+  overview(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Query('light') light?: string,
+  ) {
+    const lightMode = light === '1' || light === 'true';
+    return this.service.getStudioOverview(studioId, u.schoolId!, { light: lightMode });
   }
 
   @Get('studios/:studioId/validation')
@@ -124,6 +129,16 @@ export class DersDagitController {
     @Body() body: { section: string; schedule: { lessons_per_day_by_dow?: Record<string, number>; cells?: Record<string, string> } },
   ) {
     return this.service.updateSectionSchedule(studioId, u.schoolId!, body.section, body.schedule as never);
+  }
+
+  @Delete('studios/:studioId/class-sections')
+  @Roles(UserRole.school_admin)
+  removeClassSection(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Query('section') section: string,
+  ) {
+    return this.service.removeStudioClassSection(studioId, u.schoolId!, section ?? '', u.userId);
   }
 
   // Teachers
@@ -570,6 +585,12 @@ export class DersDagitController {
     return this.service.importAssignmentsXlsx(studioId, buf, !!body.replace);
   }
 
+  @Delete('studios/:studioId/assignments')
+  @Roles(UserRole.school_admin)
+  deleteAllAssignments(@Param('studioId') studioId: string, @CurrentUser() u: CurrentUserPayload) {
+    return this.service.deleteAllAssignments(studioId, u.userId);
+  }
+
   @Delete('studios/:studioId/assignments/:id')
   @Roles(UserRole.school_admin)
   deleteAssignment(@Param('studioId') studioId: string, @Param('id') id: string) {
@@ -803,7 +824,13 @@ export class DersDagitController {
   generate(
     @CurrentUser() u: CurrentUserPayload,
     @Param('studioId') studioId: string,
-    @Body() body: { duration_sec?: number; versions?: number; use_csp?: boolean },
+    @Body()
+    body: {
+      duration_sec?: number;
+      versions?: number;
+      use_csp?: boolean;
+      priority?: 'coverage' | 'balanced' | 'fast';
+    },
   ) {
     return this.service.generatePrograms(studioId, u.schoolId!, u.userId, body);
   }

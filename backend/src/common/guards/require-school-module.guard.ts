@@ -17,6 +17,9 @@ import { BYPASS_SCHOOL_MODULE_GUARD_KEY } from '../decorators/bypass-school-modu
 
 @Injectable()
 export class RequireSchoolModuleGuard implements CanActivate {
+  private static readonly MODULES_CACHE_MS = 60_000;
+  private static modulesCache = new Map<string, { at: number; mods: string[] | null }>();
+
   constructor(
     private reflector: Reflector,
     @InjectRepository(School)
@@ -47,13 +50,7 @@ export class RequireSchoolModuleGuard implements CanActivate {
     if (user.role === UserRole.superadmin || user.role === UserRole.moderator) return true;
     if (!user.school_id) return true;
 
-    const school = await this.schoolRepo.findOne({
-      where: { id: user.school_id },
-      select: ['enabled_modules'],
-    });
-    if (!school) return true;
-
-    const mods = school.enabled_modules;
+    const mods = await this.getEnabledModules(user.school_id);
     if (!mods || mods.length === 0) return true; // null/empty = tüm modüller açık
     if (anyModuleKeys?.length) {
       if (anyModuleKeys.some((k) => mods.includes(k))) return true;
@@ -81,5 +78,19 @@ export class RequireSchoolModuleGuard implements CanActivate {
     };
     const message = messages[moduleKey] ?? 'Bu okulda bu modül kapalı.';
     throw new ForbiddenException({ code: 'MODULE_DISABLED', message });
+  }
+
+  private async getEnabledModules(schoolId: string): Promise<string[] | null> {
+    const hit = RequireSchoolModuleGuard.modulesCache.get(schoolId);
+    if (hit && Date.now() - hit.at < RequireSchoolModuleGuard.MODULES_CACHE_MS) {
+      return hit.mods;
+    }
+    const school = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: ['enabled_modules'],
+    });
+    const mods = school?.enabled_modules ?? null;
+    RequireSchoolModuleGuard.modulesCache.set(schoolId, { at: Date.now(), mods });
+    return mods;
   }
 }

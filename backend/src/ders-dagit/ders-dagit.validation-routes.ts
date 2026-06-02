@@ -20,6 +20,12 @@ const HREF_BY_CODE: Record<string, string> = {
   AIHL_NORM_EXCEEDED: '/ders-dagit/studyo/secmeli',
   PLANNING_STRICT_UNSUPPORTED: '/ders-dagit/studyo/planlama-iliskileri',
   DUTY_SLOTS_ACTIVE: '/nobet',
+  TEACHER_SLOTS_INSUFFICIENT: '/ders-dagit/studyo/ogretmenler',
+  TEACHER_SCHEDULE_TIGHT: '/ders-dagit/studyo/ogretmenler',
+  TEACHER_HIGH_UNAVAILABLE: '/ders-dagit/studyo/ogretmenler',
+  SECTION_SLOTS_INSUFFICIENT: '/ders-dagit/studyo/sinif-saatleri',
+  SECTION_SCHEDULE_TIGHT: '/ders-dagit/studyo/sinif-saatleri',
+  ASSIGN_SLOTS_BLOCKED: '/ders-dagit/studyo/atamalar',
 };
 
 const ASSIGNMENT_CODES = new Set([
@@ -28,6 +34,7 @@ const ASSIGNMENT_CODES = new Set([
   'ASSIGN_NO_TEACHER',
   'BIWEEKLY_ODD',
   'MIN_ASSIGNMENTS',
+  'ASSIGN_SLOTS_BLOCKED',
 ]);
 
 export function resolveValidationIssueHref(issue: {

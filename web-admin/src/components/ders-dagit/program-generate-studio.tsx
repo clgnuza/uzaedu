@@ -20,19 +20,30 @@ import {
   Archive,
   Copy,
   GripVertical,
+  Gauge,
   LayoutGrid,
   MousePointerClick,
   Pencil,
+  Settings2,
   Sparkles,
   Star,
+  Target,
   Trash2,
   Wand2,
+  Zap,
 } from 'lucide-react';
+import type { ComponentType } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { StudioValidationGate } from '@/components/ders-dagit/StudioValidationGate';
 import { computeStudioReadiness, type StudioReadiness } from '@/lib/ders-dagit-readiness';
+import { filterGenerateBlockingIssues } from '@/lib/ders-dagit-generate-gate';
+import {
+  DERS_DAGIT_ASSIGNMENTS_CHANGED,
+  type AssignmentsChangedDetail,
+} from '@/lib/ders-dagit-assignments-sync';
 import { apiFetch, type ApiError } from '@/lib/api';
+import type { ValidationIssue } from '@/lib/ders-dagit-timetable-api';
 import {
   archiveProgram,
   cloneProgram,
@@ -52,12 +63,49 @@ import type { ProgramScoreBreakdown } from '@/lib/ders-dagit-score-breakdown';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
+type GeneratePriority = 'coverage' | 'balanced' | 'fast';
+
+const PRIORITY_OPTIONS: Array<{
+  id: GeneratePriority;
+  title: string;
+  desc: string;
+  hint: string;
+  icon: ComponentType<{ className?: string }>;
+  recommended?: boolean;
+}> = [
+  {
+    id: 'coverage',
+    title: 'Tüm dersleri yerleştir',
+    desc: 'Boş ders kalmasın; çözücü tüm kombinasyonları zorlar.',
+    hint: 'Gelişmiş çözücü + 3 taslak + uzun süre. Yerleşmeyen ders kaldığında en iyi sonucu verir, biraz daha yavaştır.',
+    icon: Target,
+    recommended: true,
+  },
+  {
+    id: 'balanced',
+    title: 'Dengeli',
+    desc: 'Hız ve yerleşim arasında denge.',
+    hint: 'Standart süre ve tek taslak. Çoğu okul için yeterli.',
+    icon: Gauge,
+  },
+  {
+    id: 'fast',
+    title: 'Hızlı taslak',
+    desc: 'Hızlı önizleme; ince ayar sonra.',
+    hint: 'En hızlı seçenek. Yerleşmeyen ders olabilir; düzenleyiciden tamamlayın.',
+    icon: Zap,
+  },
+];
+
 type CompareRow = {
   id: string;
   name: string | null;
   score: number | null;
   entry_count: number;
   score_breakdown?: ProgramScoreBreakdown | null;
+  placement_percent?: number;
+  unplaced_hours?: number;
+  is_fully_placed?: boolean;
 };
 
 type PreviewState = {
@@ -82,10 +130,29 @@ const PREVIEW_DROP_ID = 'preview-drop';
 function generateErrorText(e: unknown): string {
   const err = e as ApiError;
   if (err?.code === 'STRICT_RULES_VIOLATED') {
-    return 'Zorunlu kurallara uyan program üretilemedi. Kurallar ve Planlama İlişkileri ekranını kontrol edin.';
+    const viol = err.details?.violations;
+    if (Array.isArray(viol) && viol.length) {
+      return viol
+        .slice(0, 5)
+        .map((v) => (typeof v === 'string' ? v : ''))
+        .filter(Boolean)
+        .join('\n');
+    }
+    return err.message || 'Zorunlu kurallar tam sağlanamadı — Kurallar / Planlama ilişkileri.';
+  }
+  if (err?.code === 'INTERNAL_ERROR') {
+    return 'Sunucu hatası. Backend güncel mi kontrol edin; biraz sonra tekrar deneyin.';
   }
   if (err?.code === 'VALIDATION_FAILED') {
-    return 'Üretim öncesi kontrollerde eksik/hata var. Doğrulama ekranındaki kırmızı kayıtları düzeltin.';
+    const issues = err.details?.issues;
+    if (Array.isArray(issues) && issues.length) {
+      return issues
+        .slice(0, 5)
+        .map((i) => (typeof i === 'object' && i && 'message' in i ? String((i as { message: string }).message) : ''))
+        .filter(Boolean)
+        .join('\n');
+    }
+    return err.message || 'Doğrulama hatası — kırmızı kayıtları düzeltin.';
   }
   if (err?.code === 'DUTY_CONFLICT') {
     return 'Nöbet saatleriyle çakışma var. Nöbet planı veya ders saatlerini gözden geçirin.';
@@ -145,7 +212,12 @@ function SortableDraftCard({
   });
   const style = { transform: CSS.Transform.toString(transform), transition };
 
-  const scorePct = draft.score != null ? Math.min(100, Math.max(0, draft.score)) : 0;
+  const scorePct =
+    draft.placement_percent != null
+      ? Math.min(100, Math.max(0, draft.placement_percent))
+      : draft.score != null
+        ? Math.min(100, Math.max(0, draft.score))
+        : 0;
 
   return (
     <div
@@ -185,7 +257,16 @@ function SortableDraftCard({
             />
           </div>
           <p className="mt-1 text-xs tabular-nums">
-            Puan <strong>{draft.score ?? '—'}</strong>
+            Yerleşme <strong>%{draft.placement_percent ?? '—'}</strong>
+            {draft.score != null ? (
+              <>
+                {' '}
+                · Puan <strong>{draft.score}</strong>
+              </>
+            ) : null}
+            {(draft.unplaced_hours ?? 0) > 0 ? (
+              <span className="text-amber-700 dark:text-amber-300"> · {draft.unplaced_hours} sa eksik</span>
+            ) : null}
           </p>
         </button>
       </div>
@@ -282,9 +363,11 @@ export function ProgramGenerateStudio() {
   const { studio, overview, refresh } = useDersDagitStudio();
   const readiness = computeStudioReadiness(overview);
   const [busy, setBusy] = useState(false);
-  const [useCsp, setUseCsp] = useState(true);
-  const [versions, setVersions] = useState('3');
-  const [durationSec, setDurationSec] = useState('90');
+  const [priority, setPriority] = useState<'coverage' | 'balanced' | 'fast'>('balanced');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [useCsp, setUseCsp] = useState(false);
+  const [versions, setVersions] = useState('1');
+  const [durationSec, setDurationSec] = useState('120');
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [draftOrder, setDraftOrder] = useState<string[]>([]);
   const [compareMap, setCompareMap] = useState<Map<string, CompareRow>>(new Map());
@@ -293,6 +376,31 @@ export function ProgramGenerateStudio() {
   const [previewSection, setPreviewSection] = useState('');
   const [existing, setExisting] = useState<DdProgramRow[]>([]);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [generateBlockers, setGenerateBlockers] = useState<ValidationIssue[]>([]);
+
+  const refreshGenerateBlockers = useCallback(async () => {
+    if (!token || !studio) return [];
+    const list = await apiFetch<ValidationIssue[]>(`/ders-dagit/studios/${studio.id}/validation`, {
+      token,
+    });
+    const blockers = filterGenerateBlockingIssues(list);
+    setGenerateBlockers(blockers);
+    return blockers;
+  }, [token, studio]);
+
+  useEffect(() => {
+    void refreshGenerateBlockers();
+  }, [refreshGenerateBlockers]);
+
+  useEffect(() => {
+    const onChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<AssignmentsChangedDetail>).detail;
+      if (detail?.studioId && detail.studioId !== studio?.id) return;
+      void refreshGenerateBlockers();
+    };
+    window.addEventListener(DERS_DAGIT_ASSIGNMENTS_CHANGED, onChanged);
+    return () => window.removeEventListener(DERS_DAGIT_ASSIGNMENTS_CHANGED, onChanged);
+  }, [studio?.id, refreshGenerateBlockers]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -371,9 +479,22 @@ export function ProgramGenerateStudio() {
     setPreview(null);
     setPreviewId(null);
     try {
+      const blockers = await refreshGenerateBlockers();
+      if (blockers.length) {
+        toast.error(
+          blockers
+            .slice(0, 5)
+            .map((b) => b.message)
+            .join('\n'),
+        );
+        return;
+      }
+      const body = showAdvanced
+        ? { duration_sec: Number(durationSec), versions: Number(versions), use_csp: useCsp, priority }
+        : { priority };
       const res = await apiFetch<GenerateResult & { entries_count: number }>(
         `/ders-dagit/studios/${studio.id}/generate`,
-        { token, method: 'POST', body: { duration_sec: Number(durationSec), versions: Number(versions), use_csp: useCsp } },
+        { token, method: 'POST', body },
       );
       setResult({
         programs: res.programs.map((p) => ({ id: p.id, name: p.name ?? 'Program', score: p.score })),
@@ -394,7 +515,12 @@ export function ProgramGenerateStudio() {
         const best = [...cmp.programs].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0];
         if (best) await loadPreview(best.id);
       }
-      toast.success(`${res.entries_count} ders saati yerleştirildi`);
+      const failed = res.failed ?? 0;
+      if (failed > 0) {
+        toast.warning(`${res.entries_count} saat yerleşti, ${failed} saat sığmadı — süreyi artırın veya kuralları gevşetin.`);
+      } else {
+        toast.success(`${res.entries_count} ders saati yerleştirildi`);
+      }
       await refresh({ force: true });
       await loadExisting();
     } catch (e) {
@@ -476,36 +602,107 @@ export function ProgramGenerateStudio() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <StudioValidationGate overview={overview} action="generate">
-                  <div className="grid gap-2">
-                    <DdSelectField
-                      label="Taslak"
-                      value={versions}
-                      onValueChange={setVersions}
-                      options={[
-                        { value: '1', label: '1' },
-                        { value: '2', label: '2' },
-                        { value: '3', label: '3' },
-                      ]}
-                    />
-                    <DdSelectField
-                      label="Süre (sn)"
-                      value={durationSec}
-                      onValueChange={setDurationSec}
-                      options={[
-                        { value: '60', label: '60' },
-                        { value: '90', label: '90' },
-                        { value: '120', label: '120' },
-                      ]}
-                    />
-                    <label className="flex cursor-pointer items-center gap-2 text-sm">
-                      <input type="checkbox" checked={useCsp} onChange={(e) => setUseCsp(e.target.checked)} />
-                      Gelişmiş yerleştirme
-                    </label>
+                  <div className="space-y-2.5">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Okulunuz için dağıtım hedefi
+                    </p>
+                    {PRIORITY_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setPriority(opt.id)}
+                        className={cn(
+                          'flex w-full items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors',
+                          priority === opt.id
+                            ? 'border-[rgb(var(--dd-accent))] bg-[rgb(var(--dd-accent))]/10 ring-2 ring-[rgb(var(--dd-accent))]/25'
+                            : 'border-border/70 hover:bg-muted/40',
+                        )}
+                      >
+                        <opt.icon
+                          className={cn(
+                            'mt-0.5 size-4 shrink-0',
+                            priority === opt.id ? 'text-[rgb(var(--dd-accent))]' : 'text-muted-foreground',
+                          )}
+                        />
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-1.5 text-sm font-medium">
+                            {opt.title}
+                            {opt.recommended && (
+                              <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-700 dark:text-emerald-300">
+                                Önerilen
+                              </span>
+                            )}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">{opt.desc}</span>
+                        </span>
+                      </button>
+                    ))}
                   </div>
-                  <DdAccentButton type="button" className="w-full" disabled={busy || !studio} onClick={() => void generate()}>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvanced((s) => !s)}
+                    className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    <Settings2 className="size-3.5" />
+                    Gelişmiş ayarlar {showAdvanced ? '▴' : '▾'}
+                  </button>
+                  {showAdvanced && (
+                    <div className="grid gap-2 rounded-lg border border-dashed border-border/70 p-2.5">
+                      <DdSelectField
+                        label="Taslak sayısı"
+                        value={versions}
+                        onValueChange={setVersions}
+                        options={[
+                          { value: '1', label: '1 (tek)' },
+                          { value: '2', label: '2' },
+                          { value: '3', label: '3 (karşılaştır)' },
+                        ]}
+                      />
+                      <DdSelectField
+                        label="Süre (sn)"
+                        value={durationSec}
+                        onValueChange={setDurationSec}
+                        options={[
+                          { value: '60', label: '60' },
+                          { value: '90', label: '90' },
+                          { value: '120', label: '120' },
+                          { value: '180', label: '180' },
+                          { value: '240', label: '240' },
+                        ]}
+                      />
+                      <label className="flex cursor-pointer items-center gap-2 text-sm" title="Büyük okullarda yavaş; yerleşemeyen çoksa açın">
+                        <input type="checkbox" checked={useCsp} onChange={(e) => setUseCsp(e.target.checked)} />
+                        Gelişmiş yerleştirme (yavaş, daha iyi)
+                      </label>
+                    </div>
+                  )}
+
+                  {generateBlockers.length > 0 && (
+                    <div className="rounded-lg border border-rose-500/40 bg-rose-500/5 px-2.5 py-2 text-xs text-rose-900 dark:text-rose-100">
+                      <p className="font-medium">Üretimi engelleyen hatalar</p>
+                      <ul className="mt-1 list-inside list-disc space-y-0.5">
+                        {generateBlockers.slice(0, 6).map((b, i) => (
+                          <li key={`${b.code}-${i}`}>{b.message}</li>
+                        ))}
+                      </ul>
+                      <Link href="/ders-dagit/studyo/dogrulama" className="mt-1 inline-block text-primary underline">
+                        Doğrulama
+                      </Link>
+                    </div>
+                  )}
+                  <DdAccentButton
+                    type="button"
+                    className="w-full"
+                    disabled={busy || !studio || generateBlockers.length > 0}
+                    onClick={() => void generate()}
+                  >
                     <Wand2 className="mr-2 size-4" />
-                    {busy ? 'Oluşturuluyor…' : `${versions} taslak oluştur`}
+                    {busy ? 'Oluşturuluyor…' : 'Program oluştur'}
                   </DdAccentButton>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    {PRIORITY_OPTIONS.find((o) => o.id === priority)?.hint}
+                  </p>
                 </StudioValidationGate>
               </CardContent>
             </DdCard>

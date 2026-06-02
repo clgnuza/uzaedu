@@ -1,10 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import {
-  AssignmentCapacityAlerts,
-  type AssignmentCapacityWarning,
-} from '@/components/ders-dagit/assignment-capacity-alerts';
 import { apiFetch } from '@/lib/api';
 import {
   distributionOptionsForHours,
@@ -115,8 +111,6 @@ export function LessonAssignmentDialog({
   lockRoomId,
 }: Props) {
   const [saving, setSaving] = useState(false);
-  const [capacityWarnings, setCapacityWarnings] = useState<AssignmentCapacityWarning[]>([]);
-  const [capacityLoading, setCapacityLoading] = useState(false);
   const [showCoTeachers, setShowCoTeachers] = useState(false);
   const [showJoined, setShowJoined] = useState(false);
   const [showMoreRooms, setShowMoreRooms] = useState(false);
@@ -160,73 +154,6 @@ export function LessonAssignmentDialog({
     onDraftChange({ ...d, ...p });
   }
 
-  useEffect(() => {
-    if (!open) {
-      setCapacityWarnings([]);
-      setCapacityLoading(false);
-    }
-  }, [open]);
-
-  const coTeacherKey = d.co_teacher_ids.join(',');
-  const roomIdsKey = d.room_ids.join(',');
-
-  useEffect(() => {
-    if (!open) return;
-    const canCheck =
-      classSectionsKey.length > 0 && !!d.primary_teacher_id && d.weekly_hours >= 1;
-    if (!canCheck) {
-      setCapacityWarnings([]);
-      setCapacityLoading(false);
-      return;
-    }
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => {
-      setCapacityLoading(true);
-      void apiFetch<AssignmentCapacityWarning[]>(
-        `/ders-dagit/studios/${studioId}/assignments/capacity-check`,
-        {
-          token,
-          method: 'POST',
-          signal: ctrl.signal,
-          body: { ...draftToApiBody(d, rooms), class_sections: classSectionsForSave },
-        },
-      )
-        .then((w) => {
-          if (!ctrl.signal.aborted) setCapacityWarnings(w);
-        })
-        .catch(() => {
-          if (!ctrl.signal.aborted) setCapacityWarnings([]);
-        })
-        .finally(() => {
-          if (!ctrl.signal.aborted) setCapacityLoading(false);
-        });
-    }, 320);
-    return () => {
-      clearTimeout(timer);
-      ctrl.abort();
-    };
-  }, [
-    open,
-    studioId,
-    token,
-    d.id,
-    d.primary_teacher_id,
-    d.subject_id,
-    d.subject_name,
-    d.weekly_hours,
-    d.biweekly,
-    d.group_id,
-    d.room_mode,
-    classSectionsKey,
-    coTeacherKey,
-    roomIdsKey,
-  ]);
-
-  const capacityErrors = useMemo(
-    () => capacityWarnings.filter((w) => w.severity === 'error'),
-    [capacityWarnings],
-  );
-
   function applyRoomMode(mode: RoomPickMode) {
     const ids = suggestRooms(mode, {
       section: d.section,
@@ -244,10 +171,6 @@ export function LessonAssignmentDialog({
     }
     if (!d.primary_teacher_id) {
       toast.error('Öğretmen seçin');
-      return;
-    }
-    if (capacityErrors.length) {
-      toast.error(capacityErrors[0]!.message);
       return;
     }
     setSaving(true);
@@ -281,7 +204,10 @@ export function LessonAssignmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DdDialogContent className="flex max-h-[min(90vh,720px)] w-[min(100vw-1.5rem,34rem)] max-w-xl flex-col gap-0 overflow-hidden p-0">
+      <DdDialogContent
+        scrollBody={false}
+        className="flex max-h-[min(92dvh,calc(100dvh-1.5rem))] w-[min(100vw-1.5rem,34rem)] max-w-xl flex-col gap-0 overflow-hidden p-0"
+      >
         <header className="shrink-0 border-b px-3 py-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
@@ -518,19 +444,10 @@ export function LessonAssignmentDialog({
               )}
             </FormBlock>
           </div>
+
         </div>
 
-        {(capacityWarnings.length > 0 || capacityLoading) && (
-          <div className="shrink-0 border-t px-3 py-2">
-            {capacityLoading && capacityWarnings.length === 0 ? (
-              <p className="text-[11px] text-muted-foreground">Kapasite kontrol ediliyor…</p>
-            ) : (
-              <AssignmentCapacityAlerts warnings={capacityWarnings} />
-            )}
-          </div>
-        )}
-
-        <DialogFooter className="shrink-0 gap-2 border-t px-3 py-2 sm:justify-between">
+        <DialogFooter className="shrink-0 gap-2 border-t bg-background px-3 py-2.5 sm:justify-between">
           <Button type="button" variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             İptal
           </Button>
@@ -545,10 +462,10 @@ export function LessonAssignmentDialog({
               type="button"
               size="sm"
               className="h-8 min-w-[4.5rem]"
-              disabled={saving || capacityErrors.length > 0 || capacityLoading}
+              disabled={saving}
               onClick={() => void save()}
             >
-              {saving ? '…' : 'Kaydet'}
+              {saving ? '…' : d.id ? 'Güncelle' : 'Kaydet'}
             </DdAccentButton>
           </div>
         </DialogFooter>

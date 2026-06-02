@@ -199,14 +199,14 @@ export function TimetableSidebar({
 
       {!hideUnplaced && (
         <SidebarCard title="Atanmamış dersler" icon={Clock} badge={unplaced.length}>
-          <div className="max-h-36 space-y-1.5 overflow-y-auto">
+          <div className="max-h-52 space-y-1.5 overflow-y-auto">
             {unplaced.length === 0 ? (
               <p className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300">
                 <CheckCircle2 className="size-3.5 shrink-0" />
                 Tüm atamalar yerleşmiş.
               </p>
             ) : (
-              unplaced.slice(0, 30).map((u) => (
+              unplaced.map((u) => (
                 <PoolChip
                   key={u.assignment_id}
                   assignmentId={u.assignment_id}

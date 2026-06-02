@@ -1,4 +1,5 @@
 import type { StudioOverview } from '@/hooks/use-ders-dagit-studio';
+import { filterGenerateBlockingIssues } from '@/lib/ders-dagit-generate-gate';
 
 export type ReadinessPhase = 'data' | 'rules' | 'program';
 
@@ -33,8 +34,9 @@ export function computeStudioReadiness(overview: StudioOverview | null): StudioR
     };
   }
   const c = overview.counts;
-  const errors = overview.validation.filter((v) => v.severity === 'error');
-  const warns = overview.validation.filter((v) => v.severity !== 'error');
+  const errors = filterGenerateBlockingIssues(overview.validation);
+  const blockingKeys = new Set(errors.map((e) => `${e.code}\0${e.message}`));
+  const warns = overview.validation.filter((v) => !blockingKeys.has(`${v.code}\0${v.message}`));
   const st = overview.studio.settings as { period?: { work_days?: number[] }; work_days?: number[] } | undefined;
   const periodOk = !!((st?.period?.work_days ?? st?.work_days)?.length);
 
@@ -49,9 +51,18 @@ export function computeStudioReadiness(overview: StudioOverview | null): StudioR
     { id: 'rules', label: 'Kurallar', href: '/ders-dagit/studyo/kurallar', done: true },
     { id: 'validate', label: 'Doğrulama temiz', href: '/ders-dagit/studyo/dogrulama', done: errors.length === 0, required: true },
   ];
+  const placement = overview.placement;
+  const hasProgram = (c.programCount ?? 0) >= 1;
+  const placementOk = !hasProgram || (placement?.is_fully_placed ?? false);
   const programSteps: ReadinessStep[] = [
-    { id: 'programs', label: 'En az 1 program', href: '/ders-dagit/studyo/uret', done: (c.programCount ?? 0) >= 1 },
-    { id: 'editor', label: 'Program tablosu', href: '/ders-dagit/studyo/program', done: (c.programCount ?? 0) >= 1 },
+    { id: 'programs', label: 'En az 1 program', href: '/ders-dagit/studyo/uret', done: hasProgram },
+    {
+      id: 'placement',
+      label: 'Tüm ders saatleri yerleşti',
+      href: '/ders-dagit/studyo/program',
+      done: placementOk,
+      required: true,
+    },
   ];
 
   const phasePct = (steps: ReadinessStep[]) => {
@@ -65,13 +76,19 @@ export function computeStudioReadiness(overview: StudioOverview | null): StudioR
     rules: { label: 'Kurallar', percent: phasePct(rulesSteps), steps: rulesSteps },
     program: { label: 'Program', percent: phasePct(programSteps), steps: programSteps },
   };
-  const percent = Math.round((phases.data.percent + phases.rules.percent + phases.program.percent) / 3);
+  let percent = Math.round((phases.data.percent + phases.rules.percent + phases.program.percent) / 3);
+  if (placement && placement.required_hours > 0 && !placement.is_fully_placed) {
+    percent = Math.min(percent, placement.placement_percent);
+  }
   const canGenerate = dataSteps.filter((s) => s.required).every((s) => s.done) && errors.length === 0;
-  const canPublish = canGenerate && (c.programCount ?? 0) >= 1;
+  const canPublish = canGenerate && hasProgram && placementOk;
 
   let blockReason: string | undefined;
   if (errors.length > 0) blockReason = `${errors.length} doğrulama hatası`;
   else if ((c.assignmentCount ?? 0) < 1) blockReason = 'Atama eksik';
+  else if (hasProgram && !placementOk && placement) {
+    blockReason = `${placement.unplaced_hours} saat yerleşmedi (%${placement.placement_percent} tamam)`;
+  } else if (hasProgram && !placementOk) blockReason = 'Yerleşmemiş ders saati var';
 
   return {
     percent,

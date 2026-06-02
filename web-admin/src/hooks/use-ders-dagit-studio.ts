@@ -4,6 +4,11 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch, isApiErrorCode } from '@/lib/api';
 import { invalidateStudioValidationCache } from '@/hooks/use-studio-validation';
+import {
+  DERS_DAGIT_ASSIGNMENTS_CHANGED,
+  type AssignmentsChangedDetail,
+} from '@/lib/ders-dagit-assignments-sync';
+import type { ValidationIssue } from '@/lib/ders-dagit-timetable-api';
 
 export type DersDagitStudio = {
   id: string;
@@ -16,9 +21,19 @@ export type DersDagitStudio = {
   settings?: Record<string, unknown>;
 };
 
+export type ProgramPlacementSummary = {
+  required_hours: number;
+  placed_hours: number;
+  unplaced_count: number;
+  unplaced_hours: number;
+  placement_percent: number;
+  is_fully_placed: boolean;
+};
+
 export type StudioOverview = {
   studio: DersDagitStudio;
   counts: Record<string, number>;
+  placement?: ProgramPlacementSummary | null;
   validation: Array<{
     code: string;
     severity: string;
@@ -31,12 +46,19 @@ export type StudioOverview = {
   health_score: number;
 };
 
+export type DersDagitStudioRefreshOpts = {
+  /** Önbelleği temizle + tam özet (doğrulama dahil) */
+  force?: boolean;
+  /** Yalnız sayaçlar — doğrulama/yerleşme yeniden hesaplanmaz */
+  light?: boolean;
+};
+
 export type DersDagitStudioContextValue = {
   studio: DersDagitStudio | null;
   overview: StudioOverview | null;
   loading: boolean;
   error: string | null;
-  refresh: (opts?: { force?: boolean }) => Promise<void>;
+  refresh: (opts?: DersDagitStudioRefreshOpts) => Promise<void>;
 };
 
 const STUDIO_LIST_CACHE_MS = 120_000;
@@ -74,17 +96,28 @@ function fetchStudioList(token: string, force = false): Promise<DersDagitStudio[
   return p;
 }
 
-function fetchStudioOverview(token: string, studioId: string, force = false): Promise<StudioOverview> {
-  const key = `${token}:${studioId}`;
-  const cached = overviewCache.get(key);
-  if (!force && cached && Date.now() - cached.at < STUDIO_OVERVIEW_CACHE_MS) {
-    return Promise.resolve(cached.data);
+function fetchStudioOverview(
+  token: string,
+  studioId: string,
+  opts?: { force?: boolean; light?: boolean },
+): Promise<StudioOverview> {
+  const light = opts?.light === true;
+  const force = opts?.force === true;
+  const key = `${token}:${studioId}${light ? ':light' : ''}`;
+  if (!force && !light) {
+    const cached = overviewCache.get(`${token}:${studioId}`);
+    if (cached && Date.now() - cached.at < STUDIO_OVERVIEW_CACHE_MS) {
+      return Promise.resolve(cached.data);
+    }
   }
   const inflight = overviewInflight.get(key);
   if (inflight) return inflight;
-  const p = apiFetch<StudioOverview>(`/ders-dagit/studios/${studioId}/overview`, { token })
+  const path = light
+    ? `/ders-dagit/studios/${studioId}/overview?light=1`
+    : `/ders-dagit/studios/${studioId}/overview`;
+  const p = apiFetch<StudioOverview>(path, { token })
     .then((data) => {
-      overviewCache.set(key, { data, at: Date.now() });
+      if (!light) overviewCache.set(`${token}:${studioId}`, { data, at: Date.now() });
       return data;
     })
     .finally(() => {
@@ -122,16 +155,39 @@ export function useDersDagitStudioState(active: boolean): DersDagitStudioContext
   const [loading, setLoading] = useState(active);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async (opts?: { force?: boolean }) => {
+  const refresh = useCallback(async (opts?: DersDagitStudioRefreshOpts) => {
     if (!active) return;
     if (!token || (me?.role !== 'school_admin' && me?.role !== 'teacher')) {
       setLoading(false);
       return;
     }
     const force = opts?.force === true;
-    if (force) clearDersDagitStudioCache();
+    const light = opts?.light === true;
+    if (light && token && me?.role === 'school_admin') {
+      const sid = studio?.id ?? overview?.studio?.id;
+      if (sid) {
+        void fetchStudioOverview(token, sid, { light: true })
+          .then((ov) => {
+            if (!ov) return;
+            setOverview((prev) =>
+              prev
+                ? {
+                    ...ov,
+                    validation: prev.validation,
+                    placement: prev.placement,
+                    health_score: prev.health_score,
+                  }
+                : ov,
+            );
+            setStudio(ov.studio);
+          })
+          .catch(() => {});
+      }
+      return;
+    }
+    if (force && !light) clearDersDagitStudioCache();
 
-    const warm = !force ? hydrateFromCaches(token) : { studio: null, overview: null };
+    const warm = !force && !light ? hydrateFromCaches(token) : { studio: null, overview: null };
     if (warm.studio) {
       setStudio(warm.studio);
       setOverview(warm.overview);
@@ -152,14 +208,35 @@ export function useDersDagitStudioState(active: boolean): DersDagitStudioContext
         setError('Henüz stüdyo oluşturulmamış');
         setStudio(null);
         setOverview(null);
+        setLoading(false);
         return;
       }
       setStudio(s);
-      const ov =
-        me?.role === 'school_admin' ? await fetchStudioOverview(token, s.id, force) : null;
-      if (ov) {
-        setOverview(ov);
-        setStudio(ov.studio);
+      // Stüdyo hazır: sayfalar id ile kendi verilerini çekebilir — bekletme.
+      setLoading(false);
+      if (me?.role === 'school_admin') {
+        // Overview (sayaç + doğrulama) arka planda; geldiğinde günceller.
+        const studioId = s.id;
+        void fetchStudioOverview(token, studioId, { force: force && !light, light })
+          .then((ov) => {
+            if (!ov) return;
+            if (light) {
+              setOverview((prev) =>
+                prev
+                  ? {
+                      ...ov,
+                      validation: prev.validation,
+                      placement: prev.placement,
+                      health_score: prev.health_score,
+                    }
+                  : ov,
+              );
+            } else {
+              setOverview(ov);
+            }
+            setStudio(ov.studio);
+          })
+          .catch(() => {});
       } else {
         setOverview(null);
       }
@@ -169,15 +246,31 @@ export function useDersDagitStudioState(active: boolean): DersDagitStudioContext
       } else {
         setError(e instanceof Error ? e.message : 'Yüklenemedi');
       }
-    } finally {
       setLoading(false);
     }
-  }, [active, token, me?.role]);
+  }, [active, token, me?.role, studio?.id, overview?.studio?.id]);
 
   useEffect(() => {
     if (!active) return;
     void refresh();
   }, [active, refresh]);
+
+  useEffect(() => {
+    if (!active || !token || me?.role !== 'school_admin') return;
+    const onAssignmentsChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<AssignmentsChangedDetail>).detail;
+      const sid = studio?.id ?? overview?.studio?.id;
+      if (!sid || (detail?.studioId && detail.studioId !== sid)) return;
+      invalidateStudioValidationCache(sid);
+      void apiFetch<ValidationIssue[]>(`/ders-dagit/studios/${sid}/validation`, { token }).then(
+        (validation) => {
+          setOverview((prev) => (prev ? { ...prev, validation } : prev));
+        },
+      );
+    };
+    window.addEventListener(DERS_DAGIT_ASSIGNMENTS_CHANGED, onAssignmentsChanged);
+    return () => window.removeEventListener(DERS_DAGIT_ASSIGNMENTS_CHANGED, onAssignmentsChanged);
+  }, [active, token, me?.role, studio?.id, overview?.studio?.id]);
 
   return { studio, overview, loading, error, refresh };
 }

@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
+import {
+  DERS_DAGIT_ASSIGNMENTS_CHANGED,
+  type AssignmentsChangedDetail,
+} from '@/lib/ders-dagit-assignments-sync';
 import type { ValidationIssue } from '@/lib/ders-dagit-timetable-api';
 
 const CACHE_MS = 90_000;
@@ -21,7 +25,7 @@ export function invalidateStudioValidationCache(studioId?: string) {
 }
 
 type UseStudioValidationOptions = {
-  /** Stüdyo özetinden — sayfa açılışında ek API çağrısı yapılmaz */
+  /** İlk çerçeve — sunucudan taze doğrulama yine de çekilir */
   initialIssues?: ValidationIssue[] | null;
 };
 
@@ -31,17 +35,9 @@ export function useStudioValidation(
 ) {
   const { token } = useAuth();
   const initialIssues = opts?.initialIssues;
-  const hasSnapshot = Boolean(initialIssues?.length);
   const [issues, setIssues] = useState<ValidationIssue[]>(() => initialIssues ?? []);
-  const [ready, setReady] = useState(hasSnapshot);
+  const [ready, setReady] = useState(false);
   const [syncing, setSyncing] = useState(false);
-
-  useEffect(() => {
-    if (initialIssues) {
-      setIssues(initialIssues);
-      setReady(true);
-    }
-  }, [initialIssues]);
 
   const refresh = useCallback(
     async (fetchOpts?: { force?: boolean }) => {
@@ -84,9 +80,19 @@ export function useStudioValidation(
   );
 
   useEffect(() => {
-    if (!token || !studioId || hasSnapshot) return;
-    void refresh();
-  }, [token, studioId, hasSnapshot, refresh]);
+    if (!token || !studioId) return;
+    void refresh({ force: true });
+  }, [token, studioId, refresh]);
+
+  useEffect(() => {
+    const onAssignmentsChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<AssignmentsChangedDetail>).detail;
+      if (detail?.studioId && detail.studioId !== studioId) return;
+      void refresh({ force: true });
+    };
+    window.addEventListener(DERS_DAGIT_ASSIGNMENTS_CHANGED, onAssignmentsChanged);
+    return () => window.removeEventListener(DERS_DAGIT_ASSIGNMENTS_CHANGED, onAssignmentsChanged);
+  }, [studioId, refresh]);
 
   const errors = issues.filter((i) => i.severity === 'error');
   const warns = issues.filter((i) => i.severity !== 'error');

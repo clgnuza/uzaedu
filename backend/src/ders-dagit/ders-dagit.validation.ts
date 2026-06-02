@@ -111,7 +111,7 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
       if (total > capacity) {
         issues.push({
           code: 'CLASS_OVER_CAPACITY',
-          severity: 'error',
+          severity: 'warning',
           message: `${label}: haftalık ${total} saat, şube kapasitesi ${capacity} saati aşıyor.`,
           fix_hint: 'Profilde günlük ders üst sınırını artırın veya bu şubenin atama saatlerini azaltın.',
           entity_type: 'class_profile',
@@ -121,7 +121,7 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
       if (cp.min_weekly_lessons != null && total < cp.min_weekly_lessons) {
         issues.push({
           code: 'CLASS_UNDER_MIN',
-          severity: 'error',
+          severity: 'warning',
           message: `${label}: haftalık ${total} saat, minimum ${cp.min_weekly_lessons} saatin altında.`,
           entity_type: 'class_profile',
           entity_id: cp.id,
@@ -130,7 +130,7 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
       if (cp.max_weekly_lessons != null && total > cp.max_weekly_lessons) {
         issues.push({
           code: 'CLASS_OVER_MAX',
-          severity: 'error',
+          severity: 'warning',
           message: `${label}: haftalık ${total} saat, üst sınır ${cp.max_weekly_lessons} saati aşıyor.`,
           entity_type: 'class_profile',
           entity_id: cp.id,
@@ -184,8 +184,8 @@ export function validateStudioData(input: StudioValidationInput): ValidationIssu
       issues.push({
         code: 'NO_ROOMS_LIST',
         severity: 'warning',
-        message: `${assignLabel}: derslik seçilmemiş.`,
-        fix_hint: 'Derslik zorunlu kuralı açıksa program üretilemez.',
+        message: `${assignLabel}: derslik seçilmemiş (isteğe bağlı).`,
+        fix_hint: 'Derslik seçmek önerilir; boş bırakılabilir.',
         entity_type: 'assignment',
         entity_id: a.id,
       });

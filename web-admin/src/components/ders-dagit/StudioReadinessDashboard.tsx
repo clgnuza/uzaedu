@@ -316,10 +316,16 @@ export function StudioReadinessDashboard({ overview }: { overview: StudioOvervie
         <StudioIssueCards issues={overview.validation} title="Açık sorunlar" max={10} />
       )}
 
-      {r.errorCount === 0 && r.warnCount === 0 && r.percent >= 80 && (
+      {r.errorCount === 0 && r.warnCount === 0 && r.canGenerate && !r.canPublish && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
+          <CheckCircle2 className="size-5 shrink-0" />
+          Kurulum tamam — program üretildi; tüm saatler yerleşmeden yayınlanamaz.
+        </div>
+      )}
+      {r.errorCount === 0 && r.warnCount === 0 && r.canPublish && (
         <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
           <CheckCircle2 className="size-5 shrink-0" />
-          Kurulum ve doğrulama tamam — program üretimine geçebilirsiniz.
+          Yayına hazır — program tablosunda son kontrolü yapıp okula aktarabilirsiniz.
         </div>
       )}
     </div>

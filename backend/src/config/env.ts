@@ -19,6 +19,12 @@ export const env = {
   /** local + true: TypeORM synchronize. false: şema elle (migration SQL) */
   typeormSync: process.env.TYPEORM_SYNC !== 'false',
   debug: process.env.APP_DEBUG === 'true',
+  /** true: her SQL satırı (çok yavaş); false: yalnız TYPEORM_LOG=true */
+  typeormLog: process.env.TYPEORM_LOG === 'true',
+  perfLog:
+    process.env.APP_PERF_LOG === 'true' ||
+    (process.env.APP_PERF_LOG !== 'false' &&
+      (process.env.APP_ENV === 'local' || !process.env.APP_ENV || process.env.APP_ENV === 'development')),
   useSqlite: process.env.APP_USE_SQLITE === 'true',
   db: {
     host: process.env.DB_HOST || '127.0.0.1',

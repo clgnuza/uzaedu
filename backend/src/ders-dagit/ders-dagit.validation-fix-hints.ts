@@ -13,7 +13,7 @@ export const VALIDATION_FIX_HINTS: Record<string, { fix_hint: string }> = {
   TEACHER_OVER_MAX: { fix_hint: 'Öğretmenler sayfasında limitleri veya atama saatlerini düzenleyin.' },
   TEACHER_UNDER_MIN: { fix_hint: 'Atamalar sayfasında öğretmene daha fazla ders verin.' },
   NO_ROOMS_LIST: {
-    fix_hint: 'Atamada derslik seçin veya Derslikler sayfasından sınıf dersliği oluşturun.',
+    fix_hint: 'İsteğe bağlı: atamada derslik seçin veya Derslikler sayfasından sınıf dersliği tanımlayın.',
   },
   BIWEEKLY_ODD: { fix_hint: 'Atamada iki haftada bir derslerin toplam saati çift olmalı.' },
   ASSIGN_NO_SECTION: { fix_hint: 'Atamaya sınıf/şube ekleyin.' },
@@ -25,6 +25,24 @@ export const VALIDATION_FIX_HINTS: Record<string, { fix_hint: string }> = {
   AIHL_NORM_EXCEEDED: { fix_hint: 'Seçmeli / AİHL kataloğuna ve atamalara göre haftalık normu düzenleyin.' },
   PLANNING_STRICT_UNSUPPORTED: {
     fix_hint: 'Planlama ilişkilerinde kuralı gevşetin veya kaldırın.',
+  },
+  TEACHER_SLOTS_INSUFFICIENT: {
+    fix_hint: 'Öğretmen müsaitliği, nöbet veya atama yükünü düzenleyin; çalışma günü/saat artırın.',
+  },
+  TEACHER_SCHEDULE_TIGHT: {
+    fix_hint: 'Kapalı saatleri azaltın veya atamayı başka öğretmene kaydırın.',
+  },
+  TEACHER_HIGH_UNAVAILABLE: {
+    fix_hint: 'Müsaitlik onaylarını ve nöbet planını gözden geçirin.',
+  },
+  SECTION_SLOTS_INSUFFICIENT: {
+    fix_hint: 'Sınıf saatleri sayfasında kapalı/staj hücrelerini açın veya ders saatini azaltın.',
+  },
+  SECTION_SCHEDULE_TIGHT: {
+    fix_hint: 'Şube çizelgesinde kapalı günleri azaltın.',
+  },
+  ASSIGN_SLOTS_BLOCKED: {
+    fix_hint: 'Atamadaki kapalı saat kurallarını gevşetin.',
   },
 };
 

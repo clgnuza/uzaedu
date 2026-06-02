@@ -146,24 +146,128 @@ function repairWithMoves(
   };
 }
 
-/** Greedy + CSP taban + gün sırası + swap/taşıma (Faz 20). */
+/** Yerleşmeyen atamaları boş slotlara zorla yerleştirmeyi dener (sert kuralları bozmadan). */
+function placeMissing(
+  base: SolverResult,
+  assignments: SolverAssignment[],
+  ctx: SolverContext,
+): SolverResult {
+  const target = assignments.reduce((s, a) => s + effHours(a), 0);
+  if (base.entries.length >= target) return base;
+
+  const byId = new Map(assignments.map((a) => [a.id, a]));
+  let entries = base.entries.filter(Boolean);
+
+  const placedById = new Map<string, number>();
+  for (const e of entries) placedById.set(e.assignment_id, (placedById.get(e.assignment_id) ?? 0) + 1);
+
+  const occupied = new Map<string, SolverSlot[]>();
+  for (const e of entries) {
+    const key = `${e.day_of_week}:${e.lesson_num}`;
+    const arr = occupied.get(key) ?? [];
+    arr.push(e);
+    occupied.set(key, arr);
+  }
+
+  const days = ctx.day_order?.length ? ctx.day_order : ctx.work_days;
+  for (const a of assignments) {
+    const need = effHours(a) * Math.max(1, a.class_sections.length);
+    let have = placedById.get(a.id) ?? 0;
+    if (have >= need) continue;
+    const uid = a.teacher_ids[0] ?? null;
+    for (const sec of a.class_sections) {
+      if (have >= need) break;
+      for (const day of days) {
+        if (have >= need) break;
+        const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
+        for (let lesson = 1; lesson <= dayMax; lesson++) {
+          if (ctx.blocked_lesson_nums.has(lesson)) continue;
+          if (!canPlace(occupied, day, lesson, sec, uid, ctx, a)) continue;
+          if (placementBlocked(entries, ctx, a, day, lesson, uid)) continue;
+          const slot: SolverSlot = {
+            day_of_week: day,
+            lesson_num: lesson,
+            class_section: sec,
+            subject: a.subject_name,
+            user_id: uid,
+            assignment_id: a.id,
+            room_id: a.room_ids[0] ?? null,
+            group_id: a.group_id,
+          };
+          const trial = [...entries, slot];
+          if (!isValidEntries(trial, assignments, ctx)) continue;
+          entries = trial;
+          const key = `${day}:${lesson}`;
+          const arr = occupied.get(key) ?? [];
+          arr.push(slot);
+          occupied.set(key, arr);
+          have++;
+          break;
+        }
+      }
+    }
+    placedById.set(a.id, have);
+  }
+
+  return {
+    ...base,
+    entries,
+    placed: entries.length,
+    failed: Math.max(0, target - entries.length),
+    score: scoreEntries(entries, assignments, ctx),
+  };
+}
+
+const ASSIGNMENT_ORDER_STRATEGIES: NonNullable<SolverContext['assignment_order']>[] = [
+  'default',
+  'hardest_first',
+  'most_hours',
+  'fewest_slots',
+  'random',
+];
+
+/** Greedy + CSP taban + gün/atama sırası varyasyonları + swap/taşıma + eksik doldurma. */
 export function improveWithLocalSearch(
   assignments: SolverAssignment[],
   ctx: SolverContext,
   iterations = 24,
   seed?: SolverResult,
 ): SolverResult {
-  let best = seed ?? runConstraintSolver(assignments, ctx);
+  let best = placeMissing(
+    seed ?? runConstraintSolver(assignments, ctx),
+    assignments,
+    ctx,
+  );
   const baseDays = ctx.work_days.length ? ctx.work_days : [1, 2, 3, 4, 5];
   const repairPasses = Math.max(8, Math.floor(iterations / 2));
+  const target = assignments.reduce((s, a) => s + effHours(a), 0);
+
   for (let i = 0; i < iterations; i++) {
+    // Yerleşmeme sürdükçe daha agresif: her turda farklı atama sırası + gün sırası dene.
+    const orderStrat =
+      i === 0
+        ? 'default'
+        : ASSIGNMENT_ORDER_STRATEGIES[i % ASSIGNMENT_ORDER_STRATEGIES.length]!;
     const cand = runConstraintSolver(assignments, {
       ...ctx,
       day_order: i === 0 ? ctx.day_order : shuffle(baseDays),
+      assignment_order: orderStrat,
     });
-    const repaired = repairWithMoves(cand, assignments, ctx, repairPasses);
+    const filled = placeMissing(cand, assignments, ctx);
+    const repaired = repairWithMoves(filled, assignments, ctx, repairPasses);
     if (better(repaired, best)) best = repaired;
-    else if (better(cand, best)) best = cand;
+    else if (better(filled, best)) best = filled;
+    // Tüm saatler yerleşti ve sert ihlal yoksa erken çık.
+    if (best.failed === 0 && best.entries.length >= target) {
+      const soft = applySoftRulePenalties(best.entries, assignments, ctx);
+      if (soft.strict_violations.length === 0) break;
+    }
   }
-  return repairWithMoves(best, assignments, ctx, repairPasses);
+  const finalRepaired = repairWithMoves(
+    placeMissing(best, assignments, ctx),
+    assignments,
+    ctx,
+    repairPasses,
+  );
+  return better(finalRepaired, best) ? finalRepaired : best;
 }

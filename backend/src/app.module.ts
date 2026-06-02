@@ -60,7 +60,7 @@ function getTypeOrmConfig(): TypeOrmModuleOptions {
     entities: [__dirname + '/**/*.entity{.ts,.js}'],
     autoLoadEntities: true,
     synchronize: env.nodeEnv === 'local' && env.typeormSync,
-    logging: env.debug,
+    logging: env.typeormLog,
   };
   if (env.useSqlite) {
     const dir = path.join(process.cwd(), 'data');

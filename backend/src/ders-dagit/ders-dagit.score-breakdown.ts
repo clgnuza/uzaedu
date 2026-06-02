@@ -27,13 +27,41 @@ function countClashes(entries: SolverSlot[], ctx: SolverContext): number {
   }
   let clashCount = 0;
   for (const [, slots] of occupied) {
-    const teachers = new Set(slots.map((s) => s.user_id).filter(Boolean));
-    const classes = new Set(slots.map((s) => s.class_section));
-    const gid = slots[0]?.group_id;
-    const gMode = gid ? ctx.group_modes.get(gid) : undefined;
-    const subgroupOk = gMode === 'subgroups' && gid && slots.every((s) => s.group_id === gid);
-    if (!subgroupOk && teachers.size < slots.filter((s) => s.user_id).length) clashCount++;
-    if (classes.size < slots.length && !subgroupOk) clashCount++;
+    // Teacher clash: aynı öğretmen aynı slota birden fazla ders.
+    const byTeacher = new Map<string, SolverSlot[]>();
+    for (const s of slots) {
+      if (!s.user_id) continue;
+      const arr = byTeacher.get(s.user_id) ?? [];
+      arr.push(s);
+      byTeacher.set(s.user_id, arr);
+    }
+    for (const tSlots of byTeacher.values()) {
+      if (tSlots.length <= 1) continue;
+      const gid = tSlots[0]?.group_id ?? null;
+      const gMode = gid ? ctx.group_modes.get(gid) : undefined;
+      const sameGroup = gid && tSlots.every((x) => x.group_id === gid);
+      const allowed = sameGroup && (gMode === 'teacher_multi_class' || gMode === 'subgroups');
+      if (!allowed) {
+        clashCount++;
+        break;
+      }
+    }
+
+    // Class clash: aynı şube aynı slota birden fazla ders (co_teach aynı assignment ise sorun değil).
+    const byClass = new Map<string, SolverSlot[]>();
+    for (const s of slots) {
+      const arr = byClass.get(s.class_section) ?? [];
+      arr.push(s);
+      byClass.set(s.class_section, arr);
+    }
+    for (const cSlots of byClass.values()) {
+      if (cSlots.length <= 1) continue;
+      const sameAssignment = cSlots.every((x) => x.assignment_id === cSlots[0]!.assignment_id);
+      if (!sameAssignment) {
+        clashCount++;
+        break;
+      }
+    }
   }
   return clashCount;
 }
@@ -49,8 +77,12 @@ export function buildProgramScoreBreakdown(
   ctx: SolverContext,
   violations: string[],
 ): ProgramScoreBreakdown {
-  const target = assignments.reduce((s, a) => s + effHours(a), 0);
-  const failed = Math.max(0, target - entries.length);
+  const target = assignments.reduce(
+    (s, a) => s + effHours(a) * Math.max(1, a.class_sections?.length ?? 1),
+    0,
+  );
+  const uniquePlaced = new Set(entries.map((e) => `${e.assignment_id}:${e.class_section}:${e.day_of_week}:${e.lesson_num}`)).size;
+  const failed = Math.max(0, target - uniquePlaced);
   const soft = applySoftRulePenalties(entries, assignments, ctx);
   const clashCount = countClashes(entries, ctx);
   const strictSet = new Set(soft.strict_violations);

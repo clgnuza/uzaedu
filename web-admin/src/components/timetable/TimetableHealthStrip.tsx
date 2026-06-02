@@ -15,10 +15,11 @@ export function TimetableHealthStrip({
   simulate?: boolean;
   pendingMoves?: number;
 }) {
-  const unplaced = ctx.unplaced.length;
+  const unplacedCount = ctx.unplaced.length;
+  const unplacedHours = ctx.unplaced.reduce((s, u) => s + (u.remaining_hours ?? 0), 0);
   const locked = ctx.entries.filter((e) => e.is_locked).length;
   const total = ctx.entries.length;
-  const ok = clashCount === 0 && unplaced === 0;
+  const ok = clashCount === 0 && unplacedHours === 0;
 
   return (
     <div
@@ -37,7 +38,12 @@ export function TimetableHealthStrip({
       )}
       <Metric label="Ders saati" value={String(total)} ok />
       <Metric label="Çakışma" value={String(clashCount)} ok={clashCount === 0} bad={clashCount > 0} />
-      <Metric label="Yerleşmemiş" value={String(unplaced)} ok={unplaced === 0} bad={unplaced > 0} />
+      <Metric
+        label="Yerleşmemiş"
+        value={unplacedCount > 0 ? `${unplacedCount} · ${unplacedHours} sa` : '0'}
+        ok={unplacedHours === 0}
+        bad={unplacedHours > 0}
+      />
       <Metric label="Kilitli" value={String(locked)} ok />
       {ctx.program.score != null && (
         <span className="ml-auto text-muted-foreground">

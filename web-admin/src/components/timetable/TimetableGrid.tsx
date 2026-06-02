@@ -38,11 +38,16 @@ import {
 } from '@/lib/timetable-slot-status';
 import { AlertTriangle, Ban, BookOpen, DoorOpen, Lock, User } from 'lucide-react';
 import { TimetableCellMenu } from './TimetableCellMenu';
+import {
+  entriesInGridLessonRow,
+  type TimetableCellMenuHandlers,
+  type TimetableEmptySlotMenuHandlers,
+} from '@/lib/timetable-cell-menu';
+import { TimetableEmptySlotMenu } from './TimetableEmptySlotMenu';
 import { TimetableMatrixGrid, type MatrixAxis } from './TimetableMatrixGrid';
 import type { CompareEntryStatus, SlotCompareKind } from '@/lib/timetable-compare';
 
 const DAY_LABELS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
-const DAY_LABELS_FULL = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
 
 const COMPARE_CHIP_CLASS: Record<CompareEntryStatus['kind'], string> = {
   same: '',
@@ -415,6 +420,7 @@ function DropSlot({
   flash,
   placementMode,
   onSlotClick,
+  onEmptyContextMenu,
   empty,
   compareLayout,
   compareSlotKind,
@@ -430,6 +436,7 @@ function DropSlot({
   flash: boolean;
   placementMode: 'drag' | 'click';
   onSlotClick?: () => void;
+  onEmptyContextMenu?: (e: React.MouseEvent) => void;
   empty?: boolean;
   compareLayout?: boolean;
   compareSlotKind?: SlotCompareKind;
@@ -462,11 +469,14 @@ function DropSlot({
       onClick={() => {
         if (placementMode === 'click' && onSlotClick && !disabled && !forb) onSlotClick();
       }}
+      onContextMenu={(e) => {
+        if (!empty || !onEmptyContextMenu || disabled || forb) return;
+        e.preventDefault();
+        onEmptyContextMenu(e);
+      }}
       className={cn(
         'relative border border-border align-top transition-colors',
-        compareLayout
-          ? 'min-w-[3.25rem] max-w-none p-px'
-          : 'min-w-[4.5rem] max-w-[6rem] p-0.5',
+        compareLayout ? 'min-w-0 max-w-none p-px' : 'min-w-0 max-w-full p-0.5',
         compareSlotKind && COMPARE_SLOT_CLASS[compareSlotKind],
         isClosed && !isDragging && SLOT_CLOSED_STATIC,
         isDragging && effectiveStatus && SLOT_STATUS_CELL[effectiveStatus],
@@ -499,7 +509,14 @@ function DropSlot({
           {effectiveStatus === 'ok' && isOver ? 'Bırak' : SLOT_STATUS_BADGE[effectiveStatus]}
         </span>
       )}
-      {children}
+      <div
+        className={cn(
+          'flex min-h-[2.25rem] min-w-0 flex-col gap-0.5',
+          !empty && 'max-h-28 overflow-x-hidden overflow-y-auto',
+        )}
+      >
+        {children}
+      </div>
     </td>
   );
 }
@@ -537,6 +554,8 @@ export function TimetableGrid({
   onEditEntry,
   onLockEntry,
   onDeleteEntry,
+  cellMenuHandlers,
+  emptySlotMenuHandlers,
   onDropRejected,
   embedded = false,
   compareLayout = false,
@@ -577,6 +596,8 @@ export function TimetableGrid({
   onEditEntry: (entry: EditorEntry) => void;
   onLockEntry?: (entryId: string, locked: boolean) => void;
   onDeleteEntry?: (entryId: string) => void;
+  cellMenuHandlers?: TimetableCellMenuHandlers;
+  emptySlotMenuHandlers?: TimetableEmptySlotMenuHandlers;
   /** Sürükle-bırak reddedildiğinde (toast vb.) */
   onDropRejected?: (message: string) => void;
   embedded?: boolean;
@@ -588,6 +609,7 @@ export function TimetableGrid({
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ entry: EditorEntry; x: number; y: number } | null>(null);
+  const [emptyMenu, setEmptyMenu] = useState<{ day: number; lesson: number; x: number; y: number } | null>(null);
   const days = workDays.length ? workDays : [1, 2, 3, 4, 5];
 
   const draggingEntry =
@@ -628,6 +650,7 @@ export function TimetableGrid({
   const isDragging = !!(draggingEntry || poolClassSection);
   const tableView = filter?.mode ?? displayMode ?? 'all';
   const chipView = tableView;
+  const tableMinWidth = 52 + days.length * 68;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -672,6 +695,12 @@ export function TimetableGrid({
         rooms={rooms}
         clashIds={clashIds}
         zoom={zoom}
+        editable={editable}
+        pickedEntryId={pickedEntryId}
+        onEditEntry={onEditEntry}
+        onLockEntry={onLockEntry}
+        onDeleteEntry={onDeleteEntry}
+        cellMenuHandlers={cellMenuHandlers}
       />
     );
   }
@@ -679,7 +708,7 @@ export function TimetableGrid({
   const grid = (
     <div
       className={cn(
-        'timetable-print-root overflow-auto rounded-xl border bg-card shadow-sm',
+        'timetable-print-root min-w-0 max-w-full overflow-x-auto rounded-xl border bg-card shadow-sm',
         tableView === 'class' && 'border-slate-200',
         tableView === 'teacher' && 'border-violet-200',
         tableView === 'room' && 'border-emerald-200',
@@ -690,11 +719,15 @@ export function TimetableGrid({
       data-compare-layout={compareLayout || undefined}
     >
       <table
-        className={cn(
-          'w-full border-collapse text-xs',
-          compareLayout ? 'min-w-[400px]' : 'min-w-[560px]',
-        )}
+        className="w-full table-fixed border-collapse text-xs"
+        style={{ minWidth: tableMinWidth }}
       >
+        <colgroup>
+          <col style={{ width: 52 }} />
+          {days.map((d) => (
+            <col key={d} />
+          ))}
+        </colgroup>
         <thead
           className={cn(
             'sticky top-0 z-10 backdrop-blur-sm',
@@ -732,7 +765,7 @@ export function TimetableGrid({
                     hs && SLOT_STATUS_HEADER[hs],
                   )}
                 >
-                  {tableView === 'class' ? (DAY_LABELS_FULL[d - 1] ?? d) : (DAY_LABELS[d - 1] ?? d)}
+                  {DAY_LABELS[d - 1] ?? d}
                 </th>
               );
             })}
@@ -817,6 +850,18 @@ export function TimetableGrid({
                       onSlotClick={
                         onSlotClick ? () => onSlotClick(day, lesson) : undefined
                       }
+                      onEmptyContextMenu={
+                        editable && emptySlotMenuHandlers
+                          ? (e) => {
+                              setEmptyMenu({
+                                day,
+                                lesson,
+                                x: e.clientX,
+                                y: e.clientY,
+                              });
+                            }
+                          : undefined
+                      }
                     >
                       {cells.map((c) => (
                         <CellChip
@@ -849,26 +894,55 @@ export function TimetableGrid({
           })}
         </tbody>
       </table>
-      {menu && onLockEntry && onDeleteEntry && (
-        <TimetableCellMenu
-          entry={menu.entry}
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(null)}
-          onEdit={() => {
-            onEditEntry(menu.entry);
-            setMenu(null);
-          }}
-          onLock={(locked) => {
-            onLockEntry(menu.entry.id, locked);
-            setMenu(null);
-          }}
-          onDelete={() => {
-            onDeleteEntry(menu.entry.id);
-            setMenu(null);
+      {menu && editable && (() => {
+        const handlers: TimetableCellMenuHandlers | undefined =
+          cellMenuHandlers ??
+          (onEditEntry
+            ? {
+                onEdit: onEditEntry,
+                onLock: onLockEntry,
+                onDelete: onDeleteEntry,
+              }
+            : undefined);
+        if (!handlers) return null;
+        const rowEntries = entriesInGridLessonRow(visible, menu.entry);
+        const assignmentSlotCount = menu.entry.assignment_id
+          ? entries.filter((e) => e.assignment_id === menu.entry.assignment_id).length
+          : 0;
+        return (
+          <TimetableCellMenu
+            entry={menu.entry}
+            x={menu.x}
+            y={menu.y}
+            onClose={() => setMenu(null)}
+            handlers={handlers}
+            allEntries={entries}
+            assignmentSlotCount={assignmentSlotCount}
+            lessonRowCount={rowEntries.length}
+            clearSlotIds={rowEntries.map((e) => e.id)}
+          />
+        );
+      })()}
+      {emptyMenu && editable && emptySlotMenuHandlers ? (
+        <TimetableEmptySlotMenu
+          day={emptyMenu.day}
+          lesson={emptyMenu.lesson}
+          x={emptyMenu.x}
+          y={emptyMenu.y}
+          onClose={() => setEmptyMenu(null)}
+          handlers={{
+            ...emptySlotMenuHandlers,
+            onClearLessonRow: emptySlotMenuHandlers.onClearSlots
+              ? () => {
+                  const ids = visible
+                    .filter((e) => e.lesson_num === emptyMenu.lesson)
+                    .map((e) => e.id);
+                  emptySlotMenuHandlers.onClearSlots!(ids);
+                }
+              : undefined,
           }}
         />
-      )}
+      ) : null}
     </div>
   );
 
