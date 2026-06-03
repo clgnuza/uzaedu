@@ -13,8 +13,12 @@ export default function KbsMaasPage() {
       type="maas_bordro"
       icon="💵"
       title="KBS Maaş Bordro Gönderimi"
-      description="KBS üzerinde oluşturulan maaş bordro Excel'ini yükleyin. Her öğretmene yalnızca kendi maaş dökümü WhatsApp üzerinden gönderilir."
-      privacyNote="Tam gizlilik: Hiçbir öğretmen başkasının maaş bilgilerine erişemez. Her kişiye sadece kendi özeli iletilir."
+      description="KBS Personel modülü maaş bordro Excel'i (brüt / kesinti / net sütunları)."
+      privacyNote="Tam gizlilik: Her kişiye yalnızca kendi maaş özeti iletilir."
+      sourceHints={[
+        'KBS → Personel → maaş bordro / ödeme listesi Excel dışa aktarımı',
+        'Brüt maaş, kesinti ve net ödenecek sütunları içeren tablolar',
+      ]}
       token={token}
       q={q}
     />

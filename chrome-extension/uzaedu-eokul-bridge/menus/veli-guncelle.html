@@ -1,0 +1,32 @@
+﻿<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#070b14" />
+    <title>Veli güncelle — Uzaedu Okul Köprüsü</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../gate/gate.css" />
+    <link rel="stylesheet" href="kelebek.css" />
+  </head>
+  <body class="uza-body">
+    <main class="card uza-page">
+      <header>
+        <a href="../app/app.html" class="back-link">← Modüller</a>
+        <h1>Veli bilgisi güncelle</h1>
+        <p class="gate-sub">Veli rehberindeki cep numaralarını OkulNet’a yazar.</p>
+      </header>
+      <label class="gate-field">
+        <span>MEB Ajanda (6 hane, ilköğretim/okul öncesi)</span>
+        <input id="mebAjandaCode" class="gate-input" inputmode="numeric" maxlength="6" />
+      </label>
+      <button type="button" id="btnRun" class="btn-primary">Rehberden OkulNet’a yaz</button>
+      <p id="status" class="gate-message" role="status"></p>
+    </main>
+    <script src="../shared/brand-names.js"></script>
+    <script src="../shared/messaging.js"></script>
+    <script src="veli-guncelle.js"></script>
+  </body>
+</html>

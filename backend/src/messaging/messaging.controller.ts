@@ -1,8 +1,8 @@
 import {
   BadRequestException, Body, Controller, Delete, Get, Param,
-  Patch, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors,
+  Patch, Post, Query, Res, UploadedFile, UploadedFiles, UseGuards, UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -640,6 +640,122 @@ export class MessagingController {
     if (!file?.buffer?.length) throw new BadRequestException('Excel dosyası gerekli');
     const manualPhones = body.manualPhones ? JSON.parse(body.manualPhones) as Record<string, string> : {};
     return this.svc.createBordroCampaign(this.sid(p, q), p.userId, type, body.title, body.donem, file.buffer, file.originalname, manualPhones, body.schoolName, body.footerNote);
+  }
+
+  @Post('bordro/compare')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'mebbisFile', maxCount: 1 },
+      { name: 'kbsFile', maxCount: 1 },
+    ]),
+  )
+  async compareBordro(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @UploadedFiles()
+    files: { mebbisFile?: Express.Multer.File[]; kbsFile?: Express.Multer.File[] },
+    @Body() body?: { mebbisJson?: string; kbsJson?: string },
+  ) {
+    const mebbisF = files.mebbisFile?.[0];
+    const kbsF = files.kbsFile?.[0];
+    if (body?.mebbisJson && body?.kbsJson) {
+      const mebbis = JSON.parse(body.mebbisJson) as { headers: string[]; rows: Record<string, unknown>[] };
+      const kbs = JSON.parse(body.kbsJson) as { headers: string[]; rows: Record<string, unknown>[] };
+      return this.svc.compareBordroMebbisKbs(this.sid(p, q), null, null, mebbis, kbs);
+    }
+    if (!mebbisF?.buffer?.length || !kbsF?.buffer?.length) {
+      throw new BadRequestException('MEBBİS ve KBS Excel dosyaları gerekli');
+    }
+    return this.svc.compareBordroMebbisKbs(this.sid(p, q), mebbisF.buffer, kbsF.buffer);
+  }
+
+  @Post('bordro/tc-audit')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  @UseInterceptors(FileInterceptor('file'))
+  async auditBordroTc(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @UploadedFile() file?: Express.Multer.File,
+    @Body() body?: { headers?: string; rows?: string },
+  ) {
+    if (body?.rows) {
+      const headers = body.headers ? (JSON.parse(body.headers) as string[]) : [];
+      const rows = JSON.parse(body.rows) as Record<string, unknown>[];
+      return this.svc.auditBordroTc(this.sid(p, q), null, { headers, rows });
+    }
+    if (!file?.buffer?.length) throw new BadRequestException('Excel gerekli');
+    return this.svc.auditBordroTc(this.sid(p, q), file.buffer);
+  }
+
+  @Post('bordro/parse-json')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  async parseBordroJson(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Body()
+    body: {
+      type: 'mebbis_puantaj' | 'ek_ders_bordro' | 'maas_bordro';
+      donem: string;
+      headers: string[];
+      rows: Record<string, unknown>[];
+      schoolName?: string;
+      footerNote?: string;
+      scrapeUrl?: string;
+      pageTitle?: string;
+    },
+  ) {
+    if (!body.rows?.length) throw new BadRequestException('Sekmeden tablo verisi alınamadı');
+    return this.svc.parseBordroFromScrape(
+      this.sid(p, q),
+      body.type,
+      body.headers ?? [],
+      body.rows,
+      body.donem ?? '',
+      body.schoolName,
+      body.footerNote,
+      { url: body.scrapeUrl, pageTitle: body.pageTitle },
+    );
+  }
+
+  @Post('bordro/campaign-json')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  async createBordroCampaignJson(
+    @CurrentUser() p: CurrentUserPayload,
+    @Query('school_id') q: string | undefined,
+    @Body()
+    body: {
+      type: 'mebbis_puantaj' | 'ek_ders_bordro' | 'maas_bordro';
+      title: string;
+      donem: string;
+      headers: string[];
+      rows: Record<string, unknown>[];
+      manualPhones?: Record<string, string>;
+      schoolName?: string;
+      footerNote?: string;
+      scrapeUrl?: string;
+      pageTitle?: string;
+    },
+  ) {
+    if (!body.rows?.length) throw new BadRequestException('Sekmeden tablo verisi alınamadı');
+    return this.svc.createBordroCampaign(
+      this.sid(p, q),
+      p.userId,
+      body.type,
+      body.title,
+      body.donem,
+      null,
+      null,
+      body.manualPhones ?? {},
+      body.schoolName,
+      body.footerNote,
+      {
+        headers: body.headers ?? [],
+        rows: body.rows,
+        scrapeUrl: body.scrapeUrl,
+        pageTitle: body.pageTitle,
+      },
+    );
   }
 
   // ── Grup mesaj gönderimi ──────────────────────────────────────────────────

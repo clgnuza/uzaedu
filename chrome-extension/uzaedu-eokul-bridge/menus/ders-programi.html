@@ -1,0 +1,56 @@
+﻿<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Ders programı</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../gate/gate.css" />
+    <link rel="stylesheet" href="kelebek.css" />
+  </head>
+  <body class="uza-body">
+    <main class="card uza-page">
+      <a href="../app/app.html" class="back-link">← Modüller</a>
+      <h1>Ders programı</h1>
+      <label class="gate-sub" for="ddStudio">Stüdyo</label>
+      <select id="ddStudio" class="btn-primary" style="width: 100%; margin-bottom: 1rem"></select>
+
+      <h2 style="font-size: 1rem; margin: 0 0 0.5rem">Dışa aktar (→ OkulNet)</h2>
+      <p class="gate-sub">Yerleşmiş programı OkulNet formatında indirin.</p>
+      <label class="gate-sub" for="ddProgram">Program</label>
+      <select id="ddProgram" class="btn-primary" style="width: 100%; margin-bottom: 0.75rem"></select>
+      <button type="button" id="btnDdExport" class="btn-primary" style="width: 100%; margin-bottom: 0.5rem" disabled>
+        OkulNet XLSX indir
+      </button>
+      <button type="button" id="btnDdUploadMeb" class="btn-primary" style="width: 100%; margin-bottom: 1.25rem" disabled>
+        XLSX → OkulNet’a yükle (deneysel)
+      </button>
+
+      <h2 style="font-size: 1rem; margin: 0 0 0.5rem">İçe aktar (← OkulNet)</h2>
+      <p class="gate-sub">OkulNet’ten indirdiğiniz dosyayı atamalara yükleyin.</p>
+      <label class="gate-sub" for="ddFormat">Format</label>
+      <select id="ddFormat" class="btn-primary" style="width: 100%; margin-bottom: 0.75rem">
+        <option value="auto">Otomatik</option>
+        <option value="xlsx">Tablo XLSX</option>
+        <option value="grid_xlsx">Izgara XLSX</option>
+        <option value="csv">CSV</option>
+      </select>
+      <input id="ddFile" type="file" accept=".xlsx,.xls,.csv" style="width: 100%; margin-bottom: 0.75rem" />
+      <label class="gate-sub" style="display: flex; gap: 8px; align-items: center">
+        <input type="checkbox" id="ddReplace" />
+        Mevcut atamaları sil (yerine yaz)
+      </label>
+      <label class="gate-sub" style="display: flex; gap: 8px; align-items: center; margin-bottom: 0.75rem">
+        <input type="checkbox" id="ddElective" checked />
+        Seçmeli satırlardan alt grup oluştur
+      </label>
+      <button type="button" id="btnDdImport" class="btn-primary" style="width: 100%" disabled>İçe aktar</button>
+      <p id="status" class="gate-message"></p>
+      <ul id="previewList" class="kb-list" hidden></ul>
+    </main>
+    <script src="../shared/brand-names.js"></script>
+    <script src="../shared/messaging.js"></script>
+    <script src="ders-programi.js"></script>
+  </body>
+</html>

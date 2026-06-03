@@ -13,7 +13,13 @@ export default function MebbisPuantajPage() {
       type="mebbis_puantaj"
       icon="📋"
       title="MEBBİS Puantaj Gönderimi"
-      description="MEBBİS üzerinde oluşturulan puantaj Excel'ini yükleyin. Sistem otomatik ayrıştırma yaparak her öğretmene sadece kendi puantaj bilgilerini WhatsApp üzerinden gönderir."
+      description="MEBBİS Ek Ders Modülü veya KBS puantaj Excel'i. TC + veri tipi + saat satırları kişiye özel WhatsApp mesajına dönüştürülür."
+      privacyNote="Puantaj mesajları yalnızca ilgili öğretmene gider; TC numarası maskelenir."
+      sourceHints={[
+        'MEBBİS → Ek Ders Modülü → Raporlar → Ek Ders Listesi (KBS) → Excele Aktar (.xls/.xlsx)',
+        'KBS Ek Ders V2 → puantaj yükleme şablonu (T.C., Veri Tip, Gün1…GünN)',
+        'Okul yardımcı programları (KBS uyumlu puantaj) — aynı sütun yapısı',
+      ]}
       token={token}
       q={q}
     />

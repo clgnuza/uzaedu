@@ -1,0 +1,34 @@
+﻿<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#070b14" />
+    <title>Devamsızlık — Uzaedu Okul Köprüsü</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../gate/gate.css" />
+    <link rel="stylesheet" href="kelebek.css" />
+  </head>
+  <body class="uza-body">
+    <main class="card uza-page">
+      <header>
+        <a href="../app/app.html" class="back-link">← Modüller</a>
+        <h1 id="gdTitle">Günlük devamsızlık</h1>
+        <p id="gdLead" class="gate-sub">Seçili tarih için OkulNet listesini mesaj merkezine aktarır.</p>
+      </header>
+      <label class="gate-sub" for="gdTarih">Tarih</label>
+      <input id="gdTarih" type="date" class="gate-input" style="margin: 0.5rem 0 1rem" />
+      <div class="kb-actions">
+        <button type="button" id="btnGdAll" class="btn-primary">Tüm sınıfları aktar</button>
+      </div>
+      <p id="gdStatus" class="gate-message" role="status"></p>
+      <ul id="gdClassList" class="kb-list" hidden></ul>
+    </main>
+    <script src="../shared/brand-names.js"></script>
+    <script src="../shared/messaging.js"></script>
+    <script src="../shared/menu-kurum.js"></script>
+    <script src="gunluk.js"></script>
+  </body>
+</html>

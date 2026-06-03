@@ -53,6 +53,7 @@ import { TeacherInviteModule } from './teacher-invite/teacher-invite.module';
 import { YollukModule } from './yolluk/yolluk.module';
 import { DogrudanTeminModule } from './dogrudan-temin/dogrudan-temin.module';
 import { DersDagitModule } from './ders-dagit/ders-dagit.module';
+import { EokulBridgeModule } from './eokul-bridge/eokul-bridge.module';
 import { Utf8JsonCharsetInterceptor } from './common/interceptors/utf8-json-charset.interceptor';
 
 function getTypeOrmConfig(): TypeOrmModuleOptions {
@@ -143,6 +144,7 @@ function getTypeOrmConfig(): TypeOrmModuleOptions {
     YollukModule,
     DogrudanTeminModule,
     DersDagitModule,
+    EokulBridgeModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, DataSource, Repository } from 'typeorm';
+import { Between, DataSource, In, Repository } from 'typeorm';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { MessagingSettings } from './entities/messaging-settings.entity';
@@ -43,9 +43,41 @@ import {
   parseDevamsizlik, parseDersDevamsizlik, parseIzin, ParsedRecipient,
 } from './parsers/excel-parsers';
 import type { SaveSettingsDto, PatchTeacherMessagingPreferencesDto } from './dto/messaging.dto';
-import { parseMebbisPuantaj, parseEkDersBordro, parseMaasBordro, BordroTeacher } from './parsers/bordro-parsers';
+import {
+  parseMebbisPuantaj,
+  parseEkDersBordro,
+  parseMaasBordro,
+  parseBordroFromRows,
+  BordroTeacher,
+} from './parsers/bordro-parsers';
+import type { XRow } from './parsers/bordro-excel';
+import {
+  auditBordroTcAgainstSchool,
+  compareMebbisKbsBuffers,
+  compareMebbisKbsRows,
+} from './parsers/bordro-compare';
+import { readBordroTable } from './parsers/bordro-excel';
 import { splitPdfByPageCount } from './parsers/pdf-splitter';
 import { MessagingSchoolNeedsService } from './messaging-school-needs.service';
+import { MessagingVeliDirectory } from './entities/messaging-veli-directory.entity';
+import {
+  buildDersDevamsizlikRecipients,
+  buildGunlukRecipients,
+  flattenEokulDevamsizlikSiniflar,
+  formatEokulTarihTr,
+} from '../eokul-bridge/eokul-bridge-devamsizlik.util';
+import type { DevamsizlikSinifDto } from '../eokul-bridge/dto/devamsizlik-import.dto';
+import type { MektupOgrenciDto } from '../eokul-bridge/dto/mektup-import.dto';
+import type { ToplamDevamsizlikImportDto } from '../eokul-bridge/dto/toplam-devamsizlik-import.dto';
+import { buildMektupPrefillRecipients } from '../eokul-bridge/eokul-bridge-mektup.util';
+import { buildIzinCampaignRecipients } from '../eokul-bridge/eokul-bridge-izin.util';
+import type { IzinImportDto } from '../eokul-bridge/dto/izin-import.dto';
+import {
+  filterToplamDevamsizlikRows,
+  toplamDevamsizlikGunLabel,
+  toplamDevamsizlikTurLabel,
+} from '../eokul-bridge/eokul-bridge-toplam.util';
+import type { VeliRehberRowDto } from '../eokul-bridge/dto/veli-rehber-import.dto';
 
 const UPLOADS_DIR = join(process.cwd(), 'uploads', 'messaging');
 
@@ -76,6 +108,8 @@ export class MessagingService {
     private readonly deliveryRepo: Repository<MessagingDeliveryEvent>,
     @InjectRepository(MessagingInboundMessage)
     private readonly inboundRepo: Repository<MessagingInboundMessage>,
+    @InjectRepository(MessagingVeliDirectory)
+    private readonly veliDirRepo: Repository<MessagingVeliDirectory>,
     private readonly wa: WhatsAppService,
     private readonly sms: SmsService,
     private readonly dataSource: DataSource,
@@ -824,6 +858,276 @@ export class MessagingService {
     return this._saveCampaign(schoolId, userId, 'devamsizlik', title, parsed, fileBuffer, filename, { template: tpl, tarih });
   }
 
+  /** E-Okul köprüsü: OKL08001 JSON → mesaj merkezi önizleme kampanyası */
+  async importDevamsizlikFromEokul(
+    schoolId: string,
+    userId: string,
+    kind: 'devamsizlik' | 'ders_devamsizlik',
+    body: {
+      tarih_iso: string;
+      title?: string;
+      template?: string;
+      siniflar: DevamsizlikSinifDto[];
+    },
+  ) {
+    const students = flattenEokulDevamsizlikSiniflar(body.siniflar);
+    if (!students.length) {
+      throw new BadRequestException('Devamsızlık kaydı yok.');
+    }
+    const tarihTr = formatEokulTarihTr(body.tarih_iso);
+    const baseTpl =
+      kind === 'ders_devamsizlik'
+        ? body.template ?? TPL_DERS_DEVAMSIZLIK
+        : body.template ?? TPL_DEVAMSIZLIK;
+    const tpl = await this._fillSchoolName(schoolId, baseTpl);
+
+    const nos = [...new Set(students.map((s) => String(s.ogrenci_no || '').trim()).filter(Boolean))];
+    const phoneMap = await this._veliPhoneMap(schoolId, nos);
+
+    const built =
+      kind === 'ders_devamsizlik'
+        ? buildDersDevamsizlikRecipients(students, tpl, tarihTr, phoneMap)
+        : buildGunlukRecipients(students, tpl, tarihTr, phoneMap);
+
+    if (!built.recipients.length) {
+      throw new BadRequestException(
+        `Veli telefonu bulunamadı (${built.skippedNoPhone} öğrenci). Önce veli rehberini veya Excel ile kampanya yükleyin.`,
+      );
+    }
+
+    const title =
+      body.title?.trim() ||
+      (kind === 'ders_devamsizlik'
+        ? `E-Yoklama ${tarihTr}`
+        : `Günlük devamsızlık ${tarihTr}`);
+
+    const campaign = await this._saveCampaign(schoolId, userId, kind, title, built.recipients, null, null, {
+      template: tpl,
+      tarih: tarihTr,
+      tarih_iso: body.tarih_iso,
+      source: 'eokul_bridge',
+      eokul_siniflar: body.siniflar,
+    });
+
+    return {
+      success: true,
+      campaignId: campaign.id,
+      recipientCount: built.recipients.length,
+      skippedNoPhone: built.skippedNoPhone,
+      totalStudents: students.length,
+    };
+  }
+
+  /** E-Okul köprüsü: toplam devamsızlık → günlük devamsızlık kampanyası (özet gün) */
+  async importToplamDevamsizlikFromEokul(
+    schoolId: string,
+    userId: string,
+    body: ToplamDevamsizlikImportDto,
+  ) {
+    const filtered = filterToplamDevamsizlikRows(body.ogrenciler || [], body);
+    if (!filtered.length) {
+      throw new BadRequestException('Filtreye uyan öğrenci yok.');
+    }
+    const tarihTr = formatEokulTarihTr(new Date().toISOString().slice(0, 10));
+    const tpl = await this._fillSchoolName(schoolId, body.template ?? TPL_DEVAMSIZLIK);
+    const nos = [...new Set(filtered.map((s) => String(s.ogrenci_no || '').trim()).filter(Boolean))];
+    const phoneMap = await this._veliPhoneMap(schoolId, nos);
+
+    const recipients: ParsedRecipient[] = [];
+    let skippedNoPhone = 0;
+    let order = 0;
+    const tur = toplamDevamsizlikTurLabel();
+    for (const st of filtered) {
+      const stuNo = String(st.ogrenci_no || '').trim();
+      const stuName = String(st.ad_soyad || '').trim();
+      const cls = String(st.sinif_adi || '').trim();
+      const veli = phoneMap.get(stuNo);
+      if (!veli?.phone) {
+        skippedNoPhone += 1;
+        continue;
+      }
+      const parent = veli.contactName?.trim() || `${stuName} Velisi`;
+      const gun = toplamDevamsizlikGunLabel(st);
+      const msg = tpl
+        .replace('{AD}', parent)
+        .replace('{OGRENCI}', stuName)
+        .replace('{SINIF}', cls)
+        .replace('{TARIH}', tarihTr)
+        .replace('{TUR}', tur)
+        .replace('{GUN}', gun);
+      recipients.push({
+        recipientName: parent,
+        phone: veli.phone,
+        studentName: stuName,
+        studentNumber: stuNo,
+        className: cls,
+        messageText: msg,
+        sortOrder: order++,
+      });
+    }
+    if (!recipients.length) {
+      throw new BadRequestException(
+        `Veli telefonu bulunamadı (${skippedNoPhone} öğrenci). Veli rehberini güncelleyin.`,
+      );
+    }
+    const title = body.title?.trim() || `Toplam devamsızlık ${tarihTr}`;
+    const campaign = await this._saveCampaign(schoolId, userId, 'devamsizlik', title, recipients, null, null, {
+      template: tpl,
+      tarih: tarihTr,
+      source: 'eokul_bridge_toplam',
+    });
+    return {
+      success: true,
+      campaignId: campaign.id,
+      recipientCount: recipients.length,
+      skippedNoPhone,
+      matchedStudents: filtered.length,
+    };
+  }
+
+  /** E-Okul köprüsü: kampanyadan günlük devamsızlık yazma yükü */
+  async getEokulDevamsizlikWritePayload(schoolId: string, campaignId: string) {
+    const c = await this.campaignRepo.findOne({ where: { id: campaignId, schoolId } });
+    if (!c) {
+      throw new NotFoundException('Kampanya bulunamadı.');
+    }
+    if (c.type !== 'devamsizlik' && c.type !== 'ders_devamsizlik') {
+      throw new BadRequestException('Yalnızca devamsızlık kampanyaları yazılabilir.');
+    }
+    const meta = (c.metadata ?? {}) as Record<string, unknown>;
+    const siniflar = meta.eokul_siniflar;
+    if (!Array.isArray(siniflar) || !siniflar.length) {
+      throw new BadRequestException(
+        'Kampanyada E-Okul satır verisi yok. Önce köprü ile E-Okul\'dan aktarılmış kampanya seçin.',
+      );
+    }
+    const tarihIso = String(meta.tarih_iso || '').trim();
+    return {
+      campaignId: c.id,
+      kind: c.type === 'ders_devamsizlik' ? 'ders' : 'gunluk',
+      title: c.title,
+      tarih_iso: tarihIso || undefined,
+      siniflar,
+    };
+  }
+
+  async listEokulDevamsizlikCampaigns(schoolId: string, limit = 30) {
+    const rows = await this.campaignRepo.find({
+      where: { schoolId, type: In(['devamsizlik', 'ders_devamsizlik'] as CampaignType[]) },
+      order: { createdAt: 'DESC' },
+      take: Math.min(100, Math.max(1, limit)),
+    });
+    return rows
+      .filter((c) => {
+        const s = (c.metadata as Record<string, unknown> | undefined)?.eokul_siniflar;
+        return Array.isArray(s) && s.length > 0;
+      })
+      .map((c) => ({
+        id: c.id,
+        title: c.title,
+        type: c.type,
+        created_at: c.createdAt,
+        tarih_iso: (c.metadata as Record<string, unknown>)?.tarih_iso ?? null,
+      }));
+  }
+
+  /** E-Okul köprüsü: veli rehber satırları → messaging_veli_directory */
+  async importVeliRehberFromEokul(schoolId: string, rows: VeliRehberRowDto[]) {
+    let inserted = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      const stuNo = String(row.ogrenci_no || '').trim();
+      const stuName = String(row.ad_soyad || '').trim();
+      const cls = String(row.sinif_adi || '').trim();
+      if (!stuNo) {
+        skipped += 1;
+        continue;
+      }
+      const contacts = [
+        { phone: row.anne_telefon, name: row.anne_ad_soyad },
+        { phone: row.baba_telefon, name: row.baba_ad_soyad },
+      ];
+      let anyPhone = false;
+      for (const c of contacts) {
+        const phone = this.schoolNeeds.normPhone(String(c.phone || ''));
+        if (phone.length < 10) continue;
+        anyPhone = true;
+        const contactName = String(c.name || '').trim() || `${stuName} Velisi`;
+        let e = await this.veliDirRepo.findOne({ where: { schoolId, phone, studentNumber: stuNo } });
+        const isNew = !e;
+        if (!e) {
+          e = this.veliDirRepo.create({ schoolId, phone, studentNumber: stuNo, source: 'eokul_bridge' });
+        }
+        e.contactName = contactName;
+        e.studentName = stuName;
+        e.className = cls || e.className;
+        e.source = 'eokul_bridge';
+        await this.veliDirRepo.save(e);
+        if (isNew) inserted += 1;
+        else updated += 1;
+      }
+      if (!anyPhone) skipped += 1;
+    }
+
+    return { success: true, inserted, updated, skipped, totalRows: rows.length };
+  }
+
+  /** E-Okul köprüsü: veli rehber → E-Okul yazma kuyruğu */
+  async listVeliPushQueueForEokul(schoolId: string, limit = 5000) {
+    const rows = await this.schoolNeeds.listVeliDirectory(schoolId, undefined, limit);
+    return {
+      ok: true,
+      rows: rows
+        .map((v) => ({
+          student_number: String(v.studentNumber || '').trim(),
+          phone: this.schoolNeeds.normPhone(String(v.phone || '')),
+          contact_name: v.contactName,
+          student_name: v.studentName,
+          class_name: v.className,
+        }))
+        .filter((r) => r.student_number && r.phone.length >= 10),
+    };
+  }
+
+  /** E-Okul köprüsü: mektup listesi → panel PDF alıcı ön doldurma */
+  async buildDevamsizlikMektupRecipients(schoolId: string, ogrenciler: MektupOgrenciDto[]) {
+    const nos = [...new Set(ogrenciler.map((s) => String(s.ogrenci_no || '').trim()).filter(Boolean))];
+    const phoneMap = await this._veliPhoneMap(schoolId, nos);
+    const built = buildMektupPrefillRecipients(ogrenciler, phoneMap);
+    if (!built.recipients.length) {
+      throw new BadRequestException(
+        `Veli telefonu bulunamadı (${built.skippedNoPhone} öğrenci). Veli rehberini doldurun.`,
+      );
+    }
+    return {
+      success: true,
+      recipients: built.recipients,
+      skippedNoPhone: built.skippedNoPhone,
+      totalRows: ogrenciler.length,
+    };
+  }
+
+  private async _veliPhoneMap(schoolId: string, studentNumbers: string[]) {
+    const map = new Map<string, { phone: string; contactName: string | null }>();
+    if (!studentNumbers.length) return map;
+    const rows = await this.veliDirRepo
+      .createQueryBuilder('v')
+      .where('v.school_id = :schoolId', { schoolId })
+      .andWhere('v.student_number IN (:...nos)', { nos: studentNumbers })
+      .getMany();
+    for (const v of rows) {
+      const no = String(v.studentNumber || '').trim();
+      const phone = this.schoolNeeds.normPhone(String(v.phone || ''));
+      if (!no || phone.length < 10) continue;
+      if (!map.has(no)) {
+        map.set(no, { phone, contactName: v.contactName });
+      }
+    }
+    return map;
+  }
+
   // ── Devamsızlık Mektubu / Karne (PDF split) ─────────────────────────────
 
   async createPdfSplitCampaign(
@@ -882,6 +1186,38 @@ export class MessagingService {
   }
 
   // ── Evci / Çarşı İzin ─────────────────────────────────────────────────────
+
+  async importIzinFromEokul(schoolId: string, userId: string, body: IzinImportDto) {
+    const rows = body.rows || [];
+    if (!rows.length) {
+      throw new BadRequestException('İzin kaydı yok.');
+    }
+    const tarihTr = formatEokulTarihTr(
+      body.tarih_iso || new Date().toISOString().slice(0, 10),
+    );
+    const tpl = await this._fillSchoolName(schoolId, body.template ?? TPL_IZIN);
+    const nos = [...new Set(rows.map((r) => String(r.ogrenci_no || '').trim()).filter(Boolean))];
+    const phoneMap = await this._veliPhoneMap(schoolId, nos);
+    const built = buildIzinCampaignRecipients(rows, tpl, tarihTr, phoneMap);
+    if (!built.recipients.length) {
+      throw new BadRequestException(
+        `Veli telefonu bulunamadı (${built.skippedNoPhone} kayıt). Veli rehberini güncelleyin.`,
+      );
+    }
+    const title = body.title?.trim() || `Evci / çarşı izin ${tarihTr}`;
+    const campaign = await this._saveCampaign(schoolId, userId, 'izin', title, built.recipients, null, null, {
+      template: tpl,
+      tarih: tarihTr,
+      source: 'eokul_bridge',
+    });
+    return {
+      success: true,
+      campaignId: campaign.id,
+      recipientCount: built.recipients.length,
+      skippedNoPhone: built.skippedNoPhone,
+      totalRows: rows.length,
+    };
+  }
 
   async createIzinCampaign(schoolId: string, userId: string, title: string, template: string, tarih: string, fileBuffer: Buffer, filename: string) {
     const tpl = await this._fillSchoolName(schoolId, template);
@@ -953,6 +1289,30 @@ export class MessagingService {
     return template.replace(/\{OKUL\}/g, name);
   }
 
+  private _parseBordroTeachers(
+    type: 'mebbis_puantaj' | 'ek_ders_bordro' | 'maas_bordro',
+    buf: Buffer | null,
+    rowsPayload: { headers: string[]; rows: XRow[] } | null,
+    donemLabel: string,
+    sName: string,
+    footerNote?: string,
+  ) {
+    if (!buf?.length && !rowsPayload?.rows?.length) {
+      throw new BadRequestException('Excel veya sekme verisi gerekli');
+    }
+    const parsed = rowsPayload
+      ? parseBordroFromRows(type, rowsPayload.headers, rowsPayload.rows, donemLabel, sName, footerNote)
+      : type === 'mebbis_puantaj'
+        ? parseMebbisPuantaj(buf!, donemLabel, sName, footerNote)
+        : type === 'ek_ders_bordro'
+          ? parseEkDersBordro(buf!, donemLabel, sName, footerNote)
+          : parseMaasBordro(buf!, donemLabel, sName, footerNote);
+    if (!parsed.teachers.length) {
+      throw new BadRequestException('Öğretmen verisi çıkarılamadı — doğru rapor ekranını açın');
+    }
+    return parsed;
+  }
+
   async parseBordro(
     schoolId: string,
     type: 'mebbis_puantaj' | 'ek_ders_bordro' | 'maas_bordro',
@@ -960,14 +1320,16 @@ export class MessagingService {
     donemLabel: string,
     schoolName?: string,
     footerNote?: string,
-  ): Promise<{ matched: BordroTeacher[]; unmatched: BordroTeacher[] }> {
+  ): Promise<{ matched: BordroTeacher[]; unmatched: BordroTeacher[]; excelFormat: string; excelFormatLabel: string }> {
     const sName = schoolName ?? await this._getSchoolName(schoolId);
-    let teachers: BordroTeacher[];
-    if (type === 'mebbis_puantaj')   teachers = parseMebbisPuantaj(buf, donemLabel, sName, footerNote);
-    else if (type === 'ek_ders_bordro') teachers = parseEkDersBordro(buf, donemLabel, sName, footerNote);
-    else                              teachers = parseMaasBordro(buf, donemLabel, sName, footerNote);
-
-    if (!teachers.length) throw new BadRequestException('Excel dosyasından öğretmen verisi çıkarılamadı');
+    const { teachers, excelFormat, excelFormatLabel } = this._parseBordroTeachers(
+      type,
+      buf,
+      null,
+      donemLabel,
+      sName,
+      footerNote,
+    );
 
     // Okul öğretmenlerini getir (phone, name, tc)
     const dbTeachers: Array<{ name: string; phone: string; tc: string }> = await this.dataSource.query(
@@ -996,25 +1358,132 @@ export class MessagingService {
       unmatched.push(t);
     }
 
-    return { matched, unmatched };
+    return { matched, unmatched, excelFormat, excelFormatLabel };
+  }
+
+  async compareBordroMebbisKbs(
+    schoolId: string,
+    mebbisBuf: Buffer | null,
+    kbsBuf: Buffer | null,
+    mebbisRows?: { headers: string[]; rows: XRow[] },
+    kbsRows?: { headers: string[]; rows: XRow[] },
+  ) {
+    if (mebbisRows && kbsRows) {
+      return compareMebbisKbsRows(
+        mebbisRows.headers,
+        mebbisRows.rows,
+        kbsRows.headers,
+        kbsRows.rows,
+      );
+    }
+    if (!mebbisBuf?.length || !kbsBuf?.length) {
+      throw new BadRequestException('MEBBİS ve KBS Excel dosyaları gerekli');
+    }
+    return compareMebbisKbsBuffers(mebbisBuf, kbsBuf);
+  }
+
+  async auditBordroTc(
+    schoolId: string,
+    buf: Buffer | null,
+    rowsPayload?: { headers: string[]; rows: XRow[] },
+  ) {
+    const table = rowsPayload
+      ? {
+          rows: rowsPayload.rows,
+          headers: rowsPayload.headers,
+          format: 'generic' as const,
+          sheetName: 'audit',
+        }
+      : readBordroTable(buf!, 'puantaj');
+    const dbTeachers: Array<{ name: string; phone: string; tc: string }> = await this.dataSource.query(
+      `SELECT CONCAT(u.first_name, ' ', u.last_name) AS name, u.phone, u.tc_no AS tc
+       FROM users u
+       JOIN school_teachers st ON st.user_id = u.id
+       WHERE st.school_id = $1 AND u.role = 'teacher'`,
+      [schoolId],
+    );
+    return auditBordroTcAgainstSchool(table, dbTeachers);
+  }
+
+  async parseBordroFromScrape(
+    schoolId: string,
+    type: 'mebbis_puantaj' | 'ek_ders_bordro' | 'maas_bordro',
+    headers: string[],
+    rows: XRow[],
+    donemLabel: string,
+    schoolName?: string,
+    footerNote?: string,
+    scrapeMeta?: { url?: string; pageTitle?: string },
+  ) {
+    const sName = schoolName ?? await this._getSchoolName(schoolId);
+    const { teachers, excelFormat, excelFormatLabel } = this._parseBordroTeachers(
+      type,
+      null,
+      { headers, rows },
+      donemLabel,
+      sName,
+      footerNote,
+    );
+
+    const dbTeachers: Array<{ name: string; phone: string; tc: string }> = await this.dataSource.query(
+      `SELECT CONCAT(u.first_name, ' ', u.last_name) AS name, u.phone, u.tc_no AS tc
+       FROM users u
+       JOIN school_teachers st ON st.user_id = u.id
+       WHERE st.school_id = $1 AND u.role = 'teacher'`,
+      [schoolId],
+    );
+    const byTc = new Map(dbTeachers.map((t) => [t.tc?.trim(), t.phone]));
+    const byName = new Map(dbTeachers.map((t) => [t.name?.toUpperCase().trim(), t.phone]));
+    const matched: BordroTeacher[] = [];
+    const unmatched: BordroTeacher[] = [];
+    for (const t of teachers) {
+      if (t.phone) {
+        matched.push(t);
+        continue;
+      }
+      const phoneByTc = t.tc ? byTc.get(t.tc.trim()) : undefined;
+      if (phoneByTc) {
+        t.phone = phoneByTc;
+        matched.push(t);
+        continue;
+      }
+      const phoneByName = byName.get(t.name.toUpperCase().trim());
+      if (phoneByName) {
+        t.phone = phoneByName;
+        matched.push(t);
+        continue;
+      }
+      unmatched.push(t);
+    }
+    return {
+      matched,
+      unmatched,
+      excelFormat,
+      excelFormatLabel,
+      scrape: scrapeMeta ?? null,
+      rowCount: rows.length,
+    };
   }
 
   async createBordroCampaign(
     schoolId: string, userId: string,
     type: 'mebbis_puantaj' | 'ek_ders_bordro' | 'maas_bordro',
     title: string, donemLabel: string,
-    buf: Buffer, filename: string,
+    buf: Buffer | null, filename: string | null,
     manualPhones: Record<string, string> = {},
     schoolName?: string,
     footerNote?: string,
+    rowsPayload?: { headers: string[]; rows: XRow[]; scrapeUrl?: string; pageTitle?: string },
   ) {
     const sName = schoolName ?? await this._getSchoolName(schoolId);
-    let teachers: BordroTeacher[];
-    if (type === 'mebbis_puantaj')   teachers = parseMebbisPuantaj(buf, donemLabel, sName, footerNote);
-    else if (type === 'ek_ders_bordro') teachers = parseEkDersBordro(buf, donemLabel, sName, footerNote);
-    else                              teachers = parseMaasBordro(buf, donemLabel, sName, footerNote);
-
-    if (!teachers.length) throw new BadRequestException('Excel dosyasından öğretmen verisi çıkarılamadı');
+    const { teachers } = this._parseBordroTeachers(
+      type,
+      buf,
+      rowsPayload ? { headers: rowsPayload.headers, rows: rowsPayload.rows } : null,
+      donemLabel,
+      sName,
+      footerNote,
+    );
 
     // DB eşleştirmesi
     const dbTeachers: Array<{ name: string; phone: string; tc: string }> = await this.dataSource.query(
@@ -1038,7 +1507,13 @@ export class MessagingService {
     }
 
     const campaignType: CampaignType = type === 'mebbis_puantaj' ? 'mebbis_puantaj' : type === 'ek_ders_bordro' ? 'ek_ders_bordro' : 'maas_bordro';
-    return this._saveCampaign(schoolId, userId, campaignType, title, parsed, buf, filename, { donemLabel });
+    const meta: Record<string, unknown> = { donemLabel };
+    if (rowsPayload?.scrapeUrl) {
+      meta.source = type === 'mebbis_puantaj' ? 'mebbis_scrape' : 'kbs_scrape';
+      meta.scrapeUrl = rowsPayload.scrapeUrl;
+      meta.pageTitle = rowsPayload.pageTitle ?? '';
+    }
+    return this._saveCampaign(schoolId, userId, campaignType, title, parsed, buf, filename, meta);
   }
 
   // ── Kişi Grupları ─────────────────────────────────────────────────────────

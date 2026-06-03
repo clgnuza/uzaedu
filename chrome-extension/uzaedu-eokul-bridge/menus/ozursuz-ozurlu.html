@@ -1,0 +1,43 @@
+﻿<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Özürsüz → özürlü</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../gate/gate.css" />
+    <link rel="stylesheet" href="kelebek.css" />
+  </head>
+  <body class="uza-body">
+    <main class="card" style="max-width: 480px; margin: 2rem auto">
+      <a href="../app/app.html" class="back-link">← Modüller</a>
+      <h1>Özürsüzden özürlüye</h1>
+      <p class="gate-sub">IOG02012 listesinden seçilen günleri IOG02013’e özürlü kaydeder.</p>
+      <label class="gate-sub" for="ogrNo">Okul numarası</label>
+      <input id="ogrNo" class="btn-primary" style="width: 100%; margin-bottom: 0.5rem" />
+      <button type="button" id="btnList" class="btn-primary" style="width: 100%; margin-bottom: 0.75rem">
+        Özürsüz listesini getir
+      </button>
+      <p id="studentInfo" class="gate-sub" hidden></p>
+      <div id="rowBox" hidden>
+        <label class="gate-sub">Aktarılacak günler</label>
+        <ul id="rowList" class="kb-list"></ul>
+      </div>
+      <label class="gate-sub" for="nedeni">Özür nedeni (ddl)</label>
+      <input id="nedeni" class="btn-primary" style="width: 100%; margin-bottom: 0.5rem" placeholder="örn. 1" />
+      <label class="gate-sub" for="aciklama">Açıklama</label>
+      <input id="aciklama" class="btn-primary" style="width: 100%; margin-bottom: 0.75rem" maxlength="29" />
+      <button type="button" id="btnVeliPdf" class="btn-primary" style="width: 100%; margin-bottom: 0.5rem" hidden>
+        Veli izin dilekçesi PDF
+      </button>
+      <button type="button" id="btnAktar" class="btn-primary" style="width: 100%" disabled>
+        Seçilenleri özürlüye aktar
+      </button>
+      <p id="status" class="gate-message"></p>
+    </main>
+    <script src="../shared/brand-names.js"></script>
+    <script src="../shared/messaging.js"></script>
+    <script src="ozursuz-ozurlu.js"></script>
+  </body>
+</html>

@@ -1,0 +1,29 @@
+﻿<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Evci / çarşı izin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../gate/gate.css" />
+    <link rel="stylesheet" href="kelebek.css" />
+  </head>
+  <body class="uza-body">
+    <main class="card uza-page">
+      <a href="../app/app.html" class="back-link">← Modüller</a>
+      <h1>Evci / çarşı izin</h1>
+      <p class="gate-sub">
+        OkulNet’da <strong>e-Pansiyon → Evci ve Çarşı İzin Listesi</strong> raporunu açın; bu sayfada
+        aktarın.
+      </p>
+      <label class="gate-sub" for="izinTarih">Referans tarih</label>
+      <input id="izinTarih" type="date" class="btn-primary" style="width: 100%; margin: 0.5rem 0 1rem" />
+      <button type="button" id="btnIzin" class="btn-primary" style="width: 100%">Sekmeden aktar</button>
+      <p id="status" class="gate-message"></p>
+    </main>
+    <script src="../shared/brand-names.js"></script>
+    <script src="../shared/messaging.js"></script>
+    <script src="izin.js"></script>
+  </body>
+</html>

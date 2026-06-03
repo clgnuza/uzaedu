@@ -1,0 +1,44 @@
+﻿<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#070b14" />
+    <title>Toplu faaliyet — Uzaedu Okul Köprüsü</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../gate/gate.css" />
+    <link rel="stylesheet" href="kelebek.css" />
+  </head>
+  <body class="uza-body">
+    <main class="card uza-page">
+      <header>
+        <a href="../app/app.html" class="back-link">← Modüller</a>
+        <h1>Toplu faaliyet</h1>
+        <p class="gate-sub">IOG02013 — nedeni Faaliyet (F).</p>
+      </header>
+      <label class="gate-field">
+        <span>Tarih</span>
+        <input type="date" id="tarih" required />
+      </label>
+      <label class="gate-field">
+        <span>Süre (ör. 1 veya 0,5)</span>
+        <input type="text" id="sure" value="1" />
+      </label>
+      <label class="gate-field">
+        <span>Faaliyet adı (açıklama)</span>
+        <input type="text" id="aciklama" maxlength="29" required />
+      </label>
+      <label class="gate-field">
+        <span>Okul numaraları (virgül/boşluk)</span>
+        <textarea id="ogrNos" rows="4" required></textarea>
+      </label>
+      <button type="button" id="btnRun" class="btn-primary">Kaydet</button>
+      <p id="status" class="gate-message" role="status"></p>
+    </main>
+    <script src="../shared/brand-names.js"></script>
+    <script src="../shared/messaging.js"></script>
+    <script src="faaliyet.js"></script>
+  </body>
+</html>

@@ -1,0 +1,291 @@
+/* Uzaedu Uzaedu Okul Köprüsü — ortak tasarım sistemi */
+
+:root {
+  --bg0: #070b14;
+  --bg1: #0f172a;
+  --bg2: #1e293b;
+  --card: rgba(255, 255, 255, 0.055);
+  --card-hover: rgba(255, 255, 255, 0.09);
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --text: #f8fafc;
+  --muted: #94a3b8;
+  --primary: #14b8a6;
+  --primary2: #0d9488;
+  --primary-glow: rgba(20, 184, 166, 0.35);
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --err: #f87171;
+  --eokul: #2dd4bf;
+  --eokul-bg: rgba(45, 212, 191, 0.12);
+  --mebbis: #94a3b8;
+  --mebbis-bg: rgba(148, 163, 184, 0.14);
+  --kbs: #f59e0b;
+  --kbs-bg: rgba(245, 158, 11, 0.14);
+  --panel: #818cf8;
+  --panel-bg: rgba(129, 140, 248, 0.12);
+  --radius: 16px;
+  --radius-sm: 11px;
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font);
+  color: var(--text);
+  background:
+    radial-gradient(ellipse 80% 50% at 0% -20%, rgba(20, 184, 166, 0.22), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(99, 102, 241, 0.14), transparent 50%),
+    radial-gradient(ellipse 50% 30% at 50% 100%, rgba(245, 158, 11, 0.06), transparent 45%),
+    linear-gradient(168deg, var(--bg0) 0%, var(--bg1) 45%, #0c1222 100%);
+}
+
+::selection {
+  background: rgba(20, 184, 166, 0.35);
+  color: #fff;
+}
+
+/* Kartlar */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.125rem;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow);
+}
+
+/* Butonlar */
+.btn-primary {
+  width: 100%;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.8rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: #042f2e;
+  cursor: pointer;
+  background: linear-gradient(135deg, #5eead4 0%, var(--primary) 45%, var(--primary2) 100%);
+  box-shadow: 0 8px 28px var(--primary-glow);
+  transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease), opacity 0.15s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px var(--primary-glow);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-secondary {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 1rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.06);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--card-hover);
+  border-color: rgba(20, 184, 166, 0.35);
+}
+
+.btn-mebbis {
+  color: #f8fafc;
+  background: linear-gradient(135deg, #cbd5e1, #64748b);
+  box-shadow: 0 6px 20px rgba(100, 116, 139, 0.35);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+
+.btn-kbs {
+  color: #422006;
+  background: linear-gradient(135deg, #fde68a, #f59e0b);
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.3);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+
+/* Form — geriye uyum */
+.gate-sub,
+.uza-label {
+  display: block;
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #cbd5e1;
+}
+
+.gate-field,
+.uza-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.85rem;
+}
+
+.gate-field > span:first-child,
+.uza-field > span:first-child {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #cbd5e1;
+}
+
+.gate-input,
+.uza-input,
+select.gate-input,
+select.uza-input,
+textarea.gate-input,
+textarea.uza-input {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.7rem;
+  font-size: 0.88rem;
+  font-family: inherit;
+  color: var(--text);
+  background: rgba(15, 23, 42, 0.72);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.gate-input:focus,
+.uza-input:focus,
+select.gate-input:focus,
+textarea.gate-input:focus {
+  outline: none;
+  border-color: rgba(20, 184, 166, 0.55);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12);
+}
+
+.gate-message,
+.uza-status {
+  margin-top: 0.85rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  min-height: 1.2em;
+  color: var(--muted);
+  text-align: center;
+}
+
+.gate-message.error,
+.uza-status.error {
+  color: var(--err);
+}
+
+.gate-message.success,
+.uza-status.success {
+  color: var(--ok);
+}
+
+/* Rozetler */
+.pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.pill.ok {
+  background: rgba(52, 211, 153, 0.16);
+  color: var(--ok);
+  border: 1px solid rgba(52, 211, 153, 0.28);
+}
+
+.pill.wait {
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--warn);
+  border: 1px solid rgba(251, 191, 36, 0.22);
+}
+
+.pill.err {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--err);
+  border: 1px solid rgba(248, 113, 113, 0.22);
+}
+
+.pill.eokul {
+  background: var(--eokul-bg);
+  color: var(--eokul);
+  border: 1px solid rgba(45, 212, 191, 0.28);
+}
+
+.pill.mebbis {
+  background: var(--mebbis-bg);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.pill.kbs {
+  background: var(--kbs-bg);
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+/* Overlay */
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(8px);
+  z-index: 100;
+}
+
+.overlay[hidden] {
+  display: none;
+}
+
+.spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  border-top-color: var(--primary);
+  animation: uza-spin 0.75s linear infinite;
+}
+
+@keyframes uza-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

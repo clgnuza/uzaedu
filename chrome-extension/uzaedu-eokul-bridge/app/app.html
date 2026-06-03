@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#070b14" />
+  <title>Uzaedu Okul Köprüsü</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <img src="../assets/icon48.png" alt="" width="40" height="40" />
+      <div>
+        <h1 id="shellTitle">Uzaedu Okul Köprüsü</h1>
+        <p class="meta" id="shellMeta">—</p>
+      </div>
+    </div>
+    <button type="button" class="btn-ghost" id="btnGateBack">Kapı ekranı</button>
+  </header>
+
+  <div class="session-strip" id="sessionStrip" aria-label="Oturum durumu">
+    <span class="session-chip panel wait" id="chipPanel"><span class="dot"></span> Panel</span>
+    <span class="session-chip eokul wait" id="chipEokul"><span class="dot"></span> OkulNet</span>
+    <span class="session-chip mebbis wait" id="chipMebbis"><span class="dot"></span> PersonelNet</span>
+    <span class="session-chip kbs wait" id="chipKbs"><span class="dot"></span> MaliNet</span>
+  </div>
+
+  <main class="layout">
+    <section class="settings-card">
+      <h2>Kurum ve oturum</h2>
+      <p>OkulNet, PersonelNet ve MaliNet sekmeleri açıkken köprü daha hızlı çalışır.</p>
+      <label class="oturum-toggle" for="selKurum">Kurum türü</label>
+      <select id="selKurum" class="kurum-select">
+        <option value="okulOncesi">Okul öncesi</option>
+        <option value="ilkOgretim">İlköğretim</option>
+        <option value="ortaOgretim">Ortaöğretim</option>
+      </select>
+      <label class="oturum-toggle">
+        <input type="checkbox" id="chkAutoConfirm" />
+        <span>OkulNet onay kutularını otomatik onayla</span>
+      </label>
+      <div id="blockOkulTuru" hidden>
+        <label class="oturum-toggle" for="selOkulTuru">Okul türü (ortaöğretim)</label>
+        <select id="selOkulTuru" class="kurum-select"></select>
+      </div>
+      <label class="oturum-toggle">
+        <input type="checkbox" id="chkOturumPing" checked />
+        <span>OkulNet oturumunu canlı tut (~20 dk)</span>
+      </label>
+      <label class="oturum-toggle">
+        <input type="checkbox" id="chkMebbisPing" checked />
+        <span>PersonelNet oturumunu canlı tut (~20 dk)</span>
+      </label>
+    </section>
+
+    <section class="grid-section">
+      <h2>Modüller</h2>
+      <p id="introText">OkulNet, PersonelNet ve MaliNet ile panel arasındaki işlemler.</p>
+      <div class="grid-filters" id="gridFilters" hidden>
+        <button type="button" class="filter-pill active" data-filter="all">Tümü</button>
+        <button type="button" class="filter-pill" data-filter="eokul">OkulNet</button>
+        <button type="button" class="filter-pill" data-filter="mebbis">PersonelNet</button>
+        <button type="button" class="filter-pill" data-filter="kbs">MaliNet</button>
+      </div>
+      <div class="grid" id="moduleGrid"></div>
+      <p class="empty" id="gridEmpty" hidden>Modül listesi yüklenemedi.</p>
+    </section>
+  </main>
+
+  <script src="../shared/brand-names.js"></script>
+  <script src="../shared/messaging.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

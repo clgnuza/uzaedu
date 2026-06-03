@@ -1,11 +1,36 @@
 /**
- * MEBBİS Puantaj, KBS Ek Ders Bordro, KBS Maaş Bordro parsers.
- * Mesaj formatı WhatsApp mobil ekranına göre optimize edilmiştir.
- * Her parser: kısa kişisel özet + okul iletişim notu üretir.
+ * MEBBİS Puantaj, KBS Ek Ders Bordro, KBS Maaş Bordro — mesaj üretimi.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const XLSX = require('xlsx') as typeof import('xlsx');
+import {
+  aggregateBordroRows,
+  BORDRO_FORMAT_LABELS,
+  BordroExcelFormat,
+  formatHours,
+  formatMoney,
+  readBordroTable,
+  rowsToWorkbookBuffer,
+  XRow,
+} from './bordro-excel';
+
+export type BordroSource = 'excel' | 'mebbis_scrape' | 'kbs_scrape';
+
+export function parseBordroFromRows(
+  type: 'mebbis_puantaj' | 'ek_ders_bordro' | 'maas_bordro',
+  headers: string[],
+  rows: XRow[],
+  donemLabel: string,
+  schoolName = '',
+  footerNote = '',
+): BordroParseResult {
+  const buf = rowsToWorkbookBuffer(headers, rows);
+  if (type === 'mebbis_puantaj') return parseMebbisPuantaj(buf, donemLabel, schoolName, footerNote);
+  if (type === 'ek_ders_bordro') return parseEkDersBordro(buf, donemLabel, schoolName, footerNote);
+  return parseMaasBordro(buf, donemLabel, schoolName, footerNote);
+}
+
+export type { BordroExcelFormat };
+export { BORDRO_FORMAT_LABELS };
 
 export type BordroTeacher = {
   name: string;
@@ -15,221 +40,172 @@ export type BordroTeacher = {
   rawRows: XRow[];
 };
 
-type XRow = Record<string, unknown>;
+export type BordroParseResult = {
+  teachers: BordroTeacher[];
+  excelFormat: BordroExcelFormat;
+  excelFormatLabel: string;
+};
 
-// ── Yardımcı ──────────────────────────────────────────────────────────────────
-
-function readSheet(buf: Buffer): XRow[] {
-  const wb = XLSX.read(buf, { type: 'buffer', cellDates: true });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_json<XRow>(sheet, { defval: '', raw: false });
-}
-
-function findCol(headers: string[], ...patterns: RegExp[]): string | null {
-  for (const pat of patterns) {
-    const h = headers.find((h) => pat.test(h));
-    if (h) return h;
-  }
-  return null;
-}
-
-function normalizePhone(raw: unknown): string {
-  if (!raw) return '';
-  let p = String(raw).replace(/\D/g, '');
-  if (p.startsWith('0')) p = '90' + p.slice(1);
-  if (p.length === 10) p = '90' + p;
-  if (!p.startsWith('+')) p = '+' + p;
-  return p.length >= 10 ? p : '';
-}
-
-function fmt(v: unknown): string {
-  if (v === null || v === undefined) return '';
-  return String(v).trim();
-}
-
-function currency(v: unknown): string {
-  const raw = String(v ?? '').replace(/\./g, '').replace(',', '.');
-  const n = parseFloat(raw);
-  if (isNaN(n)) return String(v ?? '');
-  return n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₺';
-}
-
-/** TC kimlik numarasını maskeler: 123***456 */
 function maskTc(tc: string | undefined): string {
   if (!tc || tc.length < 6) return tc ?? '';
   const s = tc.trim();
   const head = s.slice(0, 3);
   const tail = s.slice(-3);
-  const mid  = '*'.repeat(Math.max(1, s.length - 6));
+  const mid = '*'.repeat(Math.max(1, s.length - 6));
   return `${head}${mid}${tail}`;
 }
-
-// ── MEBBİS Puantaj ────────────────────────────────────────────────────────────
-
-export function parseMebbisPuantaj(buf: Buffer, donemLabel: string, schoolName = '', footerNote = ''): BordroTeacher[] {
-  const rows = readSheet(buf);
-  if (!rows.length) return [];
-  const headers = Object.keys(rows[0]);
-
-  const nameCol  = findCol(headers, /ad.*soyad|öğretmen.*ad|personel.*ad|name/i);
-  const tcCol    = findCol(headers, /^tc$|kimlik.*no|t\.c\./i);
-  const bransCol = findCol(headers, /branş|brans|ders|alan|subject/i);
-  const toplamCol= findCol(headers, /toplam.*saat|toplam/i);
-  const phoneCol = findCol(headers, /telefon|gsm|whatsapp|cep|phone/i);
-
-  const groups = new Map<string, { rows: XRow[]; tc?: string; phone?: string }>();
-
-  for (const r of rows) {
-    const name = String(r[nameCol ?? headers[0]] ?? '').trim().toUpperCase();
-    if (!name || name.length < 3) continue;
-    if (!groups.has(name)) groups.set(name, { rows: [] });
-    const g = groups.get(name)!;
-    g.rows.push(r);
-    if (tcCol && r[tcCol]) g.tc = fmt(r[tcCol]) || g.tc;
-    if (phoneCol && r[phoneCol]) g.phone = normalizePhone(r[phoneCol]) || g.phone;
-  }
-
-  const defaultNote = footerNote || `Ek ders kontrol amaçlı puantaj ekte sunulmuştur. Hata olması durumunda${schoolName ? ' ' + schoolName + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`;
-
-  return [...groups].map(([name, g]) => {
-    const first  = g.rows[0];
-    const toplam = toplamCol ? fmt(first[toplamCol]) : '';
-    const brans  = bransCol  ? fmt(first[bransCol])  : '';
-
-    const lines = [
-      '📋 MEBBİS Puantaj',
-      '',
-      `Sayın ${toTitleCase(name)},`,
-      '',
-      `• T.C. Kimlik No: ${maskTc(g.tc)}`,
-      brans  ? `• Branş: ${brans}` : '',
-      `• Dönem: ${donemLabel}`,
-      toplam ? `• Toplam saat: ${toplam} saat` : '',
-      '',
-      defaultNote,
-      '────────',
-      'İyi çalışmalar.',
-      schoolName ? schoolName : 'Uzaedu Öğretmen',
-    ].filter((l, i, arr) => l !== '' || (arr[i - 1] !== '' && i > 0));
-
-    return { name, tc: g.tc, phone: g.phone, messageText: lines.join('\n').trim(), rawRows: g.rows };
-  });
-}
-
-// ── KBS Ek Ders Bordro ───────────────────────────────────────────────────────
-
-export function parseEkDersBordro(buf: Buffer, donemLabel: string, schoolName = '', footerNote = ''): BordroTeacher[] {
-  const rows = readSheet(buf);
-  if (!rows.length) return [];
-  const headers = Object.keys(rows[0]);
-
-  const nameCol  = findCol(headers, /ad.*soyad|öğretmen.*ad|personel.*ad|name/i);
-  const tcCol    = findCol(headers, /^tc$|kimlik.*no|t\.c\./i);
-  const netCol   = findCol(headers, /net.*tutar|ödenecek|net.*ücret|toplam.*tutar|net/i);
-  const phoneCol = findCol(headers, /telefon|gsm|whatsapp|cep|phone/i);
-
-  const groups = new Map<string, { rows: XRow[]; tc?: string; phone?: string }>();
-
-  for (const r of rows) {
-    const name = String(r[nameCol ?? headers[0]] ?? '').trim().toUpperCase();
-    if (!name || name.length < 3) continue;
-    if (!groups.has(name)) groups.set(name, { rows: [] });
-    const g = groups.get(name)!;
-    g.rows.push(r);
-    if (tcCol && r[tcCol]) g.tc = fmt(r[tcCol]) || g.tc;
-    if (phoneCol && r[phoneCol]) g.phone = normalizePhone(r[phoneCol]) || g.phone;
-  }
-
-  const defaultNote = footerNote || `Ek ders bordro detayları ekte sunulmuştur. Hata olması durumunda${schoolName ? ' ' + schoolName + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`;
-
-  return [...groups].map(([name, g]) => {
-    // Birden fazla satır varsa net tutarı topla
-    let netToplam = 0;
-    for (const r of g.rows) {
-      const v = parseFloat(String(r[netCol ?? ''] ?? '').replace(/\./g, '').replace(',', '.'));
-      if (!isNaN(v)) netToplam += v;
-    }
-    const netStr = netToplam > 0 ? currency(netToplam) : (netCol ? fmt(g.rows[0][netCol]) : '');
-
-    const lines = [
-      '📋 Ek ders bordrosu',
-      '',
-      `Sayın ${toTitleCase(name)},`,
-      '',
-      `• T.C. Kimlik No: ${maskTc(g.tc)}`,
-      '• Bordro türü: Ek ders',
-      `• Dönem: ${donemLabel}`,
-      netStr ? `• Net ödenecek tutar: ${netStr}` : '',
-      '',
-      defaultNote,
-      '────────',
-      'İyi çalışmalar.',
-      schoolName ? schoolName : 'Uzaedu Öğretmen',
-    ].filter((l, i, arr) => l !== '' || (arr[i - 1] !== '' && i > 0));
-
-    return { name, tc: g.tc, phone: g.phone, messageText: lines.join('\n').trim(), rawRows: g.rows };
-  });
-}
-
-// ── KBS Maaş Bordro ───────────────────────────────────────────────────────────
-
-export function parseMaasBordro(buf: Buffer, donemLabel: string, schoolName = '', footerNote = ''): BordroTeacher[] {
-  const rows = readSheet(buf);
-  if (!rows.length) return [];
-  const headers = Object.keys(rows[0]);
-
-  const nameCol  = findCol(headers, /ad.*soyad|personel.*ad|name/i);
-  const tcCol    = findCol(headers, /^tc$|kimlik.*no|t\.c\./i);
-  const netCol   = findCol(headers, /net.*maaş|net.*ödenecek|net.*tutar|^net$/i);
-  const phoneCol = findCol(headers, /telefon|gsm|whatsapp|cep|phone/i);
-
-  const groups = new Map<string, { rows: XRow[]; tc?: string; phone?: string }>();
-
-  for (const r of rows) {
-    const name = String(r[nameCol ?? headers[0]] ?? '').trim().toUpperCase();
-    if (!name || name.length < 3) continue;
-    if (!groups.has(name)) groups.set(name, { rows: [] });
-    const g = groups.get(name)!;
-    g.rows.push(r);
-    if (tcCol && r[tcCol]) g.tc = fmt(r[tcCol]) || g.tc;
-    if (phoneCol && r[phoneCol]) g.phone = normalizePhone(r[phoneCol]) || g.phone;
-  }
-
-  const defaultNote = footerNote || `Maaş bordro detayları ekte sunulmuştur. Hata olması durumunda${schoolName ? ' ' + schoolName + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`;
-
-  return [...groups].map(([name, g]) => {
-    const first  = g.rows[0];
-    const netRaw = netCol ? fmt(first[netCol]) : '';
-    const netStr = netRaw ? currency(netRaw) : '';
-
-    const lines = [
-      '📋 Maaş bordrosu',
-      '',
-      `Sayın ${toTitleCase(name)},`,
-      '',
-      `• T.C. Kimlik No: ${maskTc(g.tc)}`,
-      '• Bordro türü: Maaş',
-      `• Dönem: ${donemLabel}`,
-      netStr ? `• Net ödenecek tutar: ${netStr}` : '',
-      '',
-      defaultNote,
-      '────────',
-      'İyi çalışmalar.',
-      schoolName ? schoolName : 'Uzaedu Öğretmen',
-    ].filter((l, i, arr) => l !== '' || (arr[i - 1] !== '' && i > 0));
-
-    return { name, tc: g.tc, phone: g.phone, messageText: lines.join('\n').trim(), rawRows: g.rows };
-  });
-}
-
-// ── Yardımcı: Title Case (TÜRKÇE) ─────────────────────────────────────────────
 
 function toTitleCase(str: string): string {
   return str
     .toLowerCase()
-    .replace(/\bı/g, 'ı')
     .split(' ')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ')
-    .replace(/\bI\b/g, 'I');
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ''))
+    .join(' ');
+}
+
+const MEB_KBS_OFFICIAL_NOTE =
+  'Resmî ödeme KBS üzerinden yapılır; bu mesaj bilgilendirme amaçlıdır.';
+
+function buildFooter(defaultNote: string, schoolName: string, extraLine?: string): string[] {
+  return [
+    defaultNote,
+    extraLine || MEB_KBS_OFFICIAL_NOTE,
+    '────────',
+    'İyi çalışmalar.',
+    schoolName || 'Uzaedu Öğretmen',
+  ];
+}
+
+function veriTipBlock(lines: Array<{ tip: string; saat: number }>, max = 8): string[] {
+  if (!lines.length) return [];
+  const out = ['• Veri tipi özeti:'];
+  const sorted = [...lines].sort((a, b) => b.saat - a.saat);
+  for (const { tip, saat } of sorted.slice(0, max)) {
+    out.push(`  – ${tip}: ${formatHours(saat)} saat`);
+  }
+  if (sorted.length > max) out.push(`  – … +${sorted.length - max} kalem`);
+  return out;
+}
+
+// ── MEBBİS Puantaj ────────────────────────────────────────────────────────────
+
+export function parseMebbisPuantaj(
+  buf: Buffer,
+  donemLabel: string,
+  schoolName = '',
+  footerNote = '',
+): BordroParseResult {
+  const table = readBordroTable(buf, 'puantaj');
+  const groups = aggregateBordroRows(table);
+  const defaultNote =
+    footerNote ||
+    `Ek ders kontrol amaçlı puantaj sunulmuştur (kaynak: ${BORDRO_FORMAT_LABELS[table.format]}). Hata olması durumunda${schoolName ? ' ' + schoolName + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz. MEBBİS onayı ile KBS saatleri aynı olmalıdır.`;
+
+  const teachers: BordroTeacher[] = [...groups].map(([key, g]) => {
+    const name = g.name || key;
+    const body = [
+      '📋 MEBBİS Puantaj',
+      '',
+      `Sayın ${toTitleCase(name)},`,
+      '',
+      g.tc ? `• T.C. Kimlik No: ${maskTc(g.tc)}` : '',
+      g.unvan ? `• Ünvan: ${g.unvan}` : '',
+      g.brans ? `• Branş: ${g.brans}` : '',
+      `• Dönem: ${donemLabel}`,
+      g.totalHours > 0 ? `• Toplam saat: ${formatHours(g.totalHours)} saat` : '',
+      ...veriTipBlock(g.veriTipLines),
+      '',
+      ...buildFooter(defaultNote, schoolName),
+    ].filter((l, i, arr) => l !== '' || (arr[i - 1] !== '' && i > 0));
+
+    return { name, tc: g.tc, phone: g.phone, messageText: body.join('\n').trim(), rawRows: g.rawRows };
+  });
+
+  return { teachers, excelFormat: table.format, excelFormatLabel: BORDRO_FORMAT_LABELS[table.format] };
+}
+
+// ── KBS Ek Ders Bordro ───────────────────────────────────────────────────────
+
+export function parseEkDersBordro(
+  buf: Buffer,
+  donemLabel: string,
+  schoolName = '',
+  footerNote = '',
+): BordroParseResult {
+  const table = readBordroTable(buf, 'ek_bordro');
+  const groups = aggregateBordroRows(table);
+  const defaultNote =
+    footerNote ||
+    `Ek ders bordro detayları sunulmuştur (kaynak: ${BORDRO_FORMAT_LABELS[table.format]}). Hata olması durumunda${schoolName ? ' ' + schoolName + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`;
+
+  const teachers: BordroTeacher[] = [...groups].map(([key, g]) => {
+    const name = g.name || key;
+    const netStr = g.netSum > 0 ? formatMoney(g.netSum) : '';
+    const brutStr = g.brutSum > 0 ? formatMoney(g.brutSum) : '';
+    const kesStr = g.kesintiSum > 0 ? formatMoney(g.kesintiSum) : '';
+
+    const body = [
+      '📋 Ek ders bordrosu',
+      '',
+      `Sayın ${toTitleCase(name)},`,
+      '',
+      g.tc ? `• T.C. Kimlik No: ${maskTc(g.tc)}` : '',
+      '• Bordro türü: Ek ders (KBS)',
+      g.unvan ? `• Ünvan: ${g.unvan}` : '',
+      `• Dönem: ${donemLabel}`,
+      g.totalHours > 0 ? `• Toplam saat: ${formatHours(g.totalHours)} saat` : '',
+      ...veriTipBlock(g.veriTipLines, 6),
+      brutStr ? `• Brüt tutar: ${brutStr}` : '',
+      kesStr ? `• Kesintiler: ${kesStr}` : '',
+      netStr ? `• Net ödenecek tutar: ${netStr}` : '',
+      '',
+      ...buildFooter(defaultNote, schoolName),
+    ].filter((l, i, arr) => l !== '' || (arr[i - 1] !== '' && i > 0));
+
+    return { name, tc: g.tc, phone: g.phone, messageText: body.join('\n').trim(), rawRows: g.rawRows };
+  });
+
+  return { teachers, excelFormat: table.format, excelFormatLabel: BORDRO_FORMAT_LABELS[table.format] };
+}
+
+// ── KBS Maaş Bordro ───────────────────────────────────────────────────────────
+
+export function parseMaasBordro(
+  buf: Buffer,
+  donemLabel: string,
+  schoolName = '',
+  footerNote = '',
+): BordroParseResult {
+  const table = readBordroTable(buf, 'maas');
+  const groups = aggregateBordroRows(table);
+  const defaultNote =
+    footerNote ||
+    `Maaş bordro detayları sunulmuştur (kaynak: ${BORDRO_FORMAT_LABELS[table.format]}). Hata olması durumunda${schoolName ? ' ' + schoolName + ' yönetimi' : ' okul yönetimi'} ile iletişime geçiniz.`;
+
+  const teachers: BordroTeacher[] = [...groups].map(([key, g]) => {
+    const name = g.name || key;
+    const netStr = g.netSum > 0 ? formatMoney(g.netSum) : '';
+    const brutStr = g.brutSum > 0 ? formatMoney(g.brutSum) : '';
+    const kesStr = g.kesintiSum > 0 ? formatMoney(g.kesintiSum) : '';
+
+    const body = [
+      '📋 Maaş bordrosu',
+      '',
+      `Sayın ${toTitleCase(name)},`,
+      '',
+      g.tc ? `• T.C. Kimlik No: ${maskTc(g.tc)}` : '',
+      '• Bordro türü: Maaş (KBS)',
+      g.unvan ? `• Ünvan: ${g.unvan}` : '',
+      `• Dönem: ${donemLabel}`,
+      brutStr ? `• Brüt maaş: ${brutStr}` : '',
+      kesStr ? `• Kesintiler: ${kesStr}` : '',
+      netStr ? `• Net ödenecek tutar: ${netStr}` : '',
+      '',
+      ...buildFooter(defaultNote, schoolName),
+    ].filter((l, i, arr) => l !== '' || (arr[i - 1] !== '' && i > 0));
+
+    return { name, tc: g.tc, phone: g.phone, messageText: body.join('\n').trim(), rawRows: g.rawRows };
+  });
+
+  return { teachers, excelFormat: table.format, excelFormatLabel: BORDRO_FORMAT_LABELS[table.format] };
 }

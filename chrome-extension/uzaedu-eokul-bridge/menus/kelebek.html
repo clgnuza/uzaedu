@@ -1,0 +1,33 @@
+﻿<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#070b14" />
+    <title>Kelebek — Uzaedu Okul Köprüsü</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../gate/gate.css" />
+    <link rel="stylesheet" href="kelebek.css" />
+  </head>
+  <body class="uza-body">
+    <main class="card uza-page">
+      <header class="uza-page-header">
+        <a href="../app/app.html" class="back-link">← Modüller</a>
+        <span class="uza-platform-badge eokul">OkulNet</span>
+        <h1 id="kbTitle">Kelebek sınıf/öğrenci</h1>
+        <p id="kbLead" class="gate-sub">OkulNet’ten ilköğretim listesini panele aktarır.</p>
+      </header>
+      <div class="uza-actions kb-actions">
+        <button type="button" id="btnKbAll" class="btn-primary">Tüm sınıfları aktar</button>
+      </div>
+      <p id="kbStatus" class="gate-message" role="status"></p>
+      <ul id="kbClassList" class="kb-list" hidden></ul>
+    </main>
+    <script src="../shared/brand-names.js"></script>
+    <script src="../shared/messaging.js"></script>
+    <script src="../shared/menu-kurum.js"></script>
+    <script src="kelebek.js"></script>
+  </body>
+</html>

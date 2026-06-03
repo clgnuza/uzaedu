@@ -23,6 +23,8 @@ type ParsedTeacher = {
 type ParseResult = {
   matched: ParsedTeacher[];
   unmatched: ParsedTeacher[];
+  excelFormat?: string;
+  excelFormatLabel?: string;
 };
 
 interface Props {
@@ -31,6 +33,8 @@ interface Props {
   description: string;
   icon: string;
   privacyNote?: string;
+  /** Kabul edilen resmi Excel kaynakları (MEBBİS/KBS) */
+  sourceHints?: string[];
   token: string | null;
   q: string;
 }
@@ -102,15 +106,19 @@ function buildPreview(type: BordroType, okulAdi: string, iletisimNotu: string, d
   ].join('\n');
 }
 
-export default function BordroUploadFlow({ type, title, description, icon, privacyNote, token, q }: Props) {
+export default function BordroUploadFlow({ type, title, description, icon, privacyNote, sourceHints, token, q }: Props) {
   const [step, setStep]             = useState<'form' | 'match' | 'preview'>('form');
   const [donem, setDonem]           = useState('');
   const [campaignTitle, setCampaignTitle] = useState('');
   const [okulAdi, setOkulAdi]       = useState('');
   const [iletisimNotu, setIletisimNotu] = useState('');
   const [showPreview, setShowPreview] = useState(false);
+  const [compareResult, setCompareResult] = useState<string | null>(null);
+  const mebbisCompareRef = useRef<HTMLInputElement>(null);
+  const kbsCompareRef = useRef<HTMLInputElement>(null);
   const [file, setFile]             = useState<File | null>(null);
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
+  const [excelFormatLabel, setExcelFormatLabel] = useState<string | null>(null);
   const [manualPhones, setManualPhones] = useState<Record<string, string>>({});
   const [campaign, setCampaign]     = useState<Campaign | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
@@ -139,8 +147,10 @@ export default function BordroUploadFlow({ type, title, description, icon, priva
       const fd = new FormData(); fd.append('file', f);
       const res = await apiFetch<ParseResult>(`/messaging/bordro/parse?type=${type}&donem=${encodeURIComponent(donem)}${sid}`, { method: 'POST', token, body: fd });
       setParseResult(res);
+      setExcelFormatLabel(res.excelFormatLabel ?? null);
       setStep('match');
-      toast.success(`${res.matched.length} öğretmen eşleşti, ${res.unmatched.length} eşleşmedi`);
+      const fmt = res.excelFormatLabel ? ` (${res.excelFormatLabel})` : '';
+      toast.success(`${res.matched.length} eşleşti, ${res.unmatched.length} eşleşmedi${fmt}`);
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Hata'); }
     finally { setLoading(false); }
   };
@@ -174,6 +184,34 @@ export default function BordroUploadFlow({ type, title, description, icon, priva
 
   const previewText = buildPreview(type, okulAdi, iletisimNotu, donem);
 
+  const runCompare = async () => {
+    const mf = mebbisCompareRef.current?.files?.[0];
+    const kf = kbsCompareRef.current?.files?.[0];
+    if (!mf || !kf) return toast.error('MEBBİS ve KBS Excel dosyalarını seçin');
+    setLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('mebbisFile', mf);
+      fd.append('kbsFile', kf);
+      const res = await apiFetch<{
+        summary: { ok: number; mismatch: number; mebbisOnly: number; kbsOnly: number };
+        rows: Array<{ name: string; mebbisHours: number; kbsHours: number; delta: number; status: string }>;
+      }>(`/messaging/bordro/compare${sid}`, { method: 'POST', token, body: fd });
+      const lines = [
+        `Uyumlu: ${res.summary.ok} · Fark: ${res.summary.mismatch} · Yalnız MEBBİS: ${res.summary.mebbisOnly} · Yalnız KBS: ${res.summary.kbsOnly}`,
+        ...res.rows.filter((r) => r.status !== 'ok').slice(0, 15).map(
+          (r) => `${r.name}: MEBBİS ${r.mebbisHours}h / KBS ${r.kbsHours}h (Δ ${r.delta})`,
+        ),
+      ];
+      setCompareResult(lines.join('\n'));
+      toast.success('Karşılaştırma tamam');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Hata');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border bg-white/80 p-5 shadow-sm dark:bg-zinc-900/60 space-y-4">
@@ -191,6 +229,26 @@ export default function BordroUploadFlow({ type, title, description, icon, priva
             <ShieldCheck className="size-4 text-emerald-600 mt-0.5 shrink-0" />
             <p className="text-xs text-emerald-800 dark:text-emerald-300">{privacyNote}</p>
           </div>
+        )}
+
+        {sourceHints && sourceHints.length > 0 && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-muted-foreground dark:border-slate-800 dark:bg-slate-900/40">
+            <p className="font-medium text-foreground mb-1">Kaynak</p>
+            <ul className="list-disc pl-4 space-y-0.5">
+              {sourceHints.map((h) => (
+                <li key={h}>{h}</li>
+              ))}
+              <li>
+                <strong>Eklenti:</strong> MEBBİS/KBS sekmesinde listeyi açıp «Açık sekmeden otomatik çek»
+              </li>
+            </ul>
+          </div>
+        )}
+
+        {excelFormatLabel && step !== 'form' && (
+          <p className="text-xs text-muted-foreground">
+            Algılanan format: <span className="font-medium text-foreground">{excelFormatLabel}</span>
+          </p>
         )}
 
         {/* ADIM 1: Form */}
@@ -245,6 +303,22 @@ export default function BordroUploadFlow({ type, title, description, icon, priva
             </div>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) void doParseStep(f); e.target.value = ''; }} />
+
+            {(type === 'mebbis_puantaj' || type === 'ek_ders_bordro') && (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 px-3 py-2 space-y-2 dark:border-indigo-900/40">
+                <p className="text-xs font-semibold">MEBBİS ↔ KBS saat karşılaştırması</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Input type="file" accept=".xlsx,.xls" ref={mebbisCompareRef} className="text-xs h-8" />
+                  <Input type="file" accept=".xlsx,.xls" ref={kbsCompareRef} className="text-xs h-8" />
+                </div>
+                <Button type="button" size="sm" variant="outline" onClick={() => void runCompare()} disabled={loading}>
+                  Karşılaştır
+                </Button>
+                {compareResult && (
+                  <pre className="text-[10px] whitespace-pre-wrap max-h-28 overflow-auto">{compareResult}</pre>
+                )}
+              </div>
+            )}
 
             <div className="rounded-xl border border-amber-200 bg-amber-50/50 px-3 py-2 space-y-1 dark:border-amber-900/40 dark:bg-amber-950/10">
               <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Nasıl çalışır?</p>
