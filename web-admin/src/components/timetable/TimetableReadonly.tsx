@@ -1,54 +1,54 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, type RefObject } from 'react';
 import { TimetableGrid } from './TimetableGrid';
 import type { MatrixAxis } from './TimetableMatrixGrid';
 import type { EditorEntry } from '@/lib/ders-dagit-timetable-api';
 
-type Row = {
-  day_of_week: number;
-  lesson_num: number;
-  class_section: string;
-  subject: string;
-  teacher_label?: string | null;
-  room_name?: string | null;
-};
-
 export function TimetableReadonly({
   entries,
   classSection,
+  teacherId,
   workDays = [1, 2, 3, 4, 5],
   maxLesson = 8,
-  displayMode = 'all',
+  displayMode = 'class',
+  placementMode = 'drag',
+  focusEntryIds,
+  gridRef,
 }: {
-  entries: Row[];
+  entries: EditorEntry[];
   classSection?: string;
+  teacherId?: string;
   workDays?: number[];
   maxLesson?: number;
   displayMode?: 'class' | 'teacher' | 'room' | 'all';
+  /** false = geniş kart (öğretmen satırı); üretim önizlemesi için click */
+  placementMode?: 'drag' | 'click';
+  focusEntryIds?: Set<string> | null;
+  gridRef?: RefObject<HTMLDivElement | null>;
 }) {
-  const mapped: EditorEntry[] = useMemo(() => {
-    const filtered = classSection ? entries.filter((e) => e.class_section === classSection) : entries;
+  const mapped = useMemo(() => {
+    let filtered = entries;
+    if (classSection) filtered = filtered.filter((e) => e.class_section === classSection);
+    if (teacherId) filtered = filtered.filter((e) => e.user_id === teacherId);
     return filtered.map((e, i) => ({
-      id: `ro-${i}-${e.day_of_week}-${e.lesson_num}-${e.class_section}`,
-      day_of_week: e.day_of_week,
-      lesson_num: e.lesson_num,
-      class_section: e.class_section,
-      subject: e.subject,
-      teacher_label: e.teacher_label,
-      room_name: e.room_name,
+      ...e,
+      id: e.id || `ro-${i}-${e.day_of_week}-${e.lesson_num}-${e.class_section}`,
     }));
-  }, [entries, classSection]);
+  }, [entries, classSection, teacherId]);
 
   const max = Math.max(maxLesson, ...mapped.map((e) => e.lesson_num), 1);
 
-  const matrixAxis: MatrixAxis | undefined = classSection
-    ? undefined
-    : displayMode === 'all' || displayMode === 'teacher' || displayMode === 'room' || displayMode === 'class'
-      ? displayMode === 'all'
-        ? 'teacher'
-        : displayMode
-      : 'teacher';
+  const effectiveDisplay = teacherId ? 'teacher' : displayMode;
+
+  const matrixAxis: MatrixAxis | undefined =
+    classSection || teacherId
+      ? undefined
+      : effectiveDisplay === 'all' || effectiveDisplay === 'teacher' || effectiveDisplay === 'room' || effectiveDisplay === 'class'
+        ? effectiveDisplay === 'all'
+          ? 'teacher'
+          : effectiveDisplay
+        : 'teacher';
 
   const classSections = useMemo(() => {
     const s = new Set<string>();
@@ -60,19 +60,24 @@ export function TimetableReadonly({
   }, [mapped]);
 
   return (
-    <TimetableGrid
-      entries={mapped}
-      workDays={workDays}
-      maxLesson={max}
-      lessonSchedule={[]}
-      displayMode={displayMode}
-      matrixAxis={matrixAxis}
-      classSections={classSections}
-      editable={false}
-      busy
-      clashIds={new Set()}
-      onMove={() => {}}
-      onEditEntry={() => {}}
-    />
+    <div ref={gridRef} className="min-h-0">
+      <TimetableGrid
+        entries={mapped}
+        workDays={workDays}
+        maxLesson={max}
+        lessonSchedule={[]}
+        displayMode={effectiveDisplay}
+        matrixAxis={matrixAxis}
+        classSections={classSections}
+        editable={false}
+        busy
+        placementMode={placementMode}
+        clashIds={new Set()}
+        focusEntryIds={focusEntryIds}
+        dimUnfocusedEntries={!!focusEntryIds?.size}
+        onMove={() => {}}
+        onEditEntry={() => {}}
+      />
+    </div>
   );
 }

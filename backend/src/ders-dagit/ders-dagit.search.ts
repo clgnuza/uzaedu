@@ -4,7 +4,21 @@ import { applySoftRulePenalties } from './ders-dagit.solver-rules';
 import { ruleOn, ruleOnForAssignment } from './ders-dagit.solver-rule-scope';
 import { rulesForSection } from './ders-dagit.solver';
 import { isStrictRule } from './ders-dagit.rules-merge';
-import { assignmentDayDistribution, isValidDayDistribution } from './ders-dagit.day-distribution';
+import {
+  assignmentBlockPlacementOkForAssignment,
+  assignmentPlacementSpec,
+  lessonsOnDayConsecutive,
+} from './ders-dagit.assignment-blocks';
+import {
+  assignmentByDayLessons,
+  assignmentHasStoredDistribution,
+  distributionPatternForScoring,
+  matchesDayDistributionPattern,
+  remainingPatternChunks,
+} from './ders-dagit.day-distribution';
+import { shouldEnforceDistributionPattern } from './ders-dagit.distribution-policy';
+import { effectiveMinDaysPerWeek } from './ders-dagit.min-days';
+import { placementPatternForAssignment } from './ders-dagit.solver-distribution';
 
 type SearchEntry = SolverSlot & { _id: number };
 
@@ -127,74 +141,77 @@ function computeAssignmentPenalty(
   if (!mine.length) return 0;
 
   let penalty = 0;
-  const byDay = new Map<number, SearchEntry[]>();
-  for (const e of mine) {
-    const arr = byDay.get(e.day_of_week) ?? [];
-    arr.push(e);
-    byDay.set(e.day_of_week, arr);
+  const effH = effHours(assignment);
+  const scorePattern = distributionPatternForScoring(
+    assignment.weekly_hours,
+    assignment.options,
+    assignment.biweekly,
+    ctx.distribution_policy,
+  );
+  if (scorePattern) {
+    const byDayLessons = assignmentByDayLessons(mine, assignment.id);
+    const placedHours = [...byDayLessons.values()].reduce((s, lessons) => s + lessons.length, 0);
+    if (placedHours >= effH && !matchesDayDistributionPattern(byDayLessons, scorePattern)) {
+      penalty += shouldEnforceDistributionPattern(ctx.distribution_policy) ? 28 : 22;
+    }
   }
 
-  const dist = assignmentDayDistribution(assignment.options);
-  const effH = effHours(assignment);
-  if (dist && isValidDayDistribution(dist, effH)) {
-    const counts = [...byDay.values()].map((s) => s.length).sort((x, y) => x - y);
-    const expected = [...dist].sort((x, y) => x - y);
-    const ok = counts.length === expected.length && counts.every((c, i) => c === expected[i]);
-    if (!ok) penalty += 12;
+  const blockSpec = assignmentPlacementSpec(assignment.options, assignment.weekly_hours, assignment.biweekly);
+  if (mine.length && !assignmentBlockPlacementOkForAssignment(mine, assignment.id, blockSpec)) {
+    penalty += 24;
   }
+
+  const byDayLessons = assignmentByDayLessons(mine, assignment.id);
+  const daysUsed = byDayLessons.size;
 
   if (ruleOnForAssignment(ctx, 'distribute_week', section, assignment) && assignment.weekly_hours >= 3) {
-    const minDays = Math.min(assignment.min_days_per_week ?? 2, 3);
-    if (byDay.size < minDays) penalty += ruleWeight(ctx, 'distribute_week', section, 10);
+    const minDays = effectiveMinDaysPerWeek(assignment, placementPatternForAssignment(assignment, effH, ctx));
+    if (minDays != null && daysUsed < minDays) penalty += ruleWeight(ctx, 'distribute_week', section, 10);
   }
 
-  for (const [, slots] of byDay) {
-    if (ruleOnForAssignment(ctx, 'max_two_per_day', section, assignment) && slots.length > 2) {
+  for (const [, lessons] of byDayLessons) {
+    if (ruleOnForAssignment(ctx, 'max_two_per_day', section, assignment) && lessons.length > 2) {
       penalty += ruleWeight(ctx, 'max_two_per_day', section, 10);
     }
-    if (ruleOnForAssignment(ctx, 'max_one_per_day', section, assignment) && slots.length > 1) {
+    if (ruleOnForAssignment(ctx, 'max_one_per_day', section, assignment) && lessons.length > 1) {
       penalty += ruleWeight(ctx, 'max_one_per_day', section, 8);
     }
-    const lessons = slots.map((s) => s.lesson_num).sort((x, y) => x - y);
     if (ruleOnForAssignment(ctx, 'same_day_consecutive', section, assignment) && lessons.length >= 2) {
-      let ok = false;
-      for (let i = 1; i < lessons.length; i++) {
-        if (lessons[i] === lessons[i - 1]! + 1) {
-          ok = true;
-          break;
-        }
-      }
-      if (!ok) penalty += ruleWeight(ctx, 'same_day_consecutive', section, 8);
-    }
-    if (ruleOnForAssignment(ctx, 'two_same_day', section, assignment) && assignment.weekly_hours === 2 && byDay.size > 1) {
-      penalty += ruleWeight(ctx, 'two_same_day', section, 8);
-    }
-    if (
-      ruleOnForAssignment(ctx, 'two_not_same_day', section, assignment) &&
-      assignment.weekly_hours === 2 &&
-      [...byDay.values()].some((s) => s.length > 1)
-    ) {
-      penalty += ruleWeight(ctx, 'two_not_same_day', section, 7);
-    }
-    if (ruleOnForAssignment(ctx, 'two_not_consecutive_days', section, assignment) && assignment.weekly_hours === 2) {
-      const dows = [...byDay.keys()].sort((x, y) => x - y);
-      for (let i = 1; i < dows.length; i++) {
-        if (dows[i]! - dows[i - 1]! === 1) {
-          penalty += ruleWeight(ctx, 'two_not_consecutive_days', section, 7);
-          break;
-        }
+      if (!lessonsOnDayConsecutive(lessons)) {
+        penalty += ruleWeight(ctx, 'same_day_consecutive', section, 10);
       }
     }
-    if (ruleOnForAssignment(ctx, 'two_two_day_gap', section, assignment) && assignment.weekly_hours === 2) {
-      const dows = [...byDay.keys()].sort((x, y) => x - y);
-      const gap = minGapDays(ctx, section);
-      for (let i = 1; i < dows.length; i++) {
-        if (dows[i]! - dows[i - 1]! < gap) {
-          penalty += ruleWeight(ctx, 'two_two_day_gap', section, 7);
-          break;
-        }
+  }
+  if (ruleOnForAssignment(ctx, 'two_same_day', section, assignment) && effH === 2 && daysUsed > 1) {
+    penalty += ruleWeight(ctx, 'two_same_day', section, 8);
+  }
+  if (
+    ruleOnForAssignment(ctx, 'two_not_same_day', section, assignment) &&
+    effH === 2 &&
+    [...byDayLessons.values()].some((lessons) => lessons.length > 1)
+  ) {
+    penalty += ruleWeight(ctx, 'two_not_same_day', section, 7);
+  }
+  if (ruleOnForAssignment(ctx, 'two_not_consecutive_days', section, assignment) && effH === 2) {
+    const dows = [...byDayLessons.keys()].sort((x, y) => x - y);
+    for (let i = 1; i < dows.length; i++) {
+      if (dows[i]! - dows[i - 1]! === 1) {
+        penalty += ruleWeight(ctx, 'two_not_consecutive_days', section, 7);
+        break;
       }
     }
+  }
+  if (ruleOnForAssignment(ctx, 'two_two_day_gap', section, assignment) && effH === 2) {
+    const dows = [...byDayLessons.keys()].sort((x, y) => x - y);
+    const gap = minGapDays(ctx, section);
+    for (let i = 1; i < dows.length; i++) {
+      if (dows[i]! - dows[i - 1]! < gap) {
+        penalty += ruleWeight(ctx, 'two_two_day_gap', section, 7);
+        break;
+      }
+    }
+  }
+  for (const [, lessons] of byDayLessons) {
     if (ruleOnForAssignment(ctx, 'four_plus_consecutive', section, assignment) && lessons.length >= 2) {
       let run = 1;
       let maxRun = 1;
@@ -479,6 +496,254 @@ function randomCandidateSlot(ctx: SolverContext): { day: number; lesson: number 
   return { day, lesson };
 }
 
+function missingHoursForPick(state: SearchState, pick: string): number {
+  const req = state.requiredByAssignSection.get(pick) ?? 0;
+  const have = state.haveByAssignSection.get(pick) ?? 0;
+  return Math.max(0, req - have);
+}
+
+function entryIdsProtectedFromEject(
+  state: SearchState,
+  ids: number[],
+  assignmentsById: Map<string, SolverAssignment>,
+  ctx: SolverContext,
+): boolean {
+  if (!shouldEnforceDistributionPattern(ctx.distribution_policy)) return false;
+  const all = listEntries(state);
+  for (const oid of ids) {
+    const oe = state.entries.get(oid);
+    if (!oe) continue;
+    const oa = assignmentsById.get(oe.assignment_id);
+    if (!oa) continue;
+    const pat = distributionPatternForScoring(
+      oa.weekly_hours,
+      oa.options,
+      oa.biweekly,
+      ctx.distribution_policy,
+    );
+    if (!pat) continue;
+    const byDay = assignmentByDayLessons(all, oa.id);
+    if (matchesDayDistributionPattern(byDay, pat)) return true;
+  }
+  return false;
+}
+
+/** enforce_pattern: kapsama artışı desen cezasını büyütmemeli. */
+function patternEnforceAccept(current: Cost, next: Cost): boolean {
+  if (next.unplaced < current.unplaced && next.soft_penalty <= current.soft_penalty) return true;
+  if (next.unplaced === current.unplaced && next.soft_penalty < current.soft_penalty) return true;
+  return false;
+}
+
+/** Eksik saatleri tek tek değil, desen bloğu olarak yerleştirmeyi dene. */
+function tryInsertPatternChunk(
+  state: SearchState,
+  a: SolverAssignment,
+  classSection: string,
+  uid: string | null,
+  chunkSize: number,
+  ctx: SolverContext,
+): { apply: () => void; undo: () => void; inserted: number[] } | null {
+  if (chunkSize < 1) return null;
+  const days = ctx.work_days?.length ? [...ctx.work_days] : [1, 2, 3, 4, 5];
+  shuffleInPlace(days);
+  const entriesNow = listEntries(state);
+  for (const day of days) {
+    const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
+    const starts =
+      chunkSize === 1
+        ? Array.from({ length: dayMax }, (_, i) => i + 1).filter((n) => !ctx.blocked_lesson_nums.has(n))
+        : Array.from({ length: Math.max(0, dayMax - chunkSize + 1) }, (_, i) => i + 1);
+    shuffleInPlace(starts);
+    for (const start of starts) {
+      if (chunkSize >= 2 && ctx.blocked_lesson_nums.has(start)) continue;
+      const occupied = new Map<string, SolverSlot[]>();
+      let ok = true;
+      for (let i = 0; i < chunkSize; i++) {
+        const lesson = start + i;
+        const remain = entriesNow.filter((e) => e.day_of_week === day && e.lesson_num === lesson);
+        if (remain.length) occupied.set(slotKey(day, lesson), remain);
+        if (!placementAllowed(entriesNow, occupied, a, classSection, day, lesson, uid, ctx)) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      const inserted: number[] = [];
+      const apply = () => {
+        for (let i = 0; i < chunkSize; i++) {
+          const id = pushEntry(state, {
+            day_of_week: day,
+            lesson_num: start + i,
+            class_section: classSection,
+            subject: a.subject_name,
+            user_id: uid,
+            assignment_id: a.id,
+            room_id: a.room_ids?.[0] ?? null,
+            group_id: a.group_id ?? null,
+          });
+          inserted.push(id);
+        }
+      };
+      const undo = () => {
+        for (const id of inserted) removeEntry(state, id);
+      };
+      return { apply, undo, inserted };
+    }
+  }
+  return null;
+}
+
+/** Ardışık desen bloğu için slotları boşaltıp yerleştir (tek saatlik insert yerine). */
+function tryInsertPatternChunkWithEjection(
+  state: SearchState,
+  a: SolverAssignment,
+  classSection: string,
+  uid: string | null,
+  chunkSize: number,
+  ctx: SolverContext,
+  assignmentsById: Map<string, SolverAssignment>,
+): { apply: () => void; undo: () => void; inserted: number[] } | null {
+  const days = ctx.work_days?.length ? [...ctx.work_days] : [1, 2, 3, 4, 5];
+  shuffleInPlace(days);
+  const entriesNow = listEntries(state);
+  for (const day of days) {
+    const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
+    const tryStarts =
+      chunkSize === 1
+        ? Array.from({ length: dayMax }, (_, i) => i + 1).filter((n) => !ctx.blocked_lesson_nums.has(n))
+        : Array.from({ length: Math.max(0, dayMax - chunkSize + 1) }, (_, i) => i + 1);
+    shuffleInPlace(tryStarts);
+    for (const start of tryStarts) {
+      if (chunkSize >= 2 && ctx.blocked_lesson_nums.has(start)) continue;
+      if (chunkSize === 1) {
+        const set = state.bySlot.get(slotKey(day, start));
+        const flat = set ? [...set] : [];
+        const tryEject: number[][] = [[]];
+        if (flat.length) {
+          shuffleInPlace(flat);
+          tryEject.push(...flat.slice(0, 5).map((x) => [x]));
+        }
+        for (const ejectIds of tryEject) {
+          if (entryIdsProtectedFromEject(state, ejectIds, assignmentsById, ctx)) continue;
+          const rest = entriesNow.filter((e) => !ejectIds.includes(e._id));
+          const occupied = new Map<string, SolverSlot[]>();
+          const remain = rest.filter((e) => e.day_of_week === day && e.lesson_num === start);
+          if (remain.length) occupied.set(slotKey(day, start), remain);
+          if (!placementAllowed(rest, occupied, a, classSection, day, start, uid, ctx)) continue;
+          const inserted: number[] = [];
+          const removed: SearchEntry[] = [];
+          const apply = () => {
+            for (const oid of ejectIds) {
+              const oe = removeEntry(state, oid);
+              if (oe) removed.push(oe);
+            }
+            const id = pushEntry(state, {
+              day_of_week: day,
+              lesson_num: start,
+              class_section: classSection,
+              subject: a.subject_name,
+              user_id: uid,
+              assignment_id: a.id,
+              room_id: a.room_ids?.[0] ?? null,
+              group_id: a.group_id ?? null,
+            });
+            inserted.push(id);
+          };
+          const undo = () => {
+            for (const id of inserted) removeEntry(state, id);
+            for (const r of removed) {
+              pushEntry(state, {
+                day_of_week: r.day_of_week,
+                lesson_num: r.lesson_num,
+                class_section: r.class_section,
+                subject: r.subject,
+                user_id: r.user_id,
+                assignment_id: r.assignment_id,
+                room_id: r.room_id,
+                group_id: r.group_id,
+              });
+            }
+          };
+          return { apply, undo, inserted };
+        }
+        continue;
+      }
+      const slotIds: number[][] = [];
+      for (let i = 0; i < chunkSize; i++) {
+        const lesson = start + i;
+        const set = state.bySlot.get(slotKey(day, lesson));
+        slotIds.push(set ? [...set] : []);
+      }
+      const flat = slotIds.flat();
+      const tryEject: number[][] = [[]];
+      if (flat.length) {
+        shuffleInPlace(flat);
+        tryEject.push(...flat.slice(0, 5).map((x) => [x]));
+        for (let i = 0; i < Math.min(3, flat.length); i++) {
+          for (let j = i + 1; j < Math.min(i + 4, flat.length); j++) {
+            tryEject.push([flat[i]!, flat[j]!]);
+          }
+        }
+      }
+      for (const ejectIds of tryEject) {
+        if (entryIdsProtectedFromEject(state, ejectIds, assignmentsById, ctx)) continue;
+        const rest = entriesNow.filter((e) => !ejectIds.includes(e._id));
+        const occupied = new Map<string, SolverSlot[]>();
+        let ok = true;
+        for (let i = 0; i < chunkSize; i++) {
+          const lesson = start + i;
+          const remain = rest.filter((e) => e.day_of_week === day && e.lesson_num === lesson);
+          if (remain.length) occupied.set(slotKey(day, lesson), remain);
+          if (!placementAllowed(rest, occupied, a, classSection, day, lesson, uid, ctx)) {
+            ok = false;
+            break;
+          }
+        }
+        if (!ok) continue;
+        const inserted: number[] = [];
+        const removed: SearchEntry[] = [];
+        const apply = () => {
+          for (const oid of ejectIds) {
+            const oe = removeEntry(state, oid);
+            if (oe) removed.push(oe);
+          }
+          for (let i = 0; i < chunkSize; i++) {
+            const id = pushEntry(state, {
+              day_of_week: day,
+              lesson_num: start + i,
+              class_section: classSection,
+              subject: a.subject_name,
+              user_id: uid,
+              assignment_id: a.id,
+              room_id: a.room_ids?.[0] ?? null,
+              group_id: a.group_id ?? null,
+            });
+            inserted.push(id);
+          }
+        };
+        const undo = () => {
+          for (const id of inserted) removeEntry(state, id);
+          for (const r of removed) {
+            pushEntry(state, {
+              day_of_week: r.day_of_week,
+              lesson_num: r.lesson_num,
+              class_section: r.class_section,
+              subject: r.subject,
+              user_id: r.user_id,
+              assignment_id: r.assignment_id,
+              room_id: r.room_id,
+              group_id: r.group_id,
+            });
+          }
+        };
+        return { apply, undo, inserted };
+      }
+    }
+  }
+  return null;
+}
+
 function makeMissingPickList(state: SearchState): string[] {
   const out: string[] = [];
   for (const [k, req] of state.requiredByAssignSection) {
@@ -501,41 +766,117 @@ function proposeInsertWithEjection(
   const a = assignmentsById.get(assignmentId);
   if (!a) return null;
   const uid = a.teacher_ids?.[0] ?? null;
+  const protectPattern = shouldEnforceDistributionPattern(ctx.distribution_policy);
 
-  const cand = randomCandidateSlot(ctx);
-  if (!cand) return null;
-  const { day, lesson } = cand;
+  const missing = missingHoursForPick(state, pick);
+  const strictPattern =
+    protectPattern || assignmentHasStoredDistribution(a.options);
+  const pattern = strictPattern
+    ? (placementPatternForAssignment(a, effHours(a), ctx) ??
+        distributionPatternForScoring(a.weekly_hours, a.options, a.biweekly, ctx.distribution_policy))
+    : null;
+  if (pattern && missing > 0 && strictPattern) {
+    const remainChunks = remainingPatternChunks(
+      a.id,
+      listEntries(state).map((e) => ({
+        assignment_id: e.assignment_id,
+        day_of_week: e.day_of_week,
+        lesson_num: e.lesson_num,
+      })),
+      pattern,
+    )
+      .filter((c) => c <= missing)
+      .sort((x, y) => (missing <= 1 || x === 1 ? x - y : y - x));
+    for (const chunk of remainChunks) {
+      const chunkMove =
+        tryInsertPatternChunk(state, a, classSection, uid, chunk, ctx) ??
+        tryInsertPatternChunkWithEjection(state, a, classSection, uid, chunk, ctx, assignmentsById);
+      if (!chunkMove) continue;
+      const affectedAssignments = new Set<string>([a.id]);
+      const affectedTeachers = new Set<string>([uid ?? ''].filter(Boolean) as string[]);
+      return {
+        apply: chunkMove.apply,
+        undo: chunkMove.undo,
+        affectedAssignments,
+        affectedTeachers,
+      };
+    }
+    const remainAfter = remainingPatternChunks(
+      a.id,
+      listEntries(state).map((e) => ({
+        assignment_id: e.assignment_id,
+        day_of_week: e.day_of_week,
+        lesson_num: e.lesson_num,
+      })),
+      pattern,
+    );
+    const onlySinglesLeft =
+      remainAfter.length > 0 && remainAfter.every((c) => c === 1) && missing <= remainAfter.length;
+    if (protectPattern && remainAfter.some((c) => c >= 2) && !onlySinglesLeft) return null;
+  }
 
   const entriesNow = listEntries(state);
-  const slotSet = state.bySlot.get(slotKey(day, lesson));
-  const occupants = slotSet ? [...slotSet] : [];
-  shuffleInPlace(occupants);
 
-  const tryIds: number[][] = [
-    [],
-    ...occupants.slice(0, 4).map((x) => [x]),
-    ...occupants.slice(0, 3).flatMap((x, i) =>
-      occupants.slice(i + 1, i + 4).map((y) => [x, y]),
-    ),
-  ];
+  // Önce uygun BOŞ slotları (ejection'sız) sistematik tara — yoğun programda
+  // rastgele slot seçimi boşluğu çok nadir yakaladığından kapsama düşüyordu.
+  const days = ctx.work_days?.length ? ctx.work_days : [1, 2, 3, 4, 5];
+  const slotCandidates: Array<{ day: number; lesson: number }> = [];
+  for (const day of days) {
+    const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
+    for (let lesson = 1; lesson <= dayMax; lesson++) {
+      if (ctx.blocked_lesson_nums.has(lesson)) continue;
+      slotCandidates.push({ day, lesson });
+    }
+  }
+  shuffleInPlace(slotCandidates);
 
-  let chosenEject: number[] | null = null;
-  for (const ejectIds of tryIds) {
-    const rest = entriesNow.filter((e) => !ejectIds.includes(e._id));
+  let chosen: { day: number; lesson: number; eject: number[] } | null = null;
+
+  // 1) Boş yerleştirme (eject yok).
+  for (const { day, lesson } of slotCandidates) {
     const occupied = new Map<string, SolverSlot[]>();
-    const remainSlot = rest.filter((e) => e.day_of_week === day && e.lesson_num === lesson);
+    const remainSlot = entriesNow.filter((e) => e.day_of_week === day && e.lesson_num === lesson);
     if (remainSlot.length) occupied.set(slotKey(day, lesson), remainSlot);
-    if (placementAllowed(rest, occupied, a, classSection, day, lesson, uid, ctx)) {
-      chosenEject = ejectIds;
+    if (placementAllowed(entriesNow, occupied, a, classSection, day, lesson, uid, ctx)) {
+      chosen = { day, lesson, eject: [] };
       break;
     }
   }
-  if (!chosenEject) return null;
+
+  // 2) Boş bulunamadıysa az sayıda slotta ejection dene.
+  if (!chosen) {
+    for (const { day, lesson } of slotCandidates.slice(0, 40)) {
+      const slotSet = state.bySlot.get(slotKey(day, lesson));
+      const occupants = slotSet ? [...slotSet] : [];
+      shuffleInPlace(occupants);
+      const tryIds: number[][] = [
+        ...occupants.slice(0, 4).map((x) => [x]),
+        ...occupants.slice(0, 3).flatMap((x, i) =>
+          occupants.slice(i + 1, i + 4).map((y) => [x, y]),
+        ),
+      ];
+      for (const ejectIds of tryIds) {
+        if (entryIdsProtectedFromEject(state, ejectIds, assignmentsById, ctx)) continue;
+        const rest = entriesNow.filter((e) => !ejectIds.includes(e._id));
+        const occupied = new Map<string, SolverSlot[]>();
+        const remainSlot = rest.filter((e) => e.day_of_week === day && e.lesson_num === lesson);
+        if (remainSlot.length) occupied.set(slotKey(day, lesson), remainSlot);
+        if (placementAllowed(rest, occupied, a, classSection, day, lesson, uid, ctx)) {
+          chosen = { day, lesson, eject: ejectIds };
+          break;
+        }
+      }
+      if (chosen) break;
+    }
+  }
+  if (!chosen) return null;
+  const { day, lesson } = chosen;
+  const chosenEject = chosen.eject;
 
   const inserted: { id: number }[] = [];
   const removed: SearchEntry[] = [];
   const apply = () => {
-    for (const oid of chosenEject!) {
+    for (const oid of chosenEject) {
       const oe = removeEntry(state, oid);
       if (oe) removed.push(oe);
     }
@@ -792,8 +1133,9 @@ function proposeBlockMove(
   if (!e) return null;
   const a = assignmentsById.get(e.assignment_id);
   if (!a) return null;
-  const blockSize = Number((a.options as { block_lessons?: number } | undefined)?.block_lessons ?? 1);
-  if (!Number.isFinite(blockSize) || blockSize < 2 || blockSize > 4) return null;
+  const spec = assignmentPlacementSpec(a.options, a.weekly_hours, a.biweekly);
+  const blockSize = spec.block_size >= 2 ? spec.block_size : 0;
+  if (blockSize < 2 || blockSize > 4) return null;
 
   // Aynı gün ardışık blok var mı?
   const mineIds = state.byAssignment.get(a.id);
@@ -984,6 +1326,22 @@ function proposeKempeTeacherSwapMove(
   return { apply, undo, affectedAssignments, affectedTeachers };
 }
 
+function hasHardPlacementClash(state: SearchState): boolean {
+  const classOcc = new Set<string>();
+  const teacherOcc = new Set<string>();
+  for (const e of listEntries(state)) {
+    const k1 = `${e.day_of_week}:${e.lesson_num}:c:${e.class_section}`;
+    if (classOcc.has(k1)) return true;
+    classOcc.add(k1);
+    if (e.user_id) {
+      const k2 = `${e.day_of_week}:${e.lesson_num}:t:${e.user_id}`;
+      if (teacherOcc.has(k2)) return true;
+      teacherOcc.add(k2);
+    }
+  }
+  return false;
+}
+
 function tryAcceptMove(
   state: SearchState,
   assignmentsById: Map<string, SolverAssignment>,
@@ -993,6 +1351,10 @@ function tryAcceptMove(
   accept: (next: Cost) => boolean,
 ): { next: Cost; accepted: boolean } {
   move.apply();
+  if (hasHardPlacementClash(state)) {
+    move.undo();
+    return { next: current, accepted: false };
+  }
   rebuildPenaltyFor(state, assignmentsById, move.affectedAssignments, move.affectedTeachers, ctx);
   const next: Cost = { unplaced: state.unplaced, soft_penalty: Math.round(state.penalties.total) };
   const ok = accept(next);
@@ -1030,8 +1392,11 @@ export function runAscLikeSearch(
   let restarts = 0;
 
   const acceptPhaseA = (next: Cost) => {
+    if (shouldEnforceDistributionPattern(ctx.distribution_policy)) {
+      if (next.unplaced < current.unplaced) return true;
+      return patternEnforceAccept(current, next);
+    }
     if (better(next, current)) return true;
-    // Coverage aşamasında az da olsa kötüleşmeyi kabul et.
     const p = opts.priority === 'coverage' ? 0.25 : 0.12;
     if (next.unplaced > current.unplaced) return Math.random() < p * 0.2;
     if (next.unplaced === current.unplaced && next.soft_penalty > current.soft_penalty) return Math.random() < p;
@@ -1040,35 +1405,56 @@ export function runAscLikeSearch(
 
   const acceptPhaseB = (next: Cost) => {
     if (next.unplaced > 0) return acceptPhaseA(next);
+    if (next.soft_penalty < current.soft_penalty) {
+      history[iterations % lahcL] = next.soft_penalty;
+      return true;
+    }
     const i = iterations % lahcL;
     const ref = history[i] ?? current.soft_penalty;
-    const ok = next.soft_penalty <= ref;
-    if (ok) history[i] = next.soft_penalty;
-    return ok;
+    if (next.soft_penalty < ref) {
+      history[i] = next.soft_penalty;
+      return true;
+    }
+    if (next.soft_penalty === ref) return Math.random() < 0.04;
+    return false;
   };
 
   while (nowMs() < deadline) {
     iterations++;
 
     const phaseA = current.unplaced > 0;
+    const enforcePattern = shouldEnforceDistributionPattern(ctx.distribution_policy);
     const tryMoves = () => {
       const fns = phaseA
         ? [
             () => proposeInsertWithEjection(state, assignmentsById, ctx),
             () => proposeBlockMove(state, assignmentsById, ctx),
             () => proposeKempeTeacherSwapMove(state, assignmentsById, ctx),
-            () => proposeSwapMove(state, assignmentsById, ctx),
+            ...(enforcePattern
+              ? []
+              : [
+                  () => proposeSwapMove(state, assignmentsById, ctx),
+                  () => proposeRandomMove(state, assignmentsById, ctx),
+                ]),
             () => proposeRoomMove(state, assignmentsById, ctx),
-            () => proposeRandomMove(state, assignmentsById, ctx),
           ]
         : [
             () => proposeBlockMove(state, assignmentsById, ctx),
-            () => proposeKempeTeacherSwapMove(state, assignmentsById, ctx),
-            () => proposeSwapMove(state, assignmentsById, ctx),
+            ...(enforcePattern
+              ? []
+              : [
+                  () => proposeSwapMove(state, assignmentsById, ctx),
+                  () => proposeKempeTeacherSwapMove(state, assignmentsById, ctx),
+                  () => proposeRandomMove(state, assignmentsById, ctx),
+                ]),
             () => proposeRoomMove(state, assignmentsById, ctx),
-            () => proposeRandomMove(state, assignmentsById, ctx),
           ];
       shuffleInPlace(fns);
+      // Yerleşmeyen ders varsa insert+ejection'ı önce dene (kapsama için).
+      if (phaseA) {
+        const insert = proposeInsertWithEjection(state, assignmentsById, ctx);
+        if (insert) return insert;
+      }
       for (const fn of fns) {
         const m = fn();
         if (m) return m;
@@ -1090,9 +1476,8 @@ export function runAscLikeSearch(
     }
 
     // Basit diversify/restart: uzun süre iyileşme yoksa.
-    if (iterations % 400 === 0 && !better(current, best)) {
+    if (!shouldEnforceDistributionPattern(ctx.distribution_policy) && iterations % 400 === 0 && !better(current, best)) {
       restarts++;
-      // Küçük shake: birkaç random move zorla kabul.
       for (let k = 0; k < 6; k++) {
         const m = proposeRandomMove(state, assignmentsById, ctx);
         if (!m) break;
@@ -1100,6 +1485,63 @@ export function runAscLikeSearch(
         rebuildPenaltyFor(state, assignmentsById, m.affectedAssignments, m.affectedTeachers, ctx);
         current = { unplaced: state.unplaced, soft_penalty: Math.round(state.penalties.total) };
       }
+    }
+  }
+
+  if (shouldEnforceDistributionPattern(ctx.distribution_policy) && best.unplaced > 0 && nowMs() < deadline) {
+    const finishState = buildInitialState(assignments, ctx, bestEntries);
+    let finishCur: Cost = {
+      unplaced: finishState.unplaced,
+      soft_penalty: Math.round(finishState.penalties.total),
+    };
+    let finishBest = finishCur;
+    let finishEntries = bestEntries.map((e) => ({ ...e }));
+    let stagnant = 0;
+    while (nowMs() < deadline && finishState.unplaced > 0 && stagnant < 100) {
+      const move = proposeInsertWithEjection(finishState, assignmentsById, ctx);
+      if (!move) {
+        stagnant++;
+        continue;
+      }
+      move.apply();
+      if (hasHardPlacementClash(finishState)) {
+        move.undo();
+        stagnant++;
+        continue;
+      }
+      rebuildPenaltyFor(
+        finishState,
+        assignmentsById,
+        move.affectedAssignments,
+        move.affectedTeachers,
+        ctx,
+      );
+      const next: Cost = {
+        unplaced: finishState.unplaced,
+        soft_penalty: Math.round(finishState.penalties.total),
+      };
+      if (next.unplaced >= finishCur.unplaced) {
+        move.undo();
+        rebuildPenaltyFor(
+          finishState,
+          assignmentsById,
+          move.affectedAssignments,
+          move.affectedTeachers,
+          ctx,
+        );
+        stagnant++;
+      } else {
+        finishCur = next;
+        stagnant = 0;
+        if (better(next, finishBest)) {
+          finishBest = next;
+          finishEntries = listEntries(finishState).map((e) => ({ ...e }));
+        }
+      }
+    }
+    if (finishBest.unplaced < best.unplaced) {
+      best = finishBest;
+      bestEntries = finishEntries;
     }
   }
 

@@ -1,5 +1,8 @@
 import type { EditorContext, EditorEntry } from '@/lib/ders-dagit-timetable-api';
+import { clashAtSlot } from '@/lib/timetable-clash';
 import { maxLessonsOnDay } from '@/lib/timetable-grid-build';
+import type { AssignmentPlacementHint } from '@/lib/timetable-assignment-blocks';
+import { assignmentBlockPlacementOk, resolvePlacementHint } from '@/lib/timetable-assignment-blocks';
 import { validatePoolPlace, validateTimetableMove } from '@/lib/timetable-move-validation';
 import { closureAt, type SlotClosure } from '@/lib/timetable-slot-closures';
 import { computeSlotDropStatus } from '@/lib/timetable-slot-status';
@@ -47,6 +50,36 @@ export function listOkPoolSlotsWithClosures(
   return out.map(({ day, lesson }) => ({ day, lesson }));
 }
 
+/** Zincir taşıma: yalnız kapalı saat + sınıf/öğretmen çakışması (minimum müdahale). */
+export function listRelocationSlotsForEntry(
+  entry: EditorEntry,
+  entries: EditorEntry[],
+  closures: Map<string, SlotClosure>,
+  workDays: number[],
+  maxLesson: number,
+  lessonsPerDay: Record<string, number>,
+  prefer?: { day: number; lesson: number },
+  assignmentHints?: Record<string, AssignmentPlacementHint>,
+): Array<{ day: number; lesson: number }> {
+  const out: Array<{ day: number; lesson: number; dist: number }> = [];
+  for (const day of workDays) {
+    const dayMax = maxLessonsOnDay(day, maxLesson, lessonsPerDay);
+    for (let lesson = 1; lesson <= dayMax; lesson++) {
+      if (entry.day_of_week === day && entry.lesson_num === lesson) continue;
+      if (closureAt(closures, day, lesson)) continue;
+      if (clashAtSlot(entries, entry.id, day, lesson)) continue;
+      const hint = resolvePlacementHint(entry, assignmentHints, entries);
+      if (!assignmentBlockPlacementOk(entry, day, lesson, entries, hint)) continue;
+      const dist = prefer
+        ? Math.abs(day - prefer.day) * 20 + Math.abs(lesson - prefer.lesson)
+        : 0;
+      out.push({ day, lesson, dist });
+    }
+  }
+  out.sort((a, b) => a.dist - b.dist);
+  return out.map(({ day, lesson }) => ({ day, lesson }));
+}
+
 /** Taşınabilir ders için uygun hedef hücreler. */
 export function listMoveTargetsForEntry(
   entry: EditorEntry,
@@ -81,6 +114,68 @@ export function listMoveTargetsForEntry(
   return out.map(({ day, lesson }) => ({ day, lesson }));
 }
 
+export type EntryMovePlan =
+  | { ok: true; relocations: Array<{ entryId: string; day: number; lesson: number }> }
+  | { ok: false; message: string };
+
+/**
+ * Tablo içi taşıma için akıllı yer açma: hedef slotta `entry` ile çakışan
+ * (aynı sınıf veya aynı öğretmen) kilitsiz dersleri başka uygun saate taşır.
+ * Tüm çakışanlar taşınabiliyorsa relocation listesi döner; biri sıkışırsa ok:false.
+ */
+export function planSmartEntryMove(
+  entryId: string,
+  day: number,
+  lesson: number,
+  ctx: EditorContext,
+  closures: Map<string, SlotClosure>,
+): EntryMovePlan {
+  const entry = ctx.entries.find((e) => e.id === entryId);
+  if (!entry) return { ok: false, message: 'Ders bulunamadı.' };
+  if (closureAt(closures, day, lesson)) return { ok: false, message: 'Kapalı saat.' };
+
+  /** Hedef slottaki tüm dersler (başka sınıf / öğretmen dahil) taşınır. */
+  const conflicts = ctx.entries.filter(
+    (e) => e.id !== entryId && e.day_of_week === day && e.lesson_num === lesson,
+  );
+  if (conflicts.length === 0) return { ok: true, relocations: [] };
+  if (conflicts.some((c) => c.is_locked)) {
+    return { ok: false, message: 'Hedef saatte kilitli ders var; otomatik yer açılamadı.' };
+  }
+
+  const workDays = ctx.period.work_days?.length ? ctx.period.work_days : [1, 2, 3, 4, 5];
+  const lessonsPerDay = ctx.grid?.lessons_per_day_by_dow ?? {};
+  // Taşınan ders hedefe gidecek; relocate ararken onu hedeften çıkarmış say.
+  let working: EditorEntry[] = ctx.entries.map((e) =>
+    e.id === entryId ? { ...e, day_of_week: day, lesson_num: lesson } : e,
+  );
+  const relocations: Array<{ entryId: string; day: number; lesson: number }> = [];
+
+  for (const conf of conflicts) {
+    const others = working.filter((e) => e.id !== conf.id);
+    const targets = listRelocationSlotsForEntry(
+      conf,
+      others,
+      closures,
+      workDays,
+      ctx.max_lesson,
+      lessonsPerDay,
+      { day, lesson },
+      ctx.assignment_hints,
+    ).filter((t) => !(t.day === day && t.lesson === lesson));
+    if (!targets.length) {
+      return { ok: false, message: 'Hedef saate yer açılamadı.' };
+    }
+    const to = targets[0]!;
+    relocations.push({ entryId: conf.id, day: to.day, lesson: to.lesson });
+    working = working.map((e) =>
+      e.id === conf.id ? { ...e, day_of_week: to.day, lesson_num: to.lesson } : e,
+    );
+  }
+
+  return { ok: true, relocations };
+}
+
 export type PoolPlaceAttemptResult =
   | {
       ok: true;
@@ -104,7 +199,16 @@ export function planPoolPlacement(
   const teacherId = unplaced?.user_id ?? null;
 
   const can = (d: number, l: number) =>
-    validatePoolPlace(assignmentId, d, l, ctx.entries, section, closures, teacherId).ok;
+    validatePoolPlace(
+      assignmentId,
+      d,
+      l,
+      ctx.entries,
+      section,
+      closures,
+      teacherId,
+      ctx.assignment_hints,
+    ).ok;
 
   if (can(day, lesson)) return { ok: true, day, lesson };
 

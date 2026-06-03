@@ -6,6 +6,7 @@ import {
   minSubjectsForFlow,
   subjectsStepDone,
 } from '@/lib/planning-rule-flow';
+import { importanceHintForScope, scopeForRule } from '@/lib/planning-rule-scope';
 
 export type PlanningImportance = 'strict' | 'normal' | 'low';
 
@@ -100,8 +101,8 @@ export function defaultParamsForRule(
 export function defaultImportanceForRule(
   def: SimpleRelationDef | AdvancedRelationDef | undefined,
 ): PlanningImportance {
-  if (!def?.solver_supported) return 'normal';
-  return 'strict';
+  void def;
+  return 'normal';
 }
 
 export type PlanningConditionStep = {
@@ -171,12 +172,14 @@ export function planningRelationConditionSteps(
     },
     {
       id: 'distribution',
-      label: def?.solver_supported ? 'Dağıtımda uygulanır' : 'Yalnızca kayıt (yakında)',
+      label: def?.solver_supported ? 'Üretimde uygulanır (Normal = esnetilir)' : 'Kayıt only (dağıtım yok)',
       done: row.importance !== 'strict' || !!def?.solver_supported,
       hint:
         row.importance === 'strict' && def && !def.solver_supported
-          ? 'Zorunlu yapılamaz — önce Normal seçin veya başka kural kullanın.'
-          : undefined,
+          ? 'Zorunlu seçilemez — Normal kullanın.'
+          : def?.solver_supported
+            ? importanceHintForScope(scopeForRule(row.rule_id, row.kind))
+            : 'Üretimi engellemez; dağıtımda henüz yok.',
     },
   );
 

@@ -20,7 +20,6 @@ import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
 import {
-  defaultImportanceForRule,
   defaultParamsForRule,
   newRelationId,
   relationSummary,
@@ -30,6 +29,9 @@ import {
 } from '@/lib/planning-relations';
 import { PlanningRelationEditorDialog } from '@/components/ders-dagit/planning-relation-editor-dialog';
 import { PlanningRelationRulePickerDialog } from '@/components/ders-dagit/planning-relation-rule-picker-dialog';
+import { PlanningRelationScopeCards } from '@/components/ders-dagit/planning-relation-scope-cards';
+import type { PlanningRuleScope } from '@/lib/planning-rule-scope';
+import { getPlanningRuleFlow } from '@/lib/planning-rule-flow';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import {
@@ -77,6 +79,7 @@ export function PlanningRelationsPanel() {
   const [draft, setDraft] = useState<PlanningRelationRow | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerMode, setPickerMode] = useState<'simple' | 'advanced'>('simple');
+  const [pickerScope, setPickerScope] = useState<PlanningRuleScope | null>(null);
   const [saving, setSaving] = useState(false);
 
   const defaultSections = useMemo(() => {
@@ -139,7 +142,9 @@ export function PlanningRelationsPanel() {
         ? simple.find((r) => r.id === ruleId)
         : advanced.find((r) => r.id === ruleId);
     const row = emptyRow(kind, ruleId, rows.length);
-    row.importance = defaultImportanceForRule(def);
+    const flow = getPlanningRuleFlow(ruleId, kind);
+    row.importance = def?.solver_supported ? flow.importanceDefault : 'normal';
+    if (row.importance === 'strict' && !def?.solver_supported) row.importance = 'normal';
     const params = defaultParamsForRule(def);
     if (params) row.params = params;
     if (defaultSections.length) {
@@ -188,8 +193,8 @@ export function PlanningRelationsPanel() {
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground max-w-xl">
-          Plan Kartları: ders, şube ve ilişki türü. Aktif ve dağıtım destekli kurallar üretimde okul kurallarıyla
-          birleştirilir; seçilen dersler yalnızca o ders atamalarına uygulanır.
+          Ders, öğretmen, ilişki ve saat kısıtı ayrı kartlarla eklenir. Aktif kurallar üretimde birleştirilir;
+          varsayılan Normal öncelik üretimi kilitlemez. Zorunlu yalnızca mutlaka uyulması gereken kayıtlar için.
         </p>
         <Link
           href="/ders-dagit/studyo/kurallar"
@@ -200,41 +205,53 @@ export function PlanningRelationsPanel() {
         </Link>
       </div>
 
-      <div className="dd-glass-panel flex flex-wrap items-center gap-2 rounded-xl border p-3">
-        <p className="w-full text-sm font-medium">Kural ekle</p>
-        <Button
-          type="button"
-          size="sm"
+      <div className="dd-glass-panel rounded-xl border p-3">
+        <PlanningRelationScopeCards
           disabled={saving || !studio}
-          onClick={() => {
+          onPickScope={(scope) => {
             if (!studio) {
               toast.error('Önce bir stüdyo seçin.');
               return;
             }
-            setPickerMode('simple');
+            setPickerScope(scope);
+            setPickerMode(scope === 'iliski' || scope === 'kisit' ? 'advanced' : 'simple');
             setPickerOpen(true);
           }}
-        >
-          <Plus className="mr-1 h-3.5 w-3.5" />
-          Basit ilişki
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={saving || !studio}
-          onClick={() => {
-            if (!studio) {
-              toast.error('Önce bir stüdyo seçin.');
-              return;
-            }
-            setPickerMode('advanced');
-            setPickerOpen(true);
-          }}
-        >
-          <Sparkles className="mr-1 h-3.5 w-3.5" />
-          Plan Kartı (gelişmiş)
-        </Button>
+        />
+        <div className="mt-2 flex flex-wrap gap-2 border-t border-border/60 pt-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs"
+            disabled={saving || !studio}
+            onClick={() => {
+              if (!studio) return;
+              setPickerScope(null);
+              setPickerMode('simple');
+              setPickerOpen(true);
+            }}
+          >
+            <Plus className="mr-1 h-3 w-3" />
+            Tüm basit kurallar
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs"
+            disabled={saving || !studio}
+            onClick={() => {
+              if (!studio) return;
+              setPickerScope(null);
+              setPickerMode('advanced');
+              setPickerOpen(true);
+            }}
+          >
+            <Sparkles className="mr-1 h-3 w-3" />
+            Tüm plan kartları
+          </Button>
+        </div>
       </div>
 
       <div className="dd-glass-panel overflow-hidden">
@@ -375,6 +392,7 @@ export function PlanningRelationsPanel() {
         simpleCatalog={simple}
         advancedCatalog={advanced}
         initialMode={pickerMode}
+        filterScope={pickerScope}
         onPick={(kind, ruleId) => openNew(kind, ruleId)}
       />
 

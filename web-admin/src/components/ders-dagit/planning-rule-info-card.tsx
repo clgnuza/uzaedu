@@ -3,16 +3,27 @@
 import { CheckCircle2, Clock, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { PlanningRuleListCopy } from '@/lib/planning-rule-list-copy';
+import { PLANNING_SCOPE_META, type PlanningRuleScope } from '@/lib/planning-rule-scope';
 
 type Props = {
   title: string;
   copy: PlanningRuleListCopy;
+  scope?: PlanningRuleScope;
   schoolRule?: string | null;
   supported: boolean;
   className?: string;
 };
 
-export function PlanningRuleInfoCard({ title, copy, schoolRule, supported, className }: Props) {
+const SCOPE_STEPS: Record<PlanningRuleScope, string[]> = {
+  ders: ['Ders(ler)i işaretleyin', 'Şube: tümü veya seçili', 'Öncelik: Normal (önerilen)'],
+  ogretmen: ['Ders listesi boş bırakılabilir', 'Şubeyle öğretmen kapsamını daraltın', 'Normal = pencere hedefi, kilitlemez'],
+  iliski: ['Tam iki ders kartı (veya A→B sırası)', 'Geçerli şubeler', 'Normal ile üretim esnetilir'],
+  kisit: ['Sayı veya yasak dilimleri girin', 'İlgili dersleri seçin', 'Sabit slot: atamadan tanımlı'],
+};
+
+export function PlanningRuleInfoCard({ title, copy, scope, schoolRule, supported, className }: Props) {
+  const scopeMeta = scope ? PLANNING_SCOPE_META[scope] : null;
+  const steps = scope ? SCOPE_STEPS[scope] : null;
   return (
     <aside
       className={cn(
@@ -46,6 +57,16 @@ export function PlanningRuleInfoCard({ title, copy, schoolRule, supported, class
         )}
         <p className="mt-1 text-sm font-semibold leading-snug">{copy.lead}</p>
         <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{copy.detail}</p>
+        {scopeMeta && steps && (
+          <ul className="mt-2 list-inside list-disc text-[11px] text-muted-foreground">
+            <li className="font-medium text-foreground/90">
+              {scopeMeta.emoji} {scopeMeta.label} — {scopeMeta.editorLead}
+            </li>
+            {steps.map((s) => (
+              <li key={s}>{s}</li>
+            ))}
+          </ul>
+        )}
         <p className="mt-1.5 text-xs text-foreground/85">{title}</p>
         {schoolRule && (
           <p className="mt-1 text-[11px]">

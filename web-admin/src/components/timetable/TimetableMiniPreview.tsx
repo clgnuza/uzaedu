@@ -3,10 +3,25 @@
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { dayLabel } from '@/lib/ders-dagit-labels';
-import { entryCellColor } from '@/lib/timetable-colors';
+import { entryCellColor, entryCellInlineStyle, entryShortCode } from '@/lib/timetable-colors';
 import type { EditorEntry } from '@/lib/ders-dagit-timetable-api';
 
 const DAY_SHORT = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'] as const;
+
+function slotKey(day: number, lesson: number): string {
+  return `${Number(day)}-${Number(lesson)}`;
+}
+
+function miniCellLabel(e: EditorEntry, view: 'class' | 'teacher' | 'room', compact: boolean): string {
+  const max = compact ? 4 : 6;
+  if (view === 'teacher' || view === 'room') {
+    const sec = e.class_section?.trim();
+    if (sec) return sec.length > max ? `${sec.slice(0, max - 1)}…` : sec;
+  }
+  const sub = e.subject?.trim();
+  if (sub) return sub.length > max ? `${sub.slice(0, max - 1)}…` : sub;
+  return entryShortCode(e).slice(0, max);
+}
 
 export function TimetableMiniPreview({
   title,
@@ -14,6 +29,7 @@ export function TimetableMiniPreview({
   entries,
   workDays,
   maxLesson,
+  viewMode = 'class',
   compact = false,
   className,
 }: {
@@ -22,6 +38,7 @@ export function TimetableMiniPreview({
   entries: EditorEntry[];
   workDays: number[];
   maxLesson: number;
+  viewMode?: 'class' | 'teacher' | 'room';
   compact?: boolean;
   className?: string;
 }) {
@@ -34,7 +51,7 @@ export function TimetableMiniPreview({
   const byKey = useMemo(() => {
     const m = new Map<string, EditorEntry>();
     for (const e of entries) {
-      m.set(`${e.day_of_week}-${e.lesson_num}`, e);
+      m.set(slotKey(e.day_of_week, e.lesson_num), e);
     }
     return m;
   }, [entries]);
@@ -72,16 +89,19 @@ export function TimetableMiniPreview({
                   {ln}
                 </td>
                 {days.map((d) => {
-                  const e = byKey.get(`${d}-${ln}`);
+                  const e = byKey.get(slotKey(d, ln));
+                  const colors = e ? entryCellColor(e, viewMode) : null;
                   return (
                     <td key={d} className="min-w-[28px] border border-border/40 p-px align-middle">
-                      {e ? (
+                      {e && colors ? (
                         <div
-                          className="truncate rounded px-0.5 py-px text-center font-medium leading-tight text-white shadow-sm"
-                          style={entryCellColor(e, 'class')}
-                          title={`${e.subject} · ${e.class_section}`}
+                          className="truncate rounded px-0.5 py-px text-center font-semibold leading-tight shadow-sm"
+                          style={entryCellInlineStyle(colors)}
+                          title={[e.subject, e.class_section, e.teacher_label, e.room_name]
+                            .filter(Boolean)
+                            .join(' · ')}
                         >
-                          {e.subject.slice(0, compact ? 3 : 5)}
+                          {miniCellLabel(e, viewMode, compact)}
                         </div>
                       ) : (
                         <span className="block py-0.5 text-center text-muted-foreground/25">·</span>

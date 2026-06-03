@@ -1,11 +1,20 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { GraduationCap, UserRound } from 'lucide-react';
 import { TimetableCellMenu } from './TimetableCellMenu';
-import { entriesInMatrixLessonRow, type TimetableCellMenuHandlers } from '@/lib/timetable-cell-menu';
+import {
+  entriesForMatrixRow,
+  entriesInMatrixLessonRow,
+  matrixTeacherRowKey,
+  parseMatrixTeacherRowKey,
+  type TimetableCellMenuHandlers,
+  type TimetableMatrixRowMenuHandlers,
+} from '@/lib/timetable-cell-menu';
+import { TimetableMatrixRowMenu } from './TimetableMatrixRowMenu';
 import { cn } from '@/lib/utils';
 import { entryCellColor } from '@/lib/timetable-colors';
+import { TimetableEntryStatusBadges } from '@/components/timetable/timetable-entry-status-badges';
 import {
   MATRIX_CLASS_CELL,
   MATRIX_CLASS_ROW_ACCENT,
@@ -18,7 +27,11 @@ import {
 } from '@/lib/timetable-matrix-tones';
 import type { EditorEntry } from '@/lib/ders-dagit-timetable-api';
 
-export type MatrixAxis = 'teacher' | 'class' | 'room';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
+import { matrixDropId, type MatrixAxis } from '@/lib/timetable-matrix-dnd';
+import type { TimetableDragSource } from './TimetableGrid';
+
+export type { MatrixAxis };
 
 const DAY_SHORT = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'] as const;
 
@@ -29,12 +42,6 @@ const MATRIX_DAY_COL = 68;
 function truncateMatrixLine(s: string, max: number): string {
   const t = s.replace(/\s+/g, ' ').trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
-}
-
-function teacherRowKey(e: EditorEntry): string {
-  if (e.user_id) return `u:${e.user_id}`;
-  const lb = (e.teacher_label ?? '').trim();
-  return lb ? `l:${lb}` : 'l:?';
 }
 
 function displayRowName(raw: string): string {
@@ -71,8 +78,11 @@ function MatrixMiniCell({
   editable,
   picked,
   hasClash,
+  noRoom,
+  dragEnabled,
   onContextMenu,
   onDoubleClick,
+  onPick,
 }: {
   entry: EditorEntry;
   axis: MatrixAxis;
@@ -80,9 +90,17 @@ function MatrixMiniCell({
   editable: boolean;
   picked: boolean;
   hasClash: boolean;
+  noRoom: boolean;
+  dragEnabled: boolean;
   onContextMenu: (e: React.MouseEvent) => void;
   onDoubleClick: () => void;
+  onPick?: () => void;
 }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: entry.id,
+    data: { entry },
+    disabled: !dragEnabled,
+  });
   const line1 =
     axis === 'teacher'
       ? entry.class_section
@@ -103,13 +121,23 @@ function MatrixMiniCell({
 
   return (
     <div
+      ref={setNodeRef}
       className={cn(
-        'min-w-0 max-w-full overflow-hidden rounded-md border px-1 py-0.5 leading-tight',
+        'relative min-w-0 max-w-full overflow-hidden rounded-md border px-1 py-0.5 leading-tight',
         useToneClass ? toneClass : 'shadow-sm',
-        editable && 'cursor-context-menu',
+        dragEnabled && 'cursor-grab touch-manipulation active:cursor-grabbing',
+        editable && !dragEnabled && 'cursor-pointer',
+        isDragging && 'opacity-50',
         picked && 'ring-1 ring-sky-500',
         hasClash && 'ring-1 ring-destructive',
+        entry.is_locked && 'border-dashed border-amber-400/50',
       )}
+      {...(dragEnabled ? { ...attributes, ...listeners } : {})}
+      onClick={(e) => {
+        if (dragEnabled || !onPick) return;
+        e.stopPropagation();
+        onPick();
+      }}
       onContextMenu={onContextMenu}
       onDoubleClick={(e) => {
         e.stopPropagation();
@@ -125,11 +153,64 @@ function MatrixMiniCell({
               color: fallback.text,
             }
       }
-      title={`${line1} · ${line2}${entry.room_name ? ` · ${entry.room_name}` : ''}`}
+      title={[
+        line1,
+        line2,
+        entry.room_name,
+        entry.is_locked ? 'Kilitli' : null,
+        hasClash ? 'Çakışma' : null,
+        noRoom ? 'Derslik yok' : null,
+        !entry.user_id ? 'Öğretmen yok' : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')}
     >
-      <div className="truncate text-[10px] font-bold leading-tight">{main}</div>
-      {sub ? <div className="truncate text-[9px] leading-tight opacity-90">{sub}</div> : null}
+      <TimetableEntryStatusBadges
+        entry={entry}
+        hasClash={hasClash}
+        noRoom={noRoom}
+        picked={picked}
+        compact
+        className="absolute right-0 top-0 z-[1]"
+      />
+      <div className={cn('truncate pr-4 text-[10px] font-bold leading-tight')}>{main}</div>
+      {sub ? (
+        <div className="truncate pr-4 text-[9px] leading-tight opacity-90">{sub}</div>
+      ) : null}
     </div>
+  );
+}
+
+function MatrixDropCell({
+  rowKey,
+  day,
+  lesson,
+  disabled,
+  isDragging,
+  children,
+}: {
+  rowKey: string;
+  day: number;
+  lesson: number;
+  disabled: boolean;
+  isDragging: boolean;
+  children: ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: matrixDropId(rowKey, day, lesson),
+    disabled,
+  });
+  return (
+    <td
+      ref={setNodeRef}
+      className={cn(
+        'min-w-0 overflow-hidden border-b border-r border-border px-0.5 py-0.5 align-top',
+        isDragging && !disabled && 'bg-primary/5',
+        isOver && !disabled && 'ring-2 ring-inset ring-primary/60',
+      )}
+    >
+      {children}
+    </td>
   );
 }
 
@@ -137,10 +218,12 @@ function MatrixRowLabel({
   name,
   rowIdx,
   axis,
+  onContextMenu,
 }: {
   name: string;
   rowIdx: number;
   axis: MatrixAxis;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   const label = displayRowName(name);
   const ti = matrixToneIndex(rowIdx, MATRIX_TEACHER_ROW_ACCENT.length);
@@ -179,7 +262,10 @@ function MatrixRowLabel({
       className={cn(
         'flex min-w-0 items-center gap-2 border-l-[4px] py-0.5 pl-2',
         MATRIX_TEACHER_ROW_ACCENT[ti],
+        onContextMenu && 'cursor-context-menu rounded-md pr-1 transition-colors hover:bg-violet-500/10',
       )}
+      onContextMenu={onContextMenu}
+      title={onContextMenu ? `${label} · sağ tık: özellikler` : label}
     >
       <span
         className={cn(
@@ -189,9 +275,7 @@ function MatrixRowLabel({
       >
         {rowInitials(label)}
       </span>
-      <span className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground" title={label}>
-        {label}
-      </span>
+      <span className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground">{label}</span>
     </div>
   );
 }
@@ -209,10 +293,17 @@ export function TimetableMatrixGrid({
   hideEmptyLessonRows = true,
   editable = false,
   pickedEntryId = null,
+  placementMode = 'drag',
+  dragSource = null,
+  busy = false,
+  onPickEntry,
+  onMove,
+  onDropRejected,
   onEditEntry,
   onLockEntry,
   onDeleteEntry,
   cellMenuHandlers,
+  rowMenuHandlers,
 }: {
   entries: EditorEntry[];
   workDays: number[];
@@ -226,14 +317,33 @@ export function TimetableMatrixGrid({
   hideEmptyLessonRows?: boolean;
   editable?: boolean;
   pickedEntryId?: string | null;
+  placementMode?: 'drag' | 'click';
+  dragSource?: TimetableDragSource | null;
+  busy?: boolean;
+  onPickEntry?: (id: string | null) => void;
+  onMove?: (entryId: string, day: number, lesson: number) => void;
+  onDropRejected?: (message: string) => void;
   onEditEntry?: (entry: EditorEntry) => void;
   onLockEntry?: (entryId: string, locked: boolean) => void;
   onDeleteEntry?: (entryId: string) => void;
   cellMenuHandlers?: TimetableCellMenuHandlers;
+  rowMenuHandlers?: TimetableMatrixRowMenuHandlers;
 }) {
   const [menu, setMenu] = useState<{ entry: EditorEntry; x: number; y: number } | null>(null);
+  const [rowMenu, setRowMenu] = useState<{
+    rowKey: string;
+    label: string;
+    userId: string | null;
+    x: number;
+    y: number;
+  } | null>(null);
   const canMenu = editable && !!(cellMenuHandlers ?? onEditEntry);
+  const isDragging = !!(dragSource || (placementMode === 'drag' && !busy));
+  const dragEnabled = (c: EditorEntry) =>
+    editable && !busy && !c.is_locked && placementMode === 'drag';
   const days = workDays.length ? workDays : [1, 2, 3, 4, 5];
+  /** Öğretmen matrisinde tüm ders saatleri satır olarak görünsün (boş hücreler gizlenmesin). */
+  const hideEmptyRows = axis === 'teacher' ? false : hideEmptyLessonRows;
   const lessonNums = useMemo(
     () => Array.from({ length: Math.max(1, maxLesson) }, (_, i) => i + 1),
     [maxLesson],
@@ -250,7 +360,7 @@ export function TimetableMatrixGrid({
         labelOf.set(k, t.label);
       }
       for (const e of entries) {
-        const k = teacherRowKey(e);
+        const k = matrixTeacherRowKey(e);
         keys.add(k);
         if (!labelOf.has(k)) labelOf.set(k, e.teacher_label?.trim() || '—');
       }
@@ -285,7 +395,7 @@ export function TimetableMatrixGrid({
     const m = new Map<string, EditorEntry[]>();
     for (const e of entries) {
       let rk: string;
-      if (axis === 'teacher') rk = teacherRowKey(e);
+      if (axis === 'teacher') rk = matrixTeacherRowKey(e);
       else if (axis === 'class') rk = `c:${e.class_section.trim()}`;
       else rk = e.room_id ? `r:${e.room_id}` : 'r:__none__';
       const ck = `${rk}|${e.day_of_week}|${e.lesson_num}`;
@@ -332,8 +442,12 @@ export function TimetableMatrixGrid({
         {axis === 'teacher' && (
           <span className="hidden sm:inline">· her öğretmen farklı renk</span>
         )}
-        {canMenu && (
-          <span className="hidden sm:inline">· sağ tık menü · çift tık düzenle</span>
+        {editable && placementMode === 'drag' && (
+          <span className="hidden sm:inline">· sürükle-bırak</span>
+        )}
+        {canMenu && <span className="hidden sm:inline">· sağ tık · çift tık düzenle</span>}
+        {axis === 'teacher' && rowMenuHandlers && (
+          <span className="hidden sm:inline">· öğretmen adı: sağ tık özellikler</span>
         )}
       </div>
       <table
@@ -371,7 +485,7 @@ export function TimetableMatrixGrid({
         <tbody>
           {rowKeys.flatMap((rowKey, rowIdx) => {
             const name = rowLabel.get(rowKey) ?? rowKey;
-            const rows = lessonNumsForRow(rowKey, lessonNums, cellMap, days, hideEmptyLessonRows);
+            const rows = lessonNumsForRow(rowKey, lessonNums, cellMap, days, hideEmptyRows);
             const rowBg =
               axis === 'teacher'
                 ? MATRIX_TEACHER_ROW_BG[matrixToneIndex(rowIdx, MATRIX_TEACHER_ROW_BG.length)]
@@ -395,7 +509,27 @@ export function TimetableMatrixGrid({
                   )}
                 >
                   {lessonIdx === 0 ? (
-                    <MatrixRowLabel name={name} rowIdx={rowIdx} axis={axis} />
+                    <MatrixRowLabel
+                      name={name}
+                      rowIdx={rowIdx}
+                      axis={axis}
+                      onContextMenu={
+                        axis === 'teacher' && rowMenuHandlers
+                          ? (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const { userId } = parseMatrixTeacherRowKey(rowKey);
+                              setRowMenu({
+                                rowKey,
+                                label: name,
+                                userId,
+                                x: e.clientX,
+                                y: e.clientY,
+                              });
+                            }
+                          : undefined
+                      }
+                    />
                   ) : (
                     <span className="block pl-9 text-[9px] tabular-nums text-muted-foreground/50" aria-hidden>
                       ·
@@ -408,10 +542,20 @@ export function TimetableMatrixGrid({
                 {days.map((day) => {
                   const cells = cellMap.get(`${rowKey}|${day}|${ln}`) ?? [];
                   const hasClash = cells.some((c) => clashIds.has(c.id));
+                  const dropDisabled = !editable || busy;
                   return (
-                    <td key={day} className="min-w-0 overflow-hidden border-b border-r border-border px-0.5 py-0.5 align-top">
+                    <MatrixDropCell
+                      key={day}
+                      rowKey={rowKey}
+                      day={day}
+                      lesson={ln}
+                      disabled={dropDisabled}
+                      isDragging={isDragging}
+                    >
                       {cells.length === 0 ? (
-                        <span className="block py-2 text-center text-[8px] text-muted-foreground/30">·</span>
+                        <span className="block min-h-[1.25rem] py-2 text-center text-[8px] text-muted-foreground/30">
+                          ·
+                        </span>
                       ) : (
                         <div className={cn('flex flex-col gap-0.5', hasClash && 'rounded-md ring-2 ring-destructive/80')}>
                           {cells.map((c) => (
@@ -423,6 +567,9 @@ export function TimetableMatrixGrid({
                               editable={canMenu}
                               picked={pickedEntryId === c.id}
                               hasClash={clashIds.has(c.id)}
+                              noRoom={!c.room_id}
+                              dragEnabled={dragEnabled(c)}
+                              onPick={() => onPickEntry?.(c.id)}
                               onContextMenu={(e) => {
                                 if (!canMenu) return;
                                 e.preventDefault();
@@ -434,7 +581,7 @@ export function TimetableMatrixGrid({
                           ))}
                         </div>
                       )}
-                    </td>
+                    </MatrixDropCell>
                   );
                 })}
               </tr>
@@ -468,9 +615,24 @@ export function TimetableMatrixGrid({
             assignmentSlotCount={assignmentSlotCount}
             lessonRowCount={rowEntries.length}
             clearSlotIds={rowEntries.map((e) => e.id)}
+            hasClash={clashIds.has(menu.entry.id)}
+            noRoom={!menu.entry.room_id}
           />
         );
       })()}
+      {rowMenu && rowMenuHandlers && axis === 'teacher' ? (
+        <TimetableMatrixRowMenu
+          label={rowMenu.label}
+          userId={rowMenu.userId}
+          entries={entriesForMatrixRow(entries, rowMenu.rowKey, 'teacher')}
+          clashIds={clashIds}
+          x={rowMenu.x}
+          y={rowMenu.y}
+          editable={editable}
+          onClose={() => setRowMenu(null)}
+          handlers={rowMenuHandlers}
+        />
+      ) : null}
     </div>
   );
 }

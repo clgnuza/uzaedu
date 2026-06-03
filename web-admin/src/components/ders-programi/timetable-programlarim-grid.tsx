@@ -70,7 +70,6 @@ type Props = {
   onSelectDay: (day: number) => void;
   classGridEntries: Parameters<typeof TimetableClassGrid>[0]['entries'];
   schoolSubjects?: SchoolSubject[];
-  hideEmptyLessonRows?: boolean;
 };
 
 function lessonNumsForTeacher(
@@ -119,7 +118,6 @@ export function TimetableProgramlarimGrid({
   onSelectDay,
   classGridEntries,
   schoolSubjects,
-  hideEmptyLessonRows = true,
 }: Props) {
   const resolveRowLabel = (rowKey: string) =>
     displayNameForTimetableRowKey(rowKey, (id) => {
@@ -179,7 +177,7 @@ export function TimetableProgramlarimGrid({
             {teacherRowKeys.flatMap((rowKey, teacherIdx) => {
               const t = rowKey.startsWith('raw:') ? undefined : teacherMap.get(rowKey);
               const name = resolveRowLabel(rowKey);
-              const rows = lessonNumsForTeacher(rowKey, lessonNums, map, hideEmptyLessonRows);
+              const rows = lessonNumsForTeacher(rowKey, lessonNums, map, false);
               const nameAccent = TEACHER_NAME_ACCENT[teacherIdx % TEACHER_NAME_ACCENT.length];
               const rowTint = TEACHER_COL_TINT[teacherIdx % TEACHER_COL_TINT.length];
               return rows.map((ln, lessonIdx) => (

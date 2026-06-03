@@ -65,7 +65,61 @@ export function MenuItem({
 }
 
 export function MenuSep() {
-  return <div className="my-1 h-px bg-border" role="separator" />;
+  return <div className="my-1 h-px bg-border/70" role="separator" />;
+}
+
+export function MenuSectionTitle({ children }: { children: ReactNode }) {
+  return (
+    <p className="px-2.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+export function ContextActionBtn({
+  icon,
+  label,
+  hint,
+  onClick,
+  destructive,
+  disabled,
+}: {
+  icon: ReactNode;
+  label: string;
+  hint?: string;
+  onClick?: () => void;
+  destructive?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      className={cn(
+        'group mx-1 flex w-[calc(100%-0.5rem)] items-start gap-2.5 rounded-lg px-2 py-2 text-left transition-all',
+        'hover:bg-accent/70 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-40',
+        destructive && 'hover:bg-destructive/10',
+      )}
+      onClick={onClick}
+    >
+      <span
+        className={cn(
+          'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border shadow-sm',
+          destructive
+            ? 'border-destructive/20 bg-destructive/10 text-destructive'
+            : 'border-border/60 bg-background text-primary group-hover:border-primary/30 group-hover:bg-primary/10',
+        )}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={cn('block text-[13px] font-medium leading-snug', destructive && 'text-destructive')}>
+          {label}
+        </span>
+        {hint ? <span className="mt-0.5 block text-[10px] leading-snug text-muted-foreground">{hint}</span> : null}
+      </span>
+    </button>
+  );
 }
 
 export function SubMenu({ label, icon, children, wide }: { label: string; icon?: ReactNode; children: ReactNode; wide?: boolean }) {
@@ -122,7 +176,10 @@ export function ContextMenuShell({
   const panel = (
     <div
       ref={ref}
-      className={cn('fixed z-[200] rounded-md border border-border bg-popover py-1 text-xs shadow-lg', widthClass ?? 'w-[220px]')}
+      className={cn(
+        'fixed z-[200] overflow-hidden rounded-xl border border-border/80 bg-popover py-1 text-xs shadow-xl shadow-black/10',
+        widthClass ?? 'w-[min(100vw-1rem,280px)]',
+      )}
       style={{ left: pos.x, top: pos.y }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}

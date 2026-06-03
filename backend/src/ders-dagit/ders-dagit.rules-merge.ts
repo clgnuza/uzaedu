@@ -153,21 +153,23 @@ export function isStrictRule(
   return !!ctx.strict_rule_keys_by_section?.get(section)?.has(key);
 }
 
+/** Kayıt/üretim öncesi: desteklenmeyen zorunlu kuralları Normal yapar (üretimi kilitlemez). */
+export function normalizePlanningRelations(
+  relations: PlanningRelationRow[],
+): PlanningRelationRow[] {
+  return relations.map((row) => {
+    if (row.importance !== 'strict') return row;
+    const def = relationDefinition(row);
+    if (!def || def.solver_supported) return row;
+    return { ...row, importance: 'normal' as const };
+  });
+}
+
 export function validatePlanningRelationsForGenerate(relations: PlanningRelationRow[]): Array<{
   code: string;
   severity: 'error';
   message: string;
 }> {
-  const issues: Array<{ code: string; severity: 'error'; message: string }> = [];
-  for (const row of relations) {
-    if (!row.active || row.importance !== 'strict') continue;
-    const def = relationDefinition(row);
-    if (!def || def.solver_supported) continue;
-    issues.push({
-      code: 'PLANNING_STRICT_UNSUPPORTED',
-      severity: 'error',
-      message: `Zorunlu planlama kuralı henüz dağıtımda desteklenmiyor: ${def.label_tr}`,
-    });
-  }
-  return issues;
+  void relations;
+  return [];
 }

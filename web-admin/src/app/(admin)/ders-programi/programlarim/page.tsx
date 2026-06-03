@@ -127,7 +127,6 @@ export default function ProgramlarimPage() {
   const [teacherSort, setTeacherSort] = useState<'name_asc' | 'name_desc' | 'lessons_desc' | 'lessons_asc'>('name_asc');
   const [exemptFilter, setExemptFilter] = useState<'all' | 'exempt' | 'not_exempt'>('all');
   const [focusTeacherKey, setFocusTeacherKey] = useState<string>('all');
-  const [hideEmptyLessonRows, setHideEmptyLessonRows] = useState(true);
 
   const isAdmin = me?.role === 'school_admin';
   const isTeacher = me?.role === 'teacher';
@@ -1215,15 +1214,6 @@ export default function ProgramlarimPage() {
                         <option value="exempt">Muaf</option>
                         <option value="not_exempt">Aktif</option>
                       </select>
-                      <label className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border border-border/80 px-1.5 text-[10px] text-muted-foreground">
-                        <input
-                          type="checkbox"
-                          className="size-3 rounded"
-                          checked={hideEmptyLessonRows}
-                          onChange={(e) => setHideEmptyLessonRows(e.target.checked)}
-                        />
-                        Boş saatleri gizle
-                      </label>
                     </>
                   )}
                 </div>
@@ -1244,7 +1234,6 @@ export default function ProgramlarimPage() {
                     onSelectDay={setSelectedDay}
                     classGridEntries={classGridEntries}
                     schoolSubjects={schoolSubjects}
-                    hideEmptyLessonRows={hideEmptyLessonRows}
                   />
                 )}
               </CardContent>

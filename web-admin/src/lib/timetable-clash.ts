@@ -4,24 +4,35 @@ export type TimetableEntryRow = {
   lesson_num: number;
   class_section: string;
   user_id?: string | null;
+  assignment_id?: string | null;
 };
 
 export type ClashCode = 'CLASS_CLASH' | 'TEACHER_CLASH';
+
+/** Aynı atama (ortak öğretim vb.) aynı slotta birden fazla kart — çakışma sayılmaz. */
+function coTeachSameSlotAllowed(a: TimetableEntryRow, b: TimetableEntryRow): boolean {
+  return !!a.assignment_id && a.assignment_id === b.assignment_id;
+}
 
 export function clashAtSlot(
   entries: TimetableEntryRow[],
   entryId: string,
   day: number,
   lesson: number,
-  excludeId?: string,
+  excludeIds?: Set<string>,
 ): ClashCode | null {
   const entry = entries.find((e) => e.id === entryId);
   if (!entry) return null;
   for (const other of entries) {
-    if (other.id === entryId || other.id === excludeId) continue;
+    if (other.id === entryId) continue;
+    if (excludeIds?.has(other.id)) continue;
     if (other.day_of_week !== day || other.lesson_num !== lesson) continue;
-    if (other.class_section === entry.class_section) return 'CLASS_CLASH';
-    if (entry.user_id && other.user_id === entry.user_id) return 'TEACHER_CLASH';
+    if (other.class_section === entry.class_section && !coTeachSameSlotAllowed(entry, other)) {
+      return 'CLASS_CLASH';
+    }
+    if (entry.user_id && other.user_id === entry.user_id && !coTeachSameSlotAllowed(entry, other)) {
+      return 'TEACHER_CLASH';
+    }
   }
   return null;
 }
@@ -33,11 +44,11 @@ export function clashEntryIds(entries: TimetableEntryRow[]): Set<string> {
       const a = entries[i]!;
       const b = entries[j]!;
       if (a.day_of_week !== b.day_of_week || a.lesson_num !== b.lesson_num) continue;
-      if (a.class_section === b.class_section) {
+      if (a.class_section === b.class_section && !coTeachSameSlotAllowed(a, b)) {
         bad.add(a.id);
         bad.add(b.id);
       }
-      if (a.user_id && b.user_id && a.user_id === b.user_id) {
+      if (a.user_id && b.user_id && a.user_id === b.user_id && !coTeachSameSlotAllowed(a, b)) {
         bad.add(a.id);
         bad.add(b.id);
       }

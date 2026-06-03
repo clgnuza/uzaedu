@@ -32,6 +32,12 @@ export const SLOT_STATUS_BADGE: Record<SlotDropStatus, string> = {
   same: 'Aynı',
 };
 
+const STATUS_WORST_ORDER: SlotDropStatus[] = ['forbidden', 'occupied', 'swap', 'ok', 'same'];
+
+function worstStatus(a: SlotDropStatus, b: SlotDropStatus): SlotDropStatus {
+  return STATUS_WORST_ORDER.indexOf(a) <= STATUS_WORST_ORDER.indexOf(b) ? a : b;
+}
+
 export function computeSlotDropStatus(
   dragging: EditorEntry | null,
   poolClassSection: string | null,
@@ -39,6 +45,7 @@ export function computeSlotDropStatus(
   lesson: number,
   entries: EditorEntry[],
   forbidden: Set<string>,
+  excludeEntryIds?: Set<string>,
 ): SlotDropStatus {
   const key = `${day}-${lesson}`;
   if (forbidden.has(key)) return 'forbidden';
@@ -49,11 +56,16 @@ export function computeSlotDropStatus(
   }
 
   const atSlot = entries.filter((e) => e.day_of_week === day && e.lesson_num === lesson);
-  const others = dragging ? atSlot.filter((e) => e.id !== dragging.id) : atSlot;
+  const others = dragging
+    ? atSlot.filter((e) => e.id !== dragging.id && !excludeEntryIds?.has(e.id))
+    : atSlot.filter((e) => !excludeEntryIds?.has(e.id));
 
   if (dragging) {
     for (const o of others) {
-      if (o.class_section === dragging.class_section) return 'occupied';
+      const sameAssignment =
+        !!dragging.assignment_id &&
+        dragging.assignment_id === o.assignment_id;
+      if (o.class_section === dragging.class_section && !sameAssignment) return 'occupied';
       if (dragging.user_id && o.user_id === dragging.user_id) return 'occupied';
     }
     if (others.length > 0) return 'swap';
@@ -65,6 +77,39 @@ export function computeSlotDropStatus(
   }
   if (others.length > 0) return 'swap';
   return 'ok';
+}
+
+/** Blok sürükleme: hedef hücre = bloğun ilk saati; tüm ardışık slotlar kontrol edilir. */
+export function computeBlockDropStatus(
+  dragging: EditorEntry,
+  blockIds: string[],
+  targetDay: number,
+  targetLesson: number,
+  entries: EditorEntry[],
+  forbidden: Set<string>,
+): SlotDropStatus {
+  const block = entries
+    .filter((e) => blockIds.includes(e.id))
+    .sort((a, b) => a.lesson_num - b.lesson_num);
+  if (block.length <= 1) {
+    return computeSlotDropStatus(dragging, null, targetDay, targetLesson, entries, forbidden);
+  }
+  const exclude = new Set(blockIds);
+  const offset = targetLesson - block[0]!.lesson_num;
+  let worst: SlotDropStatus = 'ok';
+  for (const e of block) {
+    const s = computeSlotDropStatus(
+      dragging,
+      null,
+      targetDay,
+      e.lesson_num + offset,
+      entries,
+      forbidden,
+      exclude,
+    );
+    worst = worstStatus(worst, s);
+  }
+  return worst;
 }
 
 /** Sütun başlığı: o günün tüm slotlarında en kötü durum */

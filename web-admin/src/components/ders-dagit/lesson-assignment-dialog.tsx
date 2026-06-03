@@ -352,13 +352,20 @@ export function LessonAssignmentDialog({
                       const h = d.biweekly ? Math.ceil(weekly_hours / 2) : weekly_hours;
                       patch({
                         weekly_hours,
-                        day_distribution: inferDayDistribution(weekly_hours, {}, d.biweekly),
+                        day_distribution: inferDayDistribution(
+                          weekly_hours,
+                          {
+                            day_distribution: d.day_distribution,
+                            block_lessons: Math.max(0, ...d.day_distribution),
+                          },
+                          d.biweekly,
+                        ),
                       });
                     }}
                   />
                 </div>
                 <DdSelectField
-                  label="Günlük dağılım"
+                  label="Haftalık dağılım"
                   value={distValue}
                   onValueChange={(v) => {
                     const opt = distOptions.find((o) => o.value === v);
@@ -380,7 +387,14 @@ export function LessonAssignmentDialog({
                       const biweekly = e.target.checked;
                       patch({
                         biweekly,
-                        day_distribution: inferDayDistribution(d.weekly_hours, {}, biweekly),
+                        day_distribution: inferDayDistribution(
+                          d.weekly_hours,
+                          {
+                            day_distribution: d.day_distribution,
+                            block_lessons: Math.max(0, ...d.day_distribution),
+                          },
+                          biweekly,
+                        ),
                       });
                     }}
                   />

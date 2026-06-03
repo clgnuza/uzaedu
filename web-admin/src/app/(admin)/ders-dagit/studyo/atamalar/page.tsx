@@ -391,6 +391,11 @@ export default function AtamalarPage() {
       toast.error(capacityErrors[0]!.message);
       return;
     }
+    const prevRow = editId ? rows.find((r) => r.id === editId) : undefined;
+    const prevOpts =
+      prevRow?.options && typeof prevRow.options === 'object'
+        ? (prevRow.options as Record<string, unknown>)
+        : {};
     await apiFetch(`/ders-dagit/studios/${studio.id}/assignments`, {
       token,
       method: 'POST',
@@ -399,6 +404,7 @@ export default function AtamalarPage() {
         subject_id: subjectId || null,
         subject_name: subject.trim(),
         options: {
+          ...prevOpts,
           co_teach: coTeach,
           ...(blockLessons >= 2 ? { block_lessons: blockLessons } : {}),
           ...(placeOnDays.trim()

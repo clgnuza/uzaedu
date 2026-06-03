@@ -4,8 +4,19 @@ import { ruleOnForAssignment } from './ders-dagit.solver-rule-scope';
 import type { DersDagitGroupMode } from './ders-dagit.groups';
 import { assignmentBlockLessons, type StudioSchoolProfile } from './ders-dagit.school-profile';
 import { isInternshipPlacementBlocked } from './ders-dagit.internship';
+import { assignmentBlockPlacementOk, assignmentPlacementSpec } from './ders-dagit.assignment-blocks';
 import { daysForAssignment } from './ders-dagit.solver-blocks';
-import { effectivePatternForAssignment, placeByDayDistribution } from './ders-dagit.solver-distribution';
+import {
+  placementPatternForAssignment,
+  placeByDayDistributionBestPermutation,
+  placeRemainingPatternChunks,
+} from './ders-dagit.solver-distribution';
+import {
+  shouldEnforceDistributionPattern,
+  type DistributionPolicy,
+} from './ders-dagit.distribution-policy';
+import { assignmentHasStoredDistribution } from './ders-dagit.day-distribution';
+import { appendMinDaysViolationIfNeeded } from './ders-dagit.min-days';
 import { lessonInShift, type EducationShift } from './ders-dagit.dual-education';
 import {
   isSectionSlotPlaceable,
@@ -114,6 +125,7 @@ export type SolverContext = {
   strict_rule_keys_by_section?: Map<string, Set<string>>;
   planning_relations?: import('./ders-dagit.planning-relations').PlanningRelationRow[];
   assignment_subjects?: Map<string, string | null>;
+  distribution_policy?: DistributionPolicy;
 };
 
 export function rulesForSection(ctx: SolverContext, section: string): RuleState {
@@ -223,7 +235,11 @@ export function canPlace(
 }
 
 function countAssignmentOnDay(entries: SolverSlot[], assignmentId: string, day: number): number {
-  return entries.filter((e) => e.assignment_id === assignmentId && e.day_of_week === day).length;
+  const lessons = new Set<number>();
+  for (const e of entries) {
+    if (e.assignment_id === assignmentId && e.day_of_week === day) lessons.add(e.lesson_num);
+  }
+  return lessons.size;
 }
 
 function countTeacherOnDay(entries: SolverSlot[], userId: string, day: number): number {
@@ -347,11 +363,18 @@ function assignmentDifficulty(a: SolverAssignment, ctx: SolverContext): number {
   const perDayCap = a.max_per_day ?? ctx.max_lesson_per_day;
   const fixedBoost = (a.fixed_slots?.length ?? 0) > 0 ? 30 : 0;
   const blockBoost = ((a.options?.block_lessons as number | undefined) ?? 1) > 1 ? 15 : 0;
+  const distBoost =
+    shouldEnforceDistributionPattern(ctx.distribution_policy) &&
+    (assignmentHasStoredDistribution(a.options) ||
+      placementPatternForAssignment(a, hours, ctx))
+      ? 25
+      : 0;
   return (
     hours * 4 +
     blockedSlots * 3 +
     fixedBoost +
     blockBoost +
+    distBoost +
     (a.min_days_per_week ?? 0) * 2 -
     teacherChoices * 2 -
     perDayCap
@@ -429,6 +452,8 @@ export function runConstraintSolver(
     if (!roomAllows(ctx, room_id, a, userId, classSection)) return false;
     if (placementBlocked(entries, ctx, a, day, lesson, userId)) return false;
     if (violatesBuildingRules(entries, ctx, userId, day, lesson, room_id)) return false;
+    const placeSpec = assignmentPlacementSpec(a.options, a.weekly_hours, a.biweekly);
+    if (!assignmentBlockPlacementOk(entries, a.id, undefined, day, lesson, placeSpec)) return false;
     const slot: SolverSlot = {
       day_of_week: day,
       lesson_num: lesson,
@@ -548,9 +573,10 @@ export function runConstraintSolver(
       if (placedBlock && need <= 0) continue;
     }
 
-    const distPattern = effectivePatternForAssignment(a, need);
+    const effTotal = effectiveWeeklyHours(a);
+    const distPattern = placementPatternForAssignment(a, effTotal, ctx);
     if (distPattern?.length) {
-      const distPlaced = placeByDayDistribution(
+      const distPlaced = placeByDayDistributionBestPermutation(
         a,
         need,
         distPattern,
@@ -561,14 +587,29 @@ export function runConstraintSolver(
         occupied,
         placeOne,
         canPlace,
+        effTotal,
       );
       need -= distPlaced;
       if (need <= 0) {
-        const usedDays = daysUsed(entries, a.id);
-        const minDays = a.min_days_per_week ?? distPattern.length;
-        if (usedDays.size < minDays) {
-          violations.push(`${a.subject_name}: min ${minDays} gün dağılımı sağlanamadı`);
-        }
+        appendMinDaysViolationIfNeeded(violations, a, entries, ctx.distribution_policy, distPattern);
+        continue;
+      }
+      const chunkPlaced = placeRemainingPatternChunks(
+        a,
+        need,
+        distPattern,
+        uid,
+        days,
+        ctx,
+        entries,
+        occupied,
+        placeOne,
+        canPlace,
+        effTotal,
+      );
+      need -= chunkPlaced;
+      if (need <= 0) {
+        appendMinDaysViolationIfNeeded(violations, a, entries, ctx.distribution_policy, distPattern);
         continue;
       }
     }
@@ -614,9 +655,53 @@ export function runConstraintSolver(
       }
     }
 
+    const keepBlockPattern =
+      !!distPattern?.length &&
+      (assignmentHasStoredDistribution(a.options) ||
+        shouldEnforceDistributionPattern(ctx.distribution_policy));
+    if (need > 0 && keepBlockPattern && distPattern) {
+      need -= placeRemainingPatternChunks(
+        a,
+        need,
+        distPattern,
+        uid,
+        days,
+        ctx,
+        entries,
+        occupied,
+        placeOne,
+        canPlace,
+        effTotal,
+      );
+      if (blockSize > 1 && need > 0) {
+        outerBlock2: for (const day of dayTry) {
+          const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
+          for (let start = 1; start <= dayMax - blockSize + 1; start++) {
+            if (ctx.blocked_lesson_nums.has(start)) continue;
+            for (const sec of a.class_sections) {
+              let ok = true;
+              for (let i = 0; i < blockSize; i++) {
+                if (!canPlace(occupied, day, start + i, sec, uid, ctx, a)) {
+                  ok = false;
+                  break;
+                }
+              }
+              if (!ok) continue;
+              if (countAssignmentOnDay(entries, a.id, day) + blockSize > (a.max_per_day ?? 8)) continue;
+              for (let i = 0; i < blockSize; i++) {
+                placeOne(a, sec, day, start + i, uid);
+                need--;
+              }
+              if (need <= 0) break outerBlock2;
+            }
+          }
+          if (need <= 0) break;
+        }
+      }
+    }
     let attempts = 0;
     const maxAttempts = days.length * ctx.max_lesson_per_day * 4;
-    while (need > 0 && attempts < maxAttempts) {
+    while (need > 0 && !keepBlockPattern && attempts < maxAttempts) {
       attempts++;
       let placed = false;
       for (const day of dayTry) {
@@ -645,9 +730,13 @@ export function runConstraintSolver(
       }
       if (!placed) break;
     }
-    if (a.min_days_per_week != null && usedDays.size < a.min_days_per_week) {
-      violations.push(`${a.subject_name}: min ${a.min_days_per_week} gün dağılımı sağlanamadı`);
-    }
+    appendMinDaysViolationIfNeeded(
+      violations,
+      a,
+      entries,
+      ctx.distribution_policy,
+      placementPatternForAssignment(a, effTotal, ctx),
+    );
     if (need > 0) {
       const hint = blockSize > 1 ? ' (blok ders?)' : '';
       violations.push(`${a.subject_name}: ${need} saat yerleşmedi${hint}`);

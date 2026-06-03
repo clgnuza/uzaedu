@@ -3,7 +3,11 @@
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { formatClassSectionsList } from '@/lib/class-section-sort';
-import type { LessonAssignmentRow } from '@/lib/lesson-assignment';
+import {
+  assignmentCardBadgeLabels,
+  assignmentDistributionLabel,
+  type LessonAssignmentRow,
+} from '@/lib/lesson-assignment';
 import {
   assignedLessonsStatusLabel,
   type ClassProfileCapacity,
@@ -98,6 +102,7 @@ export function AssignedLessonsPanel({
   const colSection = wideTable ? 'table-cell' : 'hidden md:table-cell';
   const colTeacher = wideTable ? 'table-cell' : 'hidden lg:table-cell';
   const colRoom = wideTable ? 'table-cell' : 'hidden xl:table-cell';
+  const colPattern = wideTable ? 'table-cell' : 'hidden sm:table-cell';
 
   return (
     <div
@@ -136,6 +141,7 @@ export function AssignedLessonsPanel({
               <th className={cn('px-2 py-2', colSection)}>Şube</th>
               <th className={cn('px-2 py-2', colTeacher)}>Öğretmen</th>
               <th className="w-12 px-2 py-2 text-right">Saat</th>
+              <th className={cn('min-w-[4.5rem] px-2 py-2', colPattern)}>Dağılım</th>
               <th className={cn('w-24 px-2 py-2', colRoom)}>Derslik</th>
             </tr>
           </thead>
@@ -146,6 +152,8 @@ export function AssignedLessonsPanel({
                 r.teacher_ids?.map((id) => teacherNames?.get(id) ?? '—').join(', ') || '—';
               const room =
                 r.room_ids?.map((id) => roomNames?.get(id) ?? '—').join(', ') || '—';
+              const pattern = assignmentDistributionLabel(r);
+              const badges = assignmentCardBadgeLabels(r);
               return (
                 <tr
                   key={r.id}
@@ -171,7 +179,27 @@ export function AssignedLessonsPanel({
                     {formatClassSectionsList(r.class_sections) || '—'}
                   </td>
                   <td className={cn('max-w-[9rem] truncate px-2 py-2 text-xs', colTeacher)}>{teacher}</td>
-                  <td className="px-2 py-2 text-right tabular-nums font-semibold">{r.weekly_hours}</td>
+                  <td className="px-2 py-2 text-right">
+                    <span className="tabular-nums font-semibold">{r.weekly_hours}</span>
+                    {!wideTable ? (
+                      <span className="mt-0.5 block text-[10px] font-medium text-primary/90 sm:hidden">{pattern}</span>
+                    ) : null}
+                  </td>
+                  <td className={cn('px-2 py-2', colPattern)}>
+                    <span className="font-mono text-[11px] font-semibold tabular-nums text-primary">{pattern}</span>
+                    {badges.length ? (
+                      <div className="mt-0.5 flex flex-wrap gap-0.5">
+                        {badges.map((b) => (
+                          <span
+                            key={b}
+                            className="rounded bg-muted/80 px-1 py-px text-[8px] font-medium leading-tight text-muted-foreground"
+                          >
+                            {b}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </td>
                   <td className={cn('px-2 py-2 text-xs text-muted-foreground', colRoom)}>
                     <span className="inline-flex items-center gap-1">
                       <DoorOpen className="size-3 shrink-0 opacity-60" aria-hidden />
@@ -183,7 +211,7 @@ export function AssignedLessonsPanel({
             })}
             {!rows.length && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center">
+                <td colSpan={7} className="px-4 py-10 text-center">
                   <BookOpen className="mx-auto mb-2 size-8 text-muted-foreground/40" aria-hidden />
                   <p className="text-xs text-muted-foreground">Henüz atama yok</p>
                   <Button type="button" size="sm" variant="secondary" className="mt-3 gap-1" onClick={onNew}>

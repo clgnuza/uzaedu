@@ -1,5 +1,17 @@
+import {
+  assignmentBlockPlacementOk,
+  assignmentPlacementSpec,
+} from './ders-dagit.assignment-blocks';
 import { placementBlocked } from './ders-dagit.solver-placement-rules';
+import { appendMinDaysViolationIfNeeded } from './ders-dagit.min-days';
 import { applySoftRulePenalties } from './ders-dagit.solver-rules';
+import {
+  assignmentByDayLessons,
+  matchesDayDistributionPattern,
+  remainingPatternChunks,
+} from './ders-dagit.day-distribution';
+import { shouldEnforceDistributionPattern } from './ders-dagit.distribution-policy';
+import { placementPatternForAssignment } from './ders-dagit.solver-distribution';
 import { ruleOnForAssignment } from './ders-dagit.solver-rule-scope';
 import {
   canPlace,
@@ -20,7 +32,11 @@ function slotKey(day: number, lesson: number): string {
 }
 
 function countAssignmentOnDay(entries: SolverSlot[], assignmentId: string, day: number): number {
-  return entries.filter((e) => e.assignment_id === assignmentId && e.day_of_week === day).length;
+  const lessons = new Set<number>();
+  for (const e of entries) {
+    if (e.assignment_id === assignmentId && e.day_of_week === day) lessons.add(e.lesson_num);
+  }
+  return lessons.size;
 }
 
 function countTeacherOnDay(entries: SolverSlot[], userId: string, day: number): number {
@@ -143,6 +159,10 @@ export function placementAllowed(
   if (!roomAllows(ctx, room_id, a, userId, classSection)) return false;
   if (placementBlocked(entries, ctx, a, day, lesson, userId)) return false;
   if (violatesBuildingRules(entries, ctx, userId, day, lesson, room_id)) return false;
+  const spec = assignmentPlacementSpec(a.options, a.weekly_hours, a.biweekly);
+  if (!assignmentBlockPlacementOk(entries, a.id, undefined, day, lesson, spec)) {
+    return false;
+  }
   return true;
 }
 
@@ -169,22 +189,82 @@ function uncommitSlot(occupied: Map<string, SolverSlot[]>, slot: SolverSlot): vo
 }
 
 type PlaceTask = { a: SolverAssignment; classSection: string; userId: string | null };
+type ChunkTask = PlaceTask & { chunkSize: number };
+
+function sectionHoursPlaced(
+  entries: SolverSlot[],
+  assignmentId: string,
+  classSection: string,
+): number {
+  const keys = new Set<string>();
+  for (const e of entries) {
+    if (e.assignment_id !== assignmentId || e.class_section !== classSection) continue;
+    keys.add(`${e.day_of_week}:${e.lesson_num}`);
+  }
+  return keys.size;
+}
+
+function targetSlotCount(assignments: SolverAssignment[]): number {
+  return assignments.reduce(
+    (s, a) => s + effHours(a) * Math.max(1, a.class_sections?.length ?? 1),
+    0,
+  );
+}
+
+function uniquePlacedCount(entries: SolverSlot[]): number {
+  return new Set(
+    entries.map((e) => `${e.assignment_id}:${e.class_section}:${e.day_of_week}:${e.lesson_num}`),
+  ).size;
+}
 
 function buildRemainingTasks(assignments: SolverAssignment[], entries: SolverSlot[]): PlaceTask[] {
   const tasks: PlaceTask[] = [];
   const sorted = [...assignments].sort((x, y) => (y.place_first ? 1 : 0) - (x.place_first ? 1 : 0));
   for (const a of sorted) {
-    const placed = entries.filter((e) => e.assignment_id === a.id).length;
-    let need = Math.max(0, effHours(a) - placed);
     const uid = a.teacher_ids[0] ?? null;
-    let si = 0;
-    while (need > 0 && a.class_sections.length) {
-      tasks.push({ a, classSection: a.class_sections[si % a.class_sections.length]!, userId: uid });
-      need--;
-      si++;
+    const secs = a.class_sections?.length ? a.class_sections : [''];
+    for (const sec of secs) {
+      let need = Math.max(0, effHours(a) - sectionHoursPlaced(entries, a.id, sec));
+      while (need > 0) {
+        tasks.push({ a, classSection: sec, userId: uid });
+        need--;
+      }
     }
   }
   return tasks;
+}
+
+function buildChunkTasks(
+  assignments: SolverAssignment[],
+  entries: SolverSlot[],
+  ctx: SolverContext,
+): ChunkTask[] | null {
+  if (!shouldEnforceDistributionPattern(ctx.distribution_policy)) return null;
+  const tasks: ChunkTask[] = [];
+  const sorted = [...assignments].sort((x, y) => (y.place_first ? 1 : 0) - (x.place_first ? 1 : 0));
+  for (const a of sorted) {
+    const req = effHours(a);
+    const pat = placementPatternForAssignment(a, req, ctx);
+    if (!pat?.length) return null;
+    const uid = a.teacher_ids[0] ?? null;
+    const secs = a.class_sections?.length ? a.class_sections : [''];
+    for (const sec of secs) {
+      if (sectionHoursPlaced(entries, a.id, sec) >= req) continue;
+      const remain = remainingPatternChunks(
+        a.id,
+        entries.map((e) => ({
+          assignment_id: e.assignment_id,
+          day_of_week: e.day_of_week,
+          lesson_num: e.lesson_num,
+        })),
+        pat,
+      );
+      for (const chunk of [...remain].sort((x, y) => y - x)) {
+        tasks.push({ a, classSection: sec, userId: uid, chunkSize: chunk });
+      }
+    }
+  }
+  return tasks.length ? tasks : null;
 }
 
 function lessonOrder(
@@ -213,18 +293,21 @@ function finalizeResult(
     if (classes.size < slots.length) clashCount++;
   }
   for (const a of assignments) {
-    const used = new Set(entries.filter((e) => e.assignment_id === a.id).map((e) => e.day_of_week));
-    if (a.min_days_per_week != null && used.size < a.min_days_per_week) {
-      violations.push(`${a.subject_name}: min ${a.min_days_per_week} gün dağılımı sağlanamadı`);
-    }
-    const placed = entries.filter((e) => e.assignment_id === a.id).length;
     const need = effHours(a);
+    const placed = entries.filter((e) => e.assignment_id === a.id).length;
     if (placed < need) violations.push(`${a.subject_name}: ${need - placed} saat yerleşmedi`);
+    appendMinDaysViolationIfNeeded(
+      violations,
+      a,
+      entries,
+      ctx.distribution_policy,
+      placementPatternForAssignment(a, need, ctx),
+    );
   }
   const soft = applySoftRulePenalties(entries, assignments, ctx);
   violations.push(...soft.violations);
-  const target = assignments.reduce((s, a) => s + effHours(a), 0);
-  const failed = Math.max(0, target - entries.length);
+  const target = targetSlotCount(assignments);
+  const failed = Math.max(0, target - uniquePlacedCount(entries));
   const score = Math.round(
     Math.max(0, 100 - failed * 3 - violations.length * 2 - clashCount * 10 - soft.penalty),
   );
@@ -268,6 +351,90 @@ function backtrack(
   return false;
 }
 
+function canPlaceChunk(
+  entries: SolverSlot[],
+  occupied: Map<string, SolverSlot[]>,
+  a: SolverAssignment,
+  classSection: string,
+  day: number,
+  start: number,
+  chunkSize: number,
+  userId: string | null,
+  ctx: SolverContext,
+): boolean {
+  const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
+  if (start + chunkSize - 1 > dayMax) return false;
+  for (let i = 0; i < chunkSize; i++) {
+    const lesson = start + i;
+    if (ctx.blocked_lesson_nums.has(lesson)) return false;
+    if (!placementAllowed(entries, occupied, a, classSection, day, lesson, userId, ctx)) return false;
+  }
+  return true;
+}
+
+function backtrackChunk(
+  taskIdx: number,
+  tasks: ChunkTask[],
+  entries: SolverSlot[],
+  occupied: Map<string, SolverSlot[]>,
+  ctx: SolverContext,
+  nodes: { n: number },
+  maxNodes: number,
+): boolean {
+  if (nodes.n > maxNodes) return false;
+  if (taskIdx >= tasks.length) return true;
+  const { a, classSection, userId, chunkSize } = tasks[taskIdx]!;
+  const days = daysForAssignment(a, ctx.day_order?.length ? ctx.day_order : ctx.work_days);
+  for (const day of days) {
+    const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
+    for (let start = 1; start <= dayMax - chunkSize + 1; start++) {
+      nodes.n++;
+      if (!canPlaceChunk(entries, occupied, a, classSection, day, start, chunkSize, userId, ctx)) continue;
+      const committed: SolverSlot[] = [];
+      for (let i = 0; i < chunkSize; i++) {
+        const slot: SolverSlot = {
+          day_of_week: day,
+          lesson_num: start + i,
+          class_section: classSection,
+          subject: a.subject_name,
+          user_id: userId,
+          assignment_id: a.id,
+          room_id: a.room_ids[0] ?? null,
+          group_id: a.group_id,
+        };
+        entries.push(slot);
+        commitSlot(occupied, slot);
+        committed.push(slot);
+      }
+      if (backtrackChunk(taskIdx + 1, tasks, entries, occupied, ctx, nodes, maxNodes)) return true;
+      for (const slot of committed) {
+        entries.pop();
+        uncommitSlot(occupied, slot);
+      }
+    }
+  }
+  return false;
+}
+
+/** Desenle uyumsuz kısmi yerleşimi kaldır — CSP tam blok yerleştirebilsin. */
+export function stripInvalidPatternPlacements(
+  entries: SolverSlot[],
+  assignments: SolverAssignment[],
+  ctx: SolverContext,
+): SolverSlot[] {
+  if (!shouldEnforceDistributionPattern(ctx.distribution_policy)) return entries;
+  const drop = new Set<string>();
+  for (const a of assignments) {
+    const req = effHours(a);
+    const pat = placementPatternForAssignment(a, req, ctx);
+    if (!pat?.length) continue;
+    const byDay = assignmentByDayLessons(entries, a.id);
+    if (!byDay.size) continue;
+    if (!matchesDayDistributionPattern(byDay, pat)) drop.add(a.id);
+  }
+  return drop.size ? entries.filter((e) => !drop.has(e.assignment_id)) : entries;
+}
+
 /** Kısıt geri izleme (Faz 20 tam CSP) — greedy taban + kalan slotlar için backtrack. */
 export function runCspSolver(
   assignments: SolverAssignment[],
@@ -275,14 +442,23 @@ export function runCspSolver(
   maxNodes = 120_000,
 ): SolverResult {
   const base = runConstraintSolver(assignments, ctx);
-  const tasks = buildRemainingTasks(assignments, base.entries);
-  if (!tasks.length) return base;
+  const cleaned = stripInvalidPatternPlacements(base.entries, assignments, ctx);
+  const tasks = buildRemainingTasks(assignments, cleaned);
+  if (!tasks.length) {
+    if (cleaned.length === base.entries.length) return base;
+    const occupiedOnly = new Map<string, SolverSlot[]>();
+    for (const e of cleaned) commitSlot(occupiedOnly, e);
+    return finalizeResult(cleaned, assignments, ctx, occupiedOnly);
+  }
 
-  const entries = [...base.entries];
+  const entries = [...cleaned];
   const occupied = new Map<string, SolverSlot[]>();
   for (const e of entries) commitSlot(occupied, e);
 
-  const ok = backtrack(0, tasks, entries, occupied, ctx, { n: 0 }, maxNodes);
+  const chunkTasks = buildChunkTasks(assignments, entries, ctx);
+  const ok = chunkTasks
+    ? backtrackChunk(0, chunkTasks, entries, occupied, ctx, { n: 0 }, maxNodes)
+    : backtrack(0, tasks, entries, occupied, ctx, { n: 0 }, maxNodes);
   if (!ok) return base;
   const improved = finalizeResult(entries, assignments, ctx, occupied);
   return improved.score >= base.score || improved.failed < base.failed ? improved : base;

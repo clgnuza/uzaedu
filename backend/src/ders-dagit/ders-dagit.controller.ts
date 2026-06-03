@@ -890,6 +890,22 @@ export class DersDagitController {
     return this.service.updateSchoolProfile(studioId, u.schoolId!, body as never);
   }
 
+  @Get('studios/:studioId/distribution-policy')
+  @Roles(UserRole.school_admin)
+  getDistributionPolicy(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {
+    return this.service.getDistributionPolicy(studioId, u.schoolId!);
+  }
+
+  @Patch('studios/:studioId/distribution-policy')
+  @Roles(UserRole.school_admin)
+  patchDistributionPolicy(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.service.updateDistributionPolicy(studioId, u.schoolId!, body as never);
+  }
+
   @Get('studios/:studioId/report-settings')
   @Roles(UserRole.school_admin)
   getReportSettings(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {

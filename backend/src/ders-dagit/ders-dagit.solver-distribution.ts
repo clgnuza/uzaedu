@@ -1,10 +1,24 @@
 import {
   assignmentDayDistribution,
+  distinctPatternPermutations,
+  inferDayDistribution,
   isValidDayDistribution,
+  remainingPatternChunks,
 } from './ders-dagit.day-distribution';
+import { shouldEnforceDistributionPattern } from './ders-dagit.distribution-policy';
 import { assignmentBlockLessons } from './ders-dagit.school-profile';
 import { daysForAssignment } from './ders-dagit.solver-blocks';
 import type { SolverAssignment, SolverContext, SolverSlot } from './ders-dagit.solver';
+
+export type CanPlaceFn = (
+  occupied: Map<string, SolverSlot[]>,
+  day: number,
+  lesson: number,
+  classSection: string,
+  userId: string | null,
+  ctx: SolverContext,
+  a: SolverAssignment,
+) => boolean;
 
 export type PlaceOneFn = (
   a: SolverAssignment,
@@ -15,7 +29,11 @@ export type PlaceOneFn = (
 ) => boolean;
 
 function countOnDay(entries: SolverSlot[], assignmentId: string, day: number): number {
-  return entries.filter((e) => e.assignment_id === assignmentId && e.day_of_week === day).length;
+  const lessons = new Set<number>();
+  for (const e of entries) {
+    if (e.assignment_id === assignmentId && e.day_of_week === day) lessons.add(e.lesson_num);
+  }
+  return lessons.size;
 }
 
 function canPlaceChunk(
@@ -59,18 +77,13 @@ export function placeByDayDistribution(
   entries: SolverSlot[],
   occupied: Map<string, SolverSlot[]>,
   placeOne: PlaceOneFn,
-  canPlace: (
-    occupied: Map<string, SolverSlot[]>,
-    day: number,
-    lesson: number,
-    classSection: string,
-    userId: string | null,
-    ctx: SolverContext,
-    a: SolverAssignment,
-  ) => boolean,
+  canPlace: CanPlaceFn,
+  totalWeeklyHours?: number,
 ): number {
-  if (!isValidDayDistribution(pattern, need)) return 0;
+  const total = totalWeeklyHours ?? need;
+  if (!isValidDayDistribution(pattern, total)) return 0;
 
+  const snap = snapshotPlacement(entries, occupied);
   const dayList = daysForAssignment(a, workDays);
   let placed = 0;
   const usedDays = new Set<number>();
@@ -110,15 +123,140 @@ export function placeByDayDistribution(
         break;
       }
     }
-    if (!chunkDone) return placed;
+    if (!chunkDone) {
+      restorePlacement(entries, occupied, snap);
+      return 0;
+    }
   }
   return placed;
 }
 
-export function effectivePatternForAssignment(a: SolverAssignment, need: number): number[] | null {
+type PlacementSnap = { entriesLen: number; occupied: Map<string, SolverSlot[]> };
+
+function snapshotPlacement(
+  entries: SolverSlot[],
+  occupied: Map<string, SolverSlot[]>,
+): PlacementSnap {
+  const occCopy = new Map<string, SolverSlot[]>();
+  for (const [k, v] of occupied) occCopy.set(k, [...v]);
+  return { entriesLen: entries.length, occupied: occCopy };
+}
+
+function restorePlacement(
+  entries: SolverSlot[],
+  occupied: Map<string, SolverSlot[]>,
+  snap: PlacementSnap,
+): void {
+  entries.splice(snap.entriesLen);
+  occupied.clear();
+  for (const [k, v] of snap.occupied) occupied.set(k, v);
+}
+
+/** Desen sırası önemli değil; tüm blok permütasyonlarını dener, en çok yerleşeni seçer. */
+export function placeByDayDistributionBestPermutation(
+  a: SolverAssignment,
+  need: number,
+  pattern: number[],
+  uid: string | null,
+  workDays: number[],
+  ctx: SolverContext,
+  entries: SolverSlot[],
+  occupied: Map<string, SolverSlot[]>,
+  placeOne: PlaceOneFn,
+  canPlace: CanPlaceFn,
+  totalWeeklyHours?: number,
+): number {
+  const total = totalWeeklyHours ?? need;
+  if (!isValidDayDistribution(pattern, total)) return 0;
+
+  const perms = distinctPatternPermutations(pattern);
+  const start = snapshotPlacement(entries, occupied);
+  let bestPlaced = 0;
+  let bestState: PlacementSnap | null = null;
+
+  for (const perm of perms) {
+    restorePlacement(entries, occupied, start);
+    const placed = placeByDayDistribution(
+      a,
+      need,
+      perm,
+      uid,
+      workDays,
+      ctx,
+      entries,
+      occupied,
+      placeOne,
+      canPlace,
+      total,
+    );
+    if (placed > bestPlaced) {
+      bestPlaced = placed;
+      bestState = snapshotPlacement(entries, occupied);
+      if (placed >= need) break;
+    }
+  }
+
+  if (bestState) restorePlacement(entries, occupied, bestState);
+  else restorePlacement(entries, occupied, start);
+  return bestPlaced;
+}
+
+/** Kalan blokları (ardışık) yerleştir — tek tek saat dağıtımını önler. */
+export function placeRemainingPatternChunks(
+  a: SolverAssignment,
+  need: number,
+  pattern: number[],
+  uid: string | null,
+  workDays: number[],
+  ctx: SolverContext,
+  entries: SolverSlot[],
+  occupied: Map<string, SolverSlot[]>,
+  placeOne: PlaceOneFn,
+  canPlace: CanPlaceFn,
+  totalWeeklyHours?: number,
+): number {
+  const remaining = remainingPatternChunks(a.id, entries, pattern);
+  if (!remaining.length || need <= 0) return 0;
+  return placeByDayDistributionBestPermutation(
+    a,
+    need,
+    remaining,
+    uid,
+    workDays,
+    ctx,
+    entries,
+    occupied,
+    placeOne,
+    canPlace,
+    totalWeeklyHours,
+  );
+}
+
+/** Skor / zorunlu yerleştirme deseni (enforce veya açık atama deseni). */
+export function effectivePatternForAssignment(
+  a: SolverAssignment,
+  need: number,
+  ctx?: SolverContext,
+): number[] | null {
   const raw = assignmentDayDistribution(a.options);
   if (raw && isValidDayDistribution(raw, need)) return raw;
+  if (!shouldEnforceDistributionPattern(ctx?.distribution_policy)) return null;
   const block = assignmentBlockLessons(a.options);
   if (block >= 2 && need === block * 2) return [block, block];
-  return null;
+  const mode = ctx?.distribution_policy?.mode ?? 'blocks';
+  return inferDayDistribution(a.weekly_hours, a.options, a.biweekly, mode);
+}
+
+/** Üretimde denenecek desen (blok modunda yumuşak ipucu dahil). */
+export function placementPatternForAssignment(
+  a: SolverAssignment,
+  need: number,
+  ctx: SolverContext,
+): number[] | null {
+  const enforced = effectivePatternForAssignment(a, need, ctx);
+  if (enforced) return enforced;
+  const mode = ctx.distribution_policy?.mode ?? 'blocks';
+  if (mode === 'compact') return null;
+  const inferred = inferDayDistribution(a.weekly_hours, a.options, a.biweekly, mode);
+  return isValidDayDistribution(inferred, need) ? inferred : null;
 }

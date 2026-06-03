@@ -31,6 +31,7 @@ import {
   augmentStrictKeysWithActiveRules,
   buildStrictRuleKeys,
   mergePlanningRelationsIntoRules,
+  normalizePlanningRelations,
   validatePlanningRelationsForGenerate,
 } from './ders-dagit.rules-merge';
 import { filterGenerateBlockingValidationIssues } from './ders-dagit.generate-gate';
@@ -76,12 +77,26 @@ import {
   buildMaxLessonByDay,
   computeFeasibilityWarnings,
 } from './ders-dagit.validation-feasibility';
-import { runCspSolver } from './ders-dagit.solver-csp';
-import { runConstraintSolver, type SolverAssignment, type SolverContext } from './ders-dagit.solver';
+import {
+  assignmentBlockPlacementOk,
+  assignmentPlacementSpec,
+} from './ders-dagit.assignment-blocks';
+import { defaultMinDaysFromWeeklyHours } from './ders-dagit.min-days';
+import { runCspSolver, stripInvalidPatternPlacements } from './ders-dagit.solver-csp';
+import {
+  runConstraintSolver,
+  type SolverAssignment,
+  type SolverContext,
+  type SolverSlot,
+} from './ders-dagit.solver';
 import { runAscLikeSearch } from './ders-dagit.search';
 import { expandAssignmentsForSolver } from './ders-dagit.solver-input';
 import { linkGenerationViolations } from './ders-dagit.generation-hints';
 import { buildProgramScoreBreakdown, type ProgramScoreBreakdown } from './ders-dagit.score-breakdown';
+import {
+  buildUnplacedPlacementReport,
+  type UnplacedPlacementReport,
+} from './ders-dagit.unplaced-report';
 import {
   buildGeneratedProgramName,
   clipProgramEntryFields,
@@ -127,6 +142,11 @@ import {
   type DualEducationConfig,
   type EducationShift,
 } from './ders-dagit.dual-education';
+import {
+  parseDistributionPolicy,
+  shouldEnforceDistributionPattern,
+  type DistributionPolicy,
+} from './ders-dagit.distribution-policy';
 import { parseSchoolProfile, type MebSchoolType, type StudioSchoolProfile } from './ders-dagit.school-profile';
 import {
   classProfilePresetsForSchool,
@@ -1809,6 +1829,9 @@ export class DersDagitService {
     if (rest.id) {
       const prev = await this.assignmentRepo.findOne({ where: { id: rest.id, studio_id: studioId } });
       if (!prev) throw new NotFoundException();
+      if (rest.options && typeof rest.options === 'object') {
+        rest.options = { ...(prev.options ?? {}), ...rest.options };
+      }
       row = await this.assignmentRepo.save({ ...prev, ...rest });
     } else {
       row = await this.assignmentRepo.save({ ...rest, studio_id: studioId } as DersDagitAssignment);
@@ -2082,9 +2105,10 @@ export class DersDagitService {
         planning_relations: [],
       });
     }
-    rs.planning_relations = relations;
+    const normalized = normalizePlanningRelations(relations);
+    rs.planning_relations = normalized;
     await this.ruleSetRepo.save(rs);
-    await this.syncPlanningRelationsToRules(studioId, relations, rs.rules);
+    await this.syncPlanningRelationsToRules(studioId, normalized, rs.rules);
     return this.getRules(studioId);
   }
 
@@ -2215,28 +2239,102 @@ export class DersDagitService {
     return this.requestRepo.save(row);
   }
 
+  private async expandSolverAssignments(studioId: string): Promise<SolverAssignment[]> {
+    const assignments = await this.listAssignments(studioId);
+    const subjectById = subjectCatalogMap(await this.listSubjects(studioId));
+    return expandAssignmentsForSolver(
+      assignments.map((a) => ({
+        id: a.id,
+        class_sections: a.class_sections,
+        subject_id: a.subject_id ?? null,
+        subject_name: resolveAssignmentSubjectLabel(a, subjectById),
+        weekly_hours: a.weekly_hours,
+        teacher_ids: (a as { teacher_ids?: string[] }).teacher_ids ?? [],
+        group_id: a.group_id,
+        room_ids: a.room_ids ?? [],
+        max_per_day: a.max_per_day,
+        min_days_per_week: a.min_days_per_week,
+        fixed_slots: (a.fixed_slots ?? []) as Array<{
+          day_of_week: number;
+          lesson_num: number;
+          class_section?: string;
+        }>,
+        place_first: a.place_first,
+        biweekly: a.biweekly,
+        max_days_per_week: a.max_days_per_week,
+        unavailable_periods: (a.unavailable_periods ?? []) as Array<{
+          day_of_week: number;
+          lesson_num?: number;
+        }>,
+        options: a.options,
+        co_teach: !!(a.options?.co_teach),
+      })),
+    );
+  }
+
+  private async computeLiveProgramScoreBreakdown(
+    studioId: string,
+    schoolId: string,
+    entries: Array<{
+      assignment_id?: string | null;
+      day_of_week: number;
+      lesson_num: number;
+      class_section: string;
+      subject: string;
+      user_id?: string | null;
+      room_id?: string | null;
+    }>,
+  ): Promise<ProgramScoreBreakdown> {
+    const [solverCtx, solverInput] = await Promise.all([
+      this.buildSolverContext(studioId, schoolId),
+      this.expandSolverAssignments(studioId),
+    ]);
+    const slots: SolverSlot[] = [];
+    for (const e of entries) {
+      if (!e.assignment_id) continue;
+      slots.push({
+        day_of_week: Number(e.day_of_week),
+        lesson_num: Number(e.lesson_num),
+        class_section: e.class_section,
+        subject: e.subject,
+        user_id: e.user_id ?? null,
+        assignment_id: e.assignment_id,
+        room_id: e.room_id ?? null,
+        group_id: null,
+      });
+    }
+    return buildProgramScoreBreakdown(slots, solverInput, solverCtx, []);
+  }
+
   async comparePrograms(studioId: string, ids: string[]) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId } });
+    if (!studio) throw new NotFoundException();
     const programs = await this.programRepo.find({
       where: { studio_id: studioId, id: In(ids.slice(0, 5)) },
     });
     const summaries = await Promise.all(
       programs.map(async (p) => {
-        const entries = await this.programEntryRepo.find({ where: { program_id: p.id } });
+        const raw = await this.programEntryRepo.find({ where: { program_id: p.id } });
+        const entries = await this.enrichProgramEntries(raw);
         const byClass = new Map<string, number>();
         for (const e of entries) {
           byClass.set(e.class_section, (byClass.get(e.class_section) ?? 0) + 1);
         }
-        const meta = (p.generation_meta ?? {}) as { score_breakdown?: ProgramScoreBreakdown };
+        const score_breakdown = await this.computeLiveProgramScoreBreakdown(
+          studioId,
+          studio.school_id,
+          entries,
+        );
         const placement = await this.computeProgramPlacementSummary(studioId, p.id);
         return {
           id: p.id,
           name: p.name,
-          score: p.score,
+          score: score_breakdown.score,
           status: p.status,
           is_favorite: p.is_favorite,
           entry_count: entries.length,
           class_sections: Object.fromEntries(byClass),
-          score_breakdown: meta.score_breakdown ?? null,
+          score_breakdown,
           placement_percent: placement.placement_percent,
           unplaced_hours: placement.unplaced_hours,
           is_fully_placed: placement.is_fully_placed,
@@ -2424,7 +2522,30 @@ export class DersDagitService {
       strict_rule_keys_global: strictKeys.global,
       strict_rule_keys_by_section: strictKeys.bySection,
       planning_relations: planningRelations,
+      distribution_policy: parseDistributionPolicy(settings.distribution_policy),
     };
+  }
+
+  async getDistributionPolicy(studioId: string, schoolId: string): Promise<DistributionPolicy> {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const settings = (studio.settings ?? {}) as Record<string, unknown>;
+    return parseDistributionPolicy(settings.distribution_policy);
+  }
+
+  async updateDistributionPolicy(
+    studioId: string,
+    schoolId: string,
+    body: Partial<DistributionPolicy>,
+  ): Promise<DistributionPolicy> {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const settings = { ...(studio.settings ?? {}) } as Record<string, unknown>;
+    const prev = parseDistributionPolicy(settings.distribution_policy);
+    settings.distribution_policy = parseDistributionPolicy({ ...prev, ...body });
+    studio.settings = settings;
+    await this.studioRepo.save(studio);
+    return parseDistributionPolicy(settings.distribution_policy);
   }
 
   async getSectionSchedules(studioId: string, schoolId: string) {
@@ -2936,20 +3057,60 @@ export class DersDagitService {
       (s, a) => s + (a.biweekly ? Math.ceil(a.weekly_hours / 2) : a.weekly_hours),
       0,
     );
-    const durationSec = Math.max(60, opts.duration_sec ?? 120);
+    const enforcePattern = shouldEnforceDistributionPattern(solverCtx.distribution_policy);
+    const durationSec = Math.max(
+      enforcePattern ? 180 : 60,
+      opts.duration_sec ?? 120,
+    );
     const budgetMsPerVersion = Math.max(
       15_000,
       Math.floor((durationSec * 1000) / Math.max(1, versionCount)),
     );
-    const cspMaxNodes = Math.min(180_000, Math.max(30_000, Math.round(targetSlots * 240)));
+    const solvePriority =
+      enforcePattern && priority === 'balanced' ? 'coverage' : priority;
+    const cspMaxNodes = Math.min(
+      enforcePattern ? 320_000 : 180_000,
+      Math.max(30_000, Math.round(targetSlots * (enforcePattern ? 320 : 240))),
+    );
     const solveOnce = (ctx: SolverContext, budgetMs: number) => {
-      const seed = opts.use_csp
+      const useCsp =
+        opts.use_csp === true ||
+        (opts.use_csp !== false && shouldEnforceDistributionPattern(ctx.distribution_policy));
+      const seedRaw = useCsp
         ? runCspSolver(solverInput, ctx, cspMaxNodes)
         : runConstraintSolver(solverInput, ctx);
-      return runAscLikeSearch(solverInput, ctx, { deadline_ms: budgetMs, priority, seed });
+      const seedEntries = stripInvalidPatternPlacements(seedRaw.entries, solverInput, ctx);
+      const seed = { ...seedRaw, entries: seedEntries };
+      return runAscLikeSearch(solverInput, ctx, {
+        deadline_ms: budgetMs,
+        priority: solvePriority,
+        seed,
+      });
     };
     let bestRun = solveOnce(solverCtx, budgetMsPerVersion);
     let bestResult = bestRun.result;
+    if (enforcePattern) {
+      const orders: Array<NonNullable<SolverContext['assignment_order']>> = [
+        'hardest_first',
+        'most_hours',
+        'fewest_slots',
+        'default',
+      ];
+      for (let att = 0; att < 8 && bestResult.failed > 0; att++) {
+        const run = solveOnce(
+          {
+            ...solverCtx,
+            day_order: [...baseDays].sort(() => Math.random() - 0.5),
+            assignment_order: orders[att % orders.length],
+          },
+          budgetMsPerVersion,
+        );
+        if (run.result.failed < bestResult.failed || run.result.score > bestResult.score) {
+          bestRun = run;
+          bestResult = run.result;
+        }
+      }
+    }
     const dutySlots = solverCtx.unavailable
       .filter((u): u is { day_of_week: number; lesson_num: number | null; user_id: string } => !!u.user_id)
       .map((u) => ({
@@ -3055,10 +3216,12 @@ export class DersDagitService {
           await this.programRepo.delete({ id: prog.id });
           continue;
         }
-        const rows = labeledEntries.map((e) => ({
+        const rows = labeledEntries.map((e) => {
+          const assign = assignmentById.get(e.assignment_id);
+          return {
           program_id: prog!.id,
           assignment_id: e.assignment_id,
-          user_id: e.user_id,
+          user_id: e.user_id ?? assign?.teacher_ids?.[0] ?? null,
           day_of_week: e.day_of_week,
           lesson_num: e.lesson_num,
           ...clipProgramEntryFields({
@@ -3068,7 +3231,8 @@ export class DersDagitService {
           room_id: e.room_id,
           group_id: e.group_id,
           is_locked: false,
-        }));
+        };
+        });
         await this.programEntryRepo.save(rows);
         programs.push(prog);
       } catch {
@@ -3101,20 +3265,23 @@ export class DersDagitService {
         },
       });
       await this.programEntryRepo.save(
-        labeledEntries.map((e) => ({
-          program_id: prog.id,
-          assignment_id: e.assignment_id,
-          user_id: e.user_id,
-          day_of_week: e.day_of_week,
-          lesson_num: e.lesson_num,
-          ...clipProgramEntryFields({
-            class_section: e.class_section ?? '',
-            subject: e.subject ?? '',
-          }),
-          room_id: e.room_id,
-          group_id: e.group_id,
-          is_locked: false,
-        })),
+        labeledEntries.map((e) => {
+          const assign = assignmentById.get(e.assignment_id);
+          return {
+            program_id: prog.id,
+            assignment_id: e.assignment_id,
+            user_id: e.user_id ?? assign?.teacher_ids?.[0] ?? null,
+            day_of_week: e.day_of_week,
+            lesson_num: e.lesson_num,
+            ...clipProgramEntryFields({
+              class_section: e.class_section ?? '',
+              subject: e.subject ?? '',
+            }),
+            room_id: e.room_id,
+            group_id: e.group_id,
+            is_locked: false,
+          };
+        }),
       );
       programs.push(prog);
     }
@@ -3131,6 +3298,25 @@ export class DersDagitService {
         details: { violations: viol },
       });
     }
+    const finalScore = Math.round(bestResult.score);
+    const bestLabeled = bestResult.entries.map((e) => {
+      const a = assignmentById.get(e.assignment_id);
+      return { ...e, subject: a ? formatProgramEntrySubject(a, subjectById) : e.subject };
+    });
+    const teacherRows = await this.listTeacherConfigs(studioId);
+    const teacherNameById = new Map(
+      teacherRows.map((t) => [t.user_id, t.display_name || t.user_id]),
+    );
+    const unplaced_report: UnplacedPlacementReport | null =
+      bestResult.failed > 0
+        ? buildUnplacedPlacementReport(bestLabeled, solverInput, solverCtx, teacherNameById)
+        : null;
+    const scoreBreakdown = buildProgramScoreBreakdown(
+      bestLabeled,
+      solverInput,
+      solverCtx,
+      bestResult.violations,
+    );
     await this.jobRepo.update(job.id, {
       status: 'done',
       finished_at: new Date(),
@@ -3138,23 +3324,12 @@ export class DersDagitService {
         placed: bestResult.placed,
         failed: bestResult.failed,
         violations: bestResult.violations,
-        score: Math.round(bestResult.score),
+        score: finalScore,
         program_ids: programs.map((p) => p.id),
       },
     });
     await this.studioRepo.update(studioId, { workflow_status: 'generated' });
     await this.audit(studioId, userId, 'programs.generated', { job_id: job.id });
-    const finalScore = Math.round(bestResult.score);
-    const bestLabeled = bestResult.entries.map((e) => {
-      const a = assignmentById.get(e.assignment_id);
-      return { ...e, subject: a ? formatProgramEntrySubject(a, subjectById) : e.subject };
-    });
-    const scoreBreakdown = buildProgramScoreBreakdown(
-      bestLabeled,
-      solverInput,
-      solverCtx,
-      bestResult.violations,
-    );
     return {
       job,
       programs,
@@ -3165,6 +3340,7 @@ export class DersDagitService {
       violations: bestResult.violations,
       violation_links: linkGenerationViolations(bestResult.violations.slice(0, 30)),
       score_breakdown: scoreBreakdown,
+      unplaced_report,
     };
   }
 
@@ -3176,20 +3352,40 @@ export class DersDagitService {
   }
 
   private async enrichProgramEntries(entries: DersDagitProgramEntry[]) {
-    const userIds = [...new Set(entries.map((e) => e.user_id).filter(Boolean))] as string[];
+    if (!entries.length) return [];
+
+    const assignmentIds = [...new Set(entries.map((e) => e.assignment_id).filter(Boolean))] as string[];
+    const primaryTeacher = new Map<string, string>();
+    if (assignmentIds.length) {
+      const links = await this.assignmentTeacherRepo.find({ where: { assignment_id: In(assignmentIds) } });
+      for (const l of links) {
+        if (!primaryTeacher.has(l.assignment_id)) primaryTeacher.set(l.assignment_id, l.user_id);
+      }
+    }
+
+    const userIds = new Set<string>();
+    for (const e of entries) {
+      const uid = e.user_id ?? (e.assignment_id ? primaryTeacher.get(e.assignment_id) : undefined);
+      if (uid) userIds.add(uid);
+    }
+
     const roomIds = [...new Set(entries.map((e) => e.room_id).filter(Boolean))] as string[];
     const users =
-      userIds.length > 0
-        ? await this.userRepo.find({ where: { id: In(userIds) }, select: ['id', 'display_name', 'email'] })
+      userIds.size > 0
+        ? await this.userRepo.find({ where: { id: In([...userIds]) }, select: ['id', 'display_name', 'email'] })
         : [];
     const rooms = roomIds.length > 0 ? await this.roomRepo.find({ where: { id: In(roomIds) } }) : [];
     const userMap = new Map(users.map((u) => [u.id, u.display_name?.trim() || u.email || u.id.slice(0, 8)]));
     const roomMap = new Map(rooms.map((r) => [r.id, r.name]));
-    return entries.map((e) => ({
-      ...e,
-      teacher_label: e.user_id ? userMap.get(e.user_id) ?? null : null,
-      room_name: e.room_id ? roomMap.get(e.room_id) ?? null : null,
-    }));
+    return entries.map((e) => {
+      const user_id = e.user_id ?? (e.assignment_id ? primaryTeacher.get(e.assignment_id) ?? null : null);
+      return {
+        ...e,
+        user_id,
+        teacher_label: user_id ? userMap.get(user_id) ?? user_id.slice(0, 8) : null,
+        room_name: e.room_id ? roomMap.get(e.room_id) ?? null : null,
+      };
+    });
   }
 
   private assertEntrySlot(
@@ -3317,6 +3513,23 @@ export class DersDagitService {
       }>,
     }));
     const unplaced = await this.listUnplacedAssignments(studioId, programId);
+    const studioAssignments = await this.assignmentRepo.find({ where: { studio_id: studioId } });
+    const assignment_hints: Record<
+      string,
+      { block_size: number; max_per_day: number; day_distribution: number[] | null }
+    > = {};
+    for (const a of studioAssignments) {
+      const spec = assignmentPlacementSpec(
+        a.options as Record<string, unknown> | undefined,
+        a.weekly_hours,
+        a.biweekly,
+      );
+      assignment_hints[a.id] = {
+        block_size: spec.block_size,
+        max_per_day: spec.max_per_day,
+        day_distribution: spec.day_distribution,
+      };
+    }
     const clashes = computeProgramClashes(entries);
     const schoolDefaultMax = Math.max(
       8,
@@ -3330,8 +3543,9 @@ export class DersDagitService {
       fairness = await this.getFairnessForProgram(studioId, programId);
       this.fairnessCache.set(fairnessKey, { at: Date.now(), data: fairness });
     }
+    const score_breakdown = await this.computeLiveProgramScoreBreakdown(studioId, schoolId, entries);
     return {
-      program,
+      program: { ...program, score: score_breakdown.score },
       entries,
       period,
       grid: {
@@ -3344,9 +3558,11 @@ export class DersDagitService {
       teachers,
       teacher_availability,
       unplaced,
+      assignment_hints,
       clashes,
       max_lesson: maxLesson,
       fairness,
+      score_breakdown,
     };
   }
 
@@ -4115,6 +4331,24 @@ export class DersDagitService {
         throw new BadRequestException({ code: 'TEACHER_CLASH', message: 'Öğretmen çakışması.' });
       }
     }
+    if (entry.assignment_id && (dto.day_of_week != null || dto.lesson_num != null)) {
+      const a = await this.assignmentRepo.findOne({
+        where: { id: entry.assignment_id, studio_id: studioId },
+      });
+      if (a) {
+        const all = await this.programEntryRepo.find({ where: { program_id: programId } });
+        const spec = assignmentPlacementSpec(a.options as Record<string, unknown>, a.weekly_hours, a.biweekly);
+        if (
+          spec.block_size >= 2 &&
+          !assignmentBlockPlacementOk(all, a.id, entryId, day, lesson, spec)
+        ) {
+          throw new BadRequestException({
+            code: 'BLOCK_NOT_CONSECUTIVE',
+            message: 'Blok ders aynı günde ardışık saatlere yerleştirilmeli.',
+          });
+        }
+      }
+    }
     const saved = await this.programEntryRepo.save({
       ...entry,
       day_of_week: day,
@@ -4292,7 +4526,7 @@ export class DersDagitService {
         class_sections: [r.section],
         weekly_hours: r.weekly_hours,
         max_per_day: Math.min(4, r.weekly_hours),
-        min_days_per_week: Math.min(5, Math.max(1, Math.ceil(r.weekly_hours / 2))),
+        min_days_per_week: defaultMinDaysFromWeeklyHours(r.weekly_hours),
         room_ids: [] as string[],
         teacher_ids: r.teacher_ids,
       };
@@ -5086,7 +5320,7 @@ export class DersDagitService {
         subject_name: sub.name,
         class_sections: [sec],
         weekly_hours: h,
-        min_days_per_week: Math.min(5, Math.max(1, Math.ceil(h / 2))),
+        min_days_per_week: defaultMinDaysFromWeeklyHours(h),
         max_per_day: Math.min(4, h),
       };
       if (prev) {
@@ -5794,7 +6028,7 @@ export class DersDagitService {
           weekly_hours: row.weekly_hours,
           teacher_ids: row.teacher_ids,
           max_per_day: Math.min(6, row.weekly_hours),
-          min_days_per_week: Math.min(5, Math.max(1, Math.ceil(row.weekly_hours / 2))),
+          min_days_per_week: defaultMinDaysFromWeeklyHours(row.weekly_hours),
           room_ids: [],
         }),
       );
@@ -6119,7 +6353,7 @@ export class DersDagitService {
           weekly_hours: row.weekly_hours,
           teacher_ids: row.teacher_ids,
           max_per_day: Math.min(6, row.weekly_hours),
-          min_days_per_week: Math.min(5, Math.max(1, Math.ceil(row.weekly_hours / 2))),
+          min_days_per_week: defaultMinDaysFromWeeklyHours(row.weekly_hours),
           room_ids: [],
         });
         imported++;

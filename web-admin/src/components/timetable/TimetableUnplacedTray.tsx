@@ -104,7 +104,7 @@ export function TimetableUnplacedTray({
   selectedId: string | null;
   onSelect: (row: UnplacedRow) => void;
   onClearSelection?: () => void;
-  actions?: UnplacedTrayActions;
+  actions?: Omit<UnplacedTrayActions, 'onSelect'>;
 }) {
   const [q, setQ] = useState('');
   const [menu, setMenu] = useState<{ row: UnplacedRow; x: number; y: number } | null>(null);

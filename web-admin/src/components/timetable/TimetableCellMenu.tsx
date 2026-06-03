@@ -1,24 +1,36 @@
 'use client';
 
 import {
+  AlertTriangle,
   ClipboardList,
   Combine,
   DoorOpen,
+  Eye,
+  GraduationCap,
   Lock,
   LockOpen,
+  Maximize2,
   Pencil,
-  Search,
   ShieldCheck,
   Split,
   Trash2,
+  UserRound,
   Zap,
 } from 'lucide-react';
 import { dayLabel } from '@/lib/ders-dagit-labels';
 import { findConsecutivePartner } from '@/lib/timetable-double-block';
 import type { EditorEntry } from '@/lib/ders-dagit-timetable-api';
 import type { TimetableCellMenuHandlers } from '@/lib/timetable-cell-menu';
-import { ContextMenuShell, MenuItem, MenuSep, SubMenu } from './TimetableContextMenuUi';
-import { TimetableViewPreviewSubmenu } from './TimetableViewPreviewSubmenu';
+import type { TimetablePreviewTarget } from '@/lib/timetable-preview-types';
+import { entryCellColor } from '@/lib/timetable-colors';
+import {
+  ContextActionBtn,
+  ContextMenuShell,
+  MenuItem,
+  MenuSectionTitle,
+  MenuSep,
+  SubMenu,
+} from './TimetableContextMenuUi';
 
 export function TimetableCellMenu({
   entry,
@@ -30,6 +42,8 @@ export function TimetableCellMenu({
   assignmentSlotCount = 0,
   lessonRowCount = 0,
   clearSlotIds = [],
+  hasClash = false,
+  noRoom = false,
 }: {
   entry: EditorEntry;
   x: number;
@@ -40,53 +54,172 @@ export function TimetableCellMenu({
   assignmentSlotCount?: number;
   lessonRowCount?: number;
   clearSlotIds?: string[];
+  hasClash?: boolean;
+  noRoom?: boolean;
 }) {
   const partner = findConsecutivePartner(entry, allEntries);
   const canRemoveAll = Boolean(entry.assignment_id && assignmentSlotCount > 1 && handlers.onRemoveAssignmentSlots);
   const canMerge = Boolean(handlers.onMergeDoubles && !partner);
   const canSplit = Boolean(handlers.onSplitDoubles && partner);
+  const colors = entryCellColor(entry, 'class');
+  const preview = handlers.preview;
+
+  const openPreview = (target: TimetablePreviewTarget) => {
+    handlers.onOpenPreview?.(target);
+    onClose();
+  };
 
   const header = (
-    <div className="border-b border-border px-3 py-2 leading-snug">
-      <p className="truncate font-semibold text-foreground">
-        {entry.subject}
-        <span className="font-normal text-muted-foreground"> ({entry.class_section})</span>
-      </p>
-      <p className="text-[10px] text-muted-foreground">
-        {dayLabel(entry.day_of_week)} · {entry.lesson_num}. ders
-        {entry.is_locked ? ' · kilitli' : ''}
-        {partner ? ' · çiftli' : ''}
-      </p>
+    <div
+      className="border-b border-border/60 px-3 py-3"
+      style={{
+        background: `linear-gradient(135deg, color-mix(in srgb, ${colors.border} 14%, transparent) 0%, transparent 70%)`,
+      }}
+    >
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Ders kartı</p>
+      <p className="mt-1 truncate text-sm font-semibold text-foreground">{entry.subject}</p>
+      <p className="truncate text-xs text-muted-foreground">{entry.class_section}</p>
+      {entry.teacher_label ? (
+        <p className="truncate text-[11px] text-muted-foreground">{entry.teacher_label}</p>
+      ) : null}
+      <div className="mt-2 flex flex-wrap gap-1">
+        <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums">
+          {dayLabel(entry.day_of_week)} · {entry.lesson_num}. saat
+        </span>
+        {entry.room_name ? (
+          <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-800 dark:text-emerald-200">
+            {entry.room_name}
+          </span>
+        ) : noRoom ? (
+          <span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-800">Derslik yok</span>
+        ) : null}
+        {entry.is_locked ? (
+          <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-900">Kilitli</span>
+        ) : null}
+        {hasClash ? (
+          <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] text-destructive">Çakışma</span>
+        ) : null}
+        {partner ? (
+          <span className="rounded-md bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-800">Çiftli blok</span>
+        ) : null}
+      </div>
     </div>
   );
 
   return (
     <ContextMenuShell x={x} y={y} onClose={onClose} header={header}>
-      {handlers.onLock ? (
-        <MenuItem
-          icon={entry.is_locked ? <LockOpen className="size-3.5" /> : <Lock className="size-3.5" />}
+      <div className="py-1">
+        <ContextActionBtn
+          icon={<Pencil className="size-4" />}
+          label="Dersi düzenle…"
+          hint="Gün, saat, derslik, kilit ve tüm bilgiler"
           onClick={() => {
-            handlers.onLock!(entry.id, !entry.is_locked);
+            handlers.onEdit(entry);
             onClose();
           }}
-        >
-          {entry.is_locked ? 'Kilidi aç' : 'Kartı kilitle'}
-        </MenuItem>
+        />
+        {handlers.onLock ? (
+          <ContextActionBtn
+            icon={entry.is_locked ? <LockOpen className="size-4" /> : <Lock className="size-4" />}
+            label={entry.is_locked ? 'Kilidi aç' : 'Kartı kilitle'}
+            onClick={() => {
+              handlers.onLock!(entry.id, !entry.is_locked);
+              onClose();
+            }}
+          />
+        ) : null}
+      </div>
+
+      {preview && handlers.onOpenPreview ? (
+        <>
+          <MenuSep />
+          <MenuSectionTitle>Önizle</MenuSectionTitle>
+          <ContextActionBtn
+            icon={<Maximize2 className="size-4" />}
+            label="Sınıf programı"
+            hint={entry.class_section}
+            onClick={() =>
+              openPreview({
+                mode: 'class',
+                id: entry.class_section,
+                title: entry.class_section,
+                subtitle: 'Sınıf çizelgesi',
+              })
+            }
+          />
+          {entry.user_id ? (
+            <ContextActionBtn
+              icon={<Eye className="size-4" />}
+              label="Öğretmen programı"
+              hint={entry.teacher_label?.trim() || 'Öğretmen'}
+              onClick={() =>
+                openPreview({
+                  mode: 'teacher',
+                  id: entry.user_id!,
+                  title: entry.teacher_label?.trim() || 'Öğretmen',
+                  subtitle: 'Öğretmen çizelgesi',
+                })
+              }
+            />
+          ) : null}
+          {entry.room_id ? (
+            <ContextActionBtn
+              icon={<DoorOpen className="size-4" />}
+              label="Derslik programı"
+              hint={entry.room_name?.trim() || 'Derslik'}
+              onClick={() =>
+                openPreview({
+                  mode: 'room',
+                  id: entry.room_id!,
+                  title: entry.room_name?.trim() || 'Derslik',
+                  subtitle: 'Derslik çizelgesi',
+                })
+              }
+            />
+          ) : null}
+        </>
       ) : null}
 
-      <MenuItem
-        icon={<Pencil className="size-3.5" />}
-        onClick={() => {
-          handlers.onEdit(entry);
-          onClose();
-        }}
-      >
-        Dersi güncelle…
-      </MenuItem>
+      {(handlers.onFindClass || handlers.onFindTeacher || handlers.onFindRoom) && (
+        <>
+          <MenuSep />
+          <MenuSectionTitle>Görünüme git</MenuSectionTitle>
+          {handlers.onFindClass ? (
+            <ContextActionBtn
+              icon={<GraduationCap className="size-4" />}
+              label="Sınıf filtresi"
+              hint={entry.class_section}
+              onClick={() => {
+                handlers.onFindClass!(entry);
+                onClose();
+              }}
+            />
+          ) : null}
+          {handlers.onFindTeacher && entry.user_id ? (
+            <ContextActionBtn
+              icon={<UserRound className="size-4" />}
+              label="Öğretmen filtresi"
+              onClick={() => {
+                handlers.onFindTeacher!(entry);
+                onClose();
+              }}
+            />
+          ) : null}
+          {handlers.onFindRoom && entry.room_id ? (
+            <ContextActionBtn
+              icon={<DoorOpen className="size-4" />}
+              label="Derslik filtresi"
+              onClick={() => {
+                handlers.onFindRoom!(entry);
+                onClose();
+              }}
+            />
+          ) : null}
+        </>
+      )}
 
       <MenuSep />
-
-      <SubMenu label="Hızlı değişiklik" icon={<Zap className="size-3.5" />} wide>
+      <SubMenu label="Hızlı işlemler" icon={<Zap className="size-3.5" />} wide>
         {handlers.onDelete ? (
           <MenuItem
             destructive
@@ -96,7 +229,7 @@ export function TimetableCellMenu({
               onClose();
             }}
           >
-            Sadece bu kartı kaldır
+            Bu kartı kaldır
           </MenuItem>
         ) : null}
         {canRemoveAll ? (
@@ -107,21 +240,13 @@ export function TimetableCellMenu({
               onClose();
             }}
           >
-            Tüm atama kartlarını kaldır ({assignmentSlotCount})
+            Tüm atama kartları ({assignmentSlotCount})
           </MenuItem>
         ) : null}
         {handlers.onChangeRoom && handlers.rooms && handlers.rooms.length > 0 ? (
           <>
             <MenuSep />
-            <MenuItem
-              onClick={() => {
-                handlers.onChangeRoom!(entry.id, null);
-                onClose();
-              }}
-            >
-              Derslik — kaldır
-            </MenuItem>
-            {handlers.rooms.slice(0, 12).map((r) => (
+            {handlers.rooms.slice(0, 14).map((r) => (
               <MenuItem
                 key={r.id}
                 onClick={() => {
@@ -133,9 +258,16 @@ export function TimetableCellMenu({
                 {entry.room_id === r.id ? ' ✓' : ''}
               </MenuItem>
             ))}
+            <MenuItem
+              onClick={() => {
+                handlers.onChangeRoom!(entry.id, null);
+                onClose();
+              }}
+            >
+              Derslik kaldır
+            </MenuItem>
           </>
         ) : null}
-        {(canMerge || canSplit) && <MenuSep />}
         {canMerge ? (
           <MenuItem
             icon={<Combine className="size-3.5" />}
@@ -155,129 +287,48 @@ export function TimetableCellMenu({
               onClose();
             }}
           >
-            Çiftliyi iki tekliye böl
+            Çiftliyi ayır
           </MenuItem>
         ) : null}
       </SubMenu>
 
       {handlers.onClearSlots && lessonRowCount > 0 ? (
-        <MenuItem
+        <ContextActionBtn
+          icon={<AlertTriangle className="size-4" />}
+          label={`Satırı temizle (${lessonRowCount})`}
           destructive
           onClick={() => {
             handlers.onClearSlots!(clearSlotIds);
             onClose();
           }}
-        >
-          Satırı temizle ({lessonRowCount})
-        </MenuItem>
+        />
       ) : null}
 
-      {handlers.onChangeRoom && handlers.rooms && handlers.rooms.length > 0 ? (
-        <>
-          <MenuSep />
-          <SubMenu label="Derslik" icon={<DoorOpen className="size-3.5" />}>
-            <MenuItem
-              onClick={() => {
-                handlers.onChangeRoom!(entry.id, null);
-                onClose();
-              }}
-            >
-              Derslik yok
-            </MenuItem>
-            {handlers.rooms.map((r) => (
-              <MenuItem
-                key={r.id}
-                onClick={() => {
-                  handlers.onChangeRoom!(entry.id, r.id);
-                  onClose();
-                }}
-              >
-                {r.name}
-                {entry.room_id === r.id ? ' ✓' : ''}
-              </MenuItem>
-            ))}
-          </SubMenu>
-        </>
-      ) : null}
-
-      {(handlers.onFindClass || handlers.onFindTeacher || handlers.onFindRoom) && (
-        <>
-          <MenuSep />
-          <SubMenu label="Bul" icon={<Search className="size-3.5" />}>
-            {handlers.onFindClass ? (
-              <MenuItem
-                onClick={() => {
-                  handlers.onFindClass!(entry);
-                  onClose();
-                }}
-              >
-                Sınıf — {entry.class_section}
-              </MenuItem>
-            ) : null}
-            {handlers.onFindTeacher && entry.user_id ? (
-              <MenuItem
-                onClick={() => {
-                  handlers.onFindTeacher!(entry);
-                  onClose();
-                }}
-              >
-                Öğretmen — {entry.teacher_label?.trim() || '—'}
-              </MenuItem>
-            ) : null}
-            {handlers.onFindRoom && entry.room_id ? (
-              <MenuItem
-                onClick={() => {
-                  handlers.onFindRoom!(entry);
-                  onClose();
-                }}
-              >
-                Derslik — {entry.room_name?.trim() || '—'}
-              </MenuItem>
-            ) : null}
-          </SubMenu>
-        </>
-      )}
-
-      {handlers.preview ? (
-        <>
-          <MenuSep />
-          <TimetableViewPreviewSubmenu
-            entry={entry}
-            preview={handlers.preview}
-            onOpenPreview={handlers.onOpenPreview}
-            onNavigateView={handlers.onNavigateView}
-            onClose={onClose}
-          />
-        </>
-      ) : null}
-
-      {handlers.onOpenAssignments || handlers.onOpenValidation ? (
+      {(handlers.onOpenAssignments || handlers.onOpenValidation) && (
         <>
           <MenuSep />
           {handlers.onOpenAssignments ? (
-            <MenuItem
-              icon={<ClipboardList className="size-3.5" />}
+            <ContextActionBtn
+              icon={<ClipboardList className="size-4" />}
+              label="Atamaya git"
               onClick={() => {
                 handlers.onOpenAssignments!(entry);
                 onClose();
               }}
-            >
-              Atamaya git
-            </MenuItem>
+            />
           ) : null}
           {handlers.onOpenValidation ? (
-            <MenuItem
-              icon={<ShieldCheck className="size-3.5" />}
+            <ContextActionBtn
+              icon={<ShieldCheck className="size-4" />}
+              label="Planlama kontrolü"
               onClick={() => {
                 handlers.onOpenValidation!();
                 onClose();
               }}
-            >
-              Planlama kontrolü
-            </MenuItem>
+            />
           ) : null}
         </>
-      ) : null}
+      )}
     </ContextMenuShell>
   );
 }

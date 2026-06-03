@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { GitBranch } from 'lucide-react';
 import { formatClassSectionsList } from '@/lib/class-section-sort';
@@ -18,6 +19,7 @@ import {
   RULE_KIND_HINTS,
   ruleHint,
 } from '@/lib/ders-dagit-hints';
+import { filterRulesPageCatalog } from '@/lib/ders-dagit-rules-page';
 
 export type RuleState = { active: boolean; weight?: number; params?: { days?: number[] } };
 export type RuleDef = { key: string; label_tr: string; kind: string };
@@ -136,7 +138,8 @@ export function RulesStudioPanel({
   onSaveTravelPair,
   buildingTravel,
 }: Props) {
-  const byKind = (kind: string) => catalog.filter((c) => c.kind === kind);
+  const pageCatalog = useMemo(() => filterRulesPageCatalog(catalog), [catalog]);
+  const byKind = (kind: string) => pageCatalog.filter((c) => c.kind === kind);
   const isStudio = scope === studioScope;
 
   const ruleKindCard = (kind: 'hard' | 'soft' | 'pedagogy') => (
@@ -169,6 +172,15 @@ export function RulesStudioPanel({
 
   return (
     <div className="space-y-3">
+      <div className="flex items-start gap-2 rounded-xl border border-primary/25 bg-primary/5 px-3 py-2.5 text-xs">
+        <p className="flex-1 leading-relaxed text-foreground">
+          Ders ve şube bazlı dağıtım kuralları (2+2, haftaya yay, aynı gün yasak vb.){' '}
+          <Link href="/ders-dagit/studyo/planlama-iliskileri" className="font-medium text-primary underline">
+            Planlama ilişkileri
+          </Link>
+          üzerinden tanımlanır. Bu sayfada yalnızca okul geneli zorunluluklar, tercihler ve MEB pedagojisi yer alır.
+        </p>
+      </div>
       <div className="flex items-start gap-2 rounded-xl border border-sky-500/30 bg-sky-500/5 px-3 py-2.5 text-xs text-sky-950 dark:text-sky-100">
         <p className="flex-1 leading-relaxed">{RULE_ENGINE_SUMMARY}</p>
         <DdInfoHint label="Kurallar ve üretim" title="Kurallar üretimde nasıl uygulanır?">

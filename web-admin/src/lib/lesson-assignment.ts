@@ -50,7 +50,7 @@ export type LessonAssignmentDraft = {
   use_joined: boolean;
   group_id: string;
   weekly_hours: number;
-  /** Gün başına saat: [2,2], [3,1], [4] … */
+  /** Haftalık desen (gün başına saat): [2,2], [3,1], [4] … */
   day_distribution: number[];
   biweekly: boolean;
   room_mode: RoomPickMode;
@@ -71,6 +71,24 @@ export const PERIOD_FORMAT_LABEL = {
   double: 'İkili',
   biweekly: 'İki haftada bir',
 } as const;
+
+/** Tablo / özet: haftalık desen (2+2+1). */
+export function assignmentDistributionLabel(row: LessonAssignmentRow): string {
+  return formatDayDistribution(inferDayDistribution(row.weekly_hours, row.options, !!row.biweekly));
+}
+
+/** Atama kartı kısa rozet metinleri. */
+export function assignmentCardBadgeLabels(row: LessonAssignmentRow): string[] {
+  const out: string[] = [];
+  const block = Number(row.options?.block_lessons ?? 0);
+  if (block >= 2) out.push(`Blok ${block}`);
+  if (row.biweekly) out.push('2 haftada 1');
+  if (row.place_first) out.push('Önce yerleş');
+  if (row.min_days_per_week != null && row.min_days_per_week >= 2) out.push(`≥${row.min_days_per_week} gün`);
+  if (row.max_per_day != null && row.max_per_day > 0) out.push(`≤${row.max_per_day}/gün`);
+  if (row.fixed_slots?.length) out.push(`${row.fixed_slots.length} sabit slot`);
+  return out;
+}
 
 export function assignmentToDraft(
   row: LessonAssignmentRow,

@@ -59,7 +59,29 @@ export function TimetableLegend({
       <span className="inline-flex items-center gap-1">
         <span className="size-3 rounded ring-2 ring-destructive/80" /> Program çakışması
       </span>
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-foreground/70">Kart</span>
       <LockIcon />
+      <span className="inline-flex items-center gap-1" title="Derslik atanmamış">
+        <span className="flex size-3.5 items-center justify-center rounded-full bg-muted ring-1 ring-border">
+          <svg className="size-2 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <path d="M4 20h16M6 20V10l6-4 6 4v10" />
+          </svg>
+        </span>
+        Derslik yok
+      </span>
+      <span className="inline-flex items-center gap-1" title="Öğretmen atanmamış">
+        <span className="flex size-3.5 items-center justify-center rounded-full bg-violet-100 ring-1 ring-violet-300/60">
+          <svg className="size-2 text-violet-800" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <path d="M16 21v-2a4 4 0 00-8 0v2M12 11a4 4 0 100-8 4 4 0 000 8z" />
+            <path d="M4 4l2 2M20 4l-2 2" />
+          </svg>
+        </span>
+        Öğretmen yok
+      </span>
+      <span className="inline-flex items-center gap-1" title="Seçili kart">
+        <span className="size-3 rounded-full bg-sky-500 ring-1 ring-sky-600/40" />
+        Seçili
+      </span>
     </div>
   );
 }

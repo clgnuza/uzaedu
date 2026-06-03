@@ -8,7 +8,9 @@ import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
 import { DdPageHeader, DD_PAGE } from '@/components/ders-dagit/dd-ui';
+import { DistributionPolicyCard } from '@/components/ders-dagit/distribution-policy-card';
 import { RulesStudioPanel, type RuleState, type RulesRes } from '@/components/ders-dagit/RulesStudioPanel';
+import type { DistributionPolicyDto } from '@/lib/distribution-policy';
 import { toast } from 'sonner';
 
 const STUDIO_SCOPE = '__studio__';
@@ -25,6 +27,7 @@ export default function KurallarPage() {
   const [travelFrom, setTravelFrom] = useState('default');
   const [travelTo, setTravelTo] = useState('default');
   const [travelPairMin, setTravelPairMin] = useState(5);
+  const [distributionPolicy, setDistributionPolicy] = useState<DistributionPolicyDto | null>(null);
 
   const profile = useMemo(
     () => data?.class_profiles?.find((p) => p.id === scope),
@@ -39,12 +42,16 @@ export default function KurallarPage() {
 
   const load = useCallback(async () => {
     if (!token || !studio) return;
-    const [r, b] = await Promise.all([
+    const [r, b, dp] = await Promise.all([
       apiFetch<RulesRes>(`/ders-dagit/studios/${studio.id}/rules`, { token }),
       apiFetch<Array<{ id: string; name: string }>>('/ders-dagit/buildings', { token }),
+      apiFetch<DistributionPolicyDto>(`/ders-dagit/studios/${studio.id}/distribution-policy`, { token }).catch(
+        () => null,
+      ),
     ]);
     setData(r);
     setBuildings(b);
+    setDistributionPolicy(dp);
     const fallbackDays = r.rules.meb_pe_music_days?.params?.days;
     if (fallbackDays?.length) setPeDays([...fallbackDays].sort((a, b) => a - b));
     const defaultTravel =
@@ -158,8 +165,21 @@ export default function KurallarPage() {
       <DdPageHeader
         icon={Scale}
         title="Kurallar"
-        description="Zorunlu, tercih ve pedagoji — her satırın yanındaki (i) ile açıklama."
+        description="Okul geneli zorunlu ve MEB kuralları. Ders/şube dağıtımı için Planlama ilişkileri sayfasını kullanın."
       />
+      <DistributionPolicyCard
+        policy={distributionPolicy}
+        onSave={async (dto) => {
+          if (!token || !studio) return;
+          const saved = await apiFetch<DistributionPolicyDto>(
+            `/ders-dagit/studios/${studio.id}/distribution-policy`,
+            { token, method: 'PATCH', body: dto },
+          );
+          setDistributionPolicy(saved);
+          toast.success('Haftalık dağıtım ayarları kaydedildi');
+        }}
+      />
+
       {data && (
         <RulesStudioPanel
           scope={scope}

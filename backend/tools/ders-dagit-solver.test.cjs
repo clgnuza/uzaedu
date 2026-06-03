@@ -76,6 +76,90 @@ const r = runConstraintSolver(assignments, ctx);
 assert.ok(r.placed >= 3, `placed ${r.placed}`);
 assert.ok(r.score > 0, 'score');
 
+const dist22 = [
+  {
+    ...assignments[0],
+    id: 'dist22',
+    weekly_hours: 4,
+    min_days_per_week: 2,
+    max_per_day: 2,
+    options: { day_distribution: [2, 2], block_lessons: 2 },
+  },
+];
+const rd = runConstraintSolver(dist22, ctx);
+assert.strictEqual(rd.placed, 4, `2+2 placed ${rd.placed}`);
+const {
+  assignmentByDayLessons,
+  distinctPatternPermutations,
+  matchesDayDistributionPattern,
+} = require('../dist/ders-dagit/ders-dagit.day-distribution');
+const perms221 = distinctPatternPermutations([2, 2, 1]);
+assert.strictEqual(perms221.length, 3, '2+2+1 has 3 day orders');
+const m = new Map([[1, [1, 2]], [3, [3, 4]], [5, [6]]]);
+assert.ok(matchesDayDistributionPattern(m, [2, 2, 1]), '1+2+2 multiset matches 2+2+1');
+const byDayLessons = new Map();
+for (const e of rd.entries) {
+  const arr = byDayLessons.get(e.day_of_week) ?? [];
+  arr.push(e.lesson_num);
+  byDayLessons.set(e.day_of_week, arr);
+}
+assert.ok(matchesDayDistributionPattern(byDayLessons, [2, 2]), 'haftalık 2+2 ardışık');
+const dupRows = [
+  { assignment_id: 'dup2', day_of_week: 2, lesson_num: 3 },
+  { assignment_id: 'dup2', day_of_week: 2, lesson_num: 3 },
+  { assignment_id: 'dup2', day_of_week: 2, lesson_num: 4 },
+  { assignment_id: 'dup2', day_of_week: 2, lesson_num: 4 },
+];
+const dupMap = assignmentByDayLessons(dupRows, 'dup2');
+assert.ok(matchesDayDistributionPattern(dupMap, [2]), 'çoklu şube satırı tek 2 blok sayılır');
+const { remainingPatternChunks: remainChunks } = require('../dist/ders-dagit/ders-dagit.day-distribution');
+const orphan1 = [
+  { assignment_id: 'o1', day_of_week: 1, lesson_num: 1 },
+];
+assert.deepStrictEqual(remainChunks('o1', orphan1, [2, 2, 1]), [2, 2], 'kısmi 1 saat → 4 saat kalan bloklar');
+const sameDay22 = [
+  { assignment_id: 'd22', day_of_week: 2, lesson_num: 1 },
+  { assignment_id: 'd22', day_of_week: 2, lesson_num: 2 },
+  { assignment_id: 'd22', day_of_week: 2, lesson_num: 3 },
+  { assignment_id: 'd22', day_of_week: 2, lesson_num: 4 },
+];
+assert.deepStrictEqual(remainChunks('d22', sameDay22, [2, 2, 1]), [1], 'aynı gün 4 ardışık = 2+2 tüketildi, kalan 1');
+const { inferDayDistribution, distributionPresetsForMode } = require('../dist/ders-dagit/ders-dagit.day-distribution');
+assert.deepStrictEqual(inferDayDistribution(2, {}, false, 'blocks'), [2], 'blok modu 2 saat → [2]');
+assert.deepStrictEqual(distributionPresetsForMode(2, 'blocks')[0], [2], 'blok preset sırası');
+
+function assertNoSplitSameDay(entries, assignmentId) {
+  const byDay = new Map();
+  for (const e of entries) {
+    if (e.assignment_id !== assignmentId) continue;
+    const arr = byDay.get(e.day_of_week) ?? [];
+    arr.push(e.lesson_num);
+    byDay.set(e.day_of_week, arr);
+  }
+  for (const lessons of byDay.values()) {
+    if (lessons.length < 2) continue;
+    const s = [...lessons].sort((a, b) => a - b);
+    for (let i = 1; i < s.length; i++) {
+      assert.strictEqual(s[i], s[i - 1] + 1, `split same day: ${s.join(',')}`);
+    }
+  }
+}
+assertNoSplitSameDay(rd.entries, 'dist22');
+
+const pattern221 = [
+  {
+    ...assignments[0],
+    id: 'p221',
+    subject_name: 'Uygulama',
+    weekly_hours: 5,
+    max_per_day: 3,
+    min_days_per_week: 3,
+    options: { day_distribution: [2, 2, 1] },
+  },
+];
+const rp = runConstraintSolver(pattern221, ctx);
+assertNoSplitSameDay(rp.entries, 'p221');
+
 const r2 = improveWithLocalSearch(assignments, ctx, 8);
 assert.ok(r2.placed >= r.placed - 1, 'local search');
 
@@ -184,6 +268,73 @@ const small = [
 const seed = runConstraintSolver(small, ctx);
 const run = runAscLikeSearch(small, ctx, { deadline_ms: 250, priority: 'fast', seed });
 assert.ok(run.meta && run.meta.iterations >= 0, 'search meta');
+
+// Kurallar sayfasında gizlenen anahtarlar kapalı olsa bile planlama ilişkisi dağıtımda etkinleşir.
+const { mergePlanningRelationsIntoRules, validatePlanningRelationsForGenerate } = require('../dist/ders-dagit/ders-dagit.rules-merge');
+const { buildDefaultRuleState } = require('../dist/ders-dagit/ders-dagit.rules');
+const { ruleOnForAssignment } = require('../dist/ders-dagit/ders-dagit.solver-rule-scope');
+
+const studioOff = buildDefaultRuleState();
+for (const key of [
+  'distribute_week',
+  'max_two_per_day',
+  'two_same_day',
+  'same_day_consecutive',
+  'two_not_same_day',
+  'minimize_teacher_gaps',
+]) {
+  studioOff[key] = { active: false, weight: 10 };
+}
+const planningRow = {
+  id: 'pr-dist',
+  active: true,
+  kind: 'simple',
+  rule_id: 'distribute_week',
+  importance: 'normal',
+  subject_ids: ['sub-mat'],
+  subject_labels: ['Matematik'],
+  sections_mode: 'all',
+  sections: [],
+  sort_order: 0,
+};
+const merged = mergePlanningRelationsIntoRules(
+  studioOff,
+  [{ id: 'prof1', class_sections: ['5A'], rules: null }],
+  [planningRow],
+);
+assert.strictEqual(merged.studio_rules.distribute_week?.active, true, 'planning turns distribute_week on');
+const planCtx = {
+  ...ctx,
+  active_rules: merged.studio_rules,
+  section_rules: merged.section_rules,
+  strict_rule_keys_global: new Set(),
+  strict_rule_keys_by_section: new Map(),
+};
+const matAssign = {
+  id: 'pm',
+  class_sections: ['5A'],
+  subject_id: 'sub-mat',
+  subject_name: 'Matematik',
+  weekly_hours: 4,
+  teacher_ids: ['t1'],
+  group_id: null,
+  room_ids: [],
+  max_per_day: 2,
+  min_days_per_week: 2,
+  fixed_slots: [],
+  place_first: false,
+  options: {},
+};
+const muzAssign = { ...matAssign, id: 'pz', subject_id: 'sub-muz', subject_name: 'Müzik' };
+assert.ok(ruleOnForAssignment(planCtx, 'distribute_week', '5A', matAssign), 'scoped to planning subjects');
+assert.ok(!ruleOnForAssignment(planCtx, 'distribute_week', '5A', muzAssign), 'other subject not forced');
+const rPlan = runConstraintSolver([matAssign, muzAssign], planCtx);
+assert.ok(rPlan.placed >= 5, `planning merge allows generate path placed=${rPlan.placed}`);
+assert.strictEqual(
+  validatePlanningRelationsForGenerate([{ ...planningRow, importance: 'strict' }]).length,
+  0,
+  'supported strict planning does not block generate',
+);
 const occ = new Set();
 for (const e of run.result.entries) {
   const k1 = `${e.day_of_week}:${e.lesson_num}:c:${e.class_section}`;
@@ -195,3 +346,76 @@ for (const e of run.result.entries) {
     occ.add(k2);
   }
 }
+
+// Yoğun kapsama: 5 gün × 6 saat = 30 slot; 30 saatlik tek sınıf tam dolmalı.
+const denseCtx = {
+  ...ctx,
+  max_lesson_per_day: 6,
+  max_lesson_by_day: new Map([[1, 6], [2, 6], [3, 6], [4, 6], [5, 6]]),
+  blocked_lesson_nums: new Set(),
+  studio_period: { work_days: [1, 2, 3, 4, 5], long_breaks: [], lessons_per_day_by_dow: {} },
+  active_rules: {},
+  teacher_limits: [],
+};
+const denseAssignments = [
+  { subject: 'Mat', t: 't1', h: 6 },
+  { subject: 'Türkçe', t: 't2', h: 6 },
+  { subject: 'Fen', t: 't3', h: 5 },
+  { subject: 'Sosyal', t: 't4', h: 5 },
+  { subject: 'İng', t: 't5', h: 4 },
+  { subject: 'Beden', t: 't6', h: 4 },
+].map((x, i) => ({
+  id: `d${i}`,
+  class_sections: ['9A'],
+  subject_id: `sub-d${i}`,
+  subject_name: x.subject,
+  weekly_hours: x.h,
+  teacher_ids: [x.t],
+  group_id: null,
+  room_ids: [],
+  max_per_day: 2,
+  min_days_per_week: 1,
+  fixed_slots: [],
+  place_first: false,
+  options: {},
+}));
+const denseTarget = denseAssignments.reduce((s, a) => s + a.weekly_hours, 0);
+const denseSeed = runConstraintSolver(denseAssignments, denseCtx);
+const denseRun = runAscLikeSearch(denseAssignments, denseCtx, {
+  deadline_ms: 1500,
+  priority: 'coverage',
+  seed: denseSeed,
+});
+assert.strictEqual(
+  denseRun.result.failed,
+  0,
+  `dense coverage should place all ${denseTarget}h (failed=${denseRun.result.failed})`,
+);
+assert.strictEqual(denseRun.result.entries.length, denseTarget, 'dense placed count');
+
+const enforceCtx = {
+  ...ctx,
+  distribution_policy: { mode: 'blocks', enforce_pattern: true, relax_on_conflict: false },
+};
+const enforceAssign = [
+  {
+    ...assignments[0],
+    id: 'enf22',
+    weekly_hours: 4,
+    max_per_day: 2,
+    min_days_per_week: 2,
+    options: { day_distribution: [2, 2], block_lessons: 2 },
+  },
+];
+const enfSeed = runConstraintSolver(enforceAssign, enforceCtx);
+const enfRun = runAscLikeSearch(enforceAssign, enforceCtx, {
+  deadline_ms: 800,
+  priority: 'balanced',
+  seed: enfSeed,
+});
+const enfByDay = assignmentByDayLessons(enfRun.result.entries, 'enf22');
+assert.ok(
+  matchesDayDistributionPattern(enfByDay, [2, 2]),
+  `enforce_pattern ASC keeps 2+2 observed=${[...enfByDay.values()].map((l) => l.length)}`,
+);
+assertNoSplitSameDay(enfRun.result.entries, 'enf22');

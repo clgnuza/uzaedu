@@ -4,7 +4,12 @@ export type ProgramEntryLike = {
   lesson_num: number;
   class_section: string;
   user_id: string | null;
+  assignment_id?: string | null;
 };
+
+function coTeachSameSlot(a: ProgramEntryLike, b: ProgramEntryLike): boolean {
+  return !!a.assignment_id && a.assignment_id === b.assignment_id;
+}
 
 export type SlotClash = {
   entry_id: string;
@@ -22,7 +27,7 @@ export function computeProgramClashes(entries: ProgramEntryLike[]): SlotClash[] 
       const a = entries[i]!;
       const b = entries[j]!;
       if (a.day_of_week !== b.day_of_week || a.lesson_num !== b.lesson_num) continue;
-      if (a.class_section === b.class_section) {
+      if (a.class_section === b.class_section && !coTeachSameSlot(a, b)) {
         out.push({
           entry_id: a.id,
           day_of_week: a.day_of_week,
@@ -40,7 +45,7 @@ export function computeProgramClashes(entries: ProgramEntryLike[]): SlotClash[] 
           other_entry_id: a.id,
         });
       }
-      if (a.user_id && b.user_id && a.user_id === b.user_id) {
+      if (a.user_id && b.user_id && a.user_id === b.user_id && !coTeachSameSlot(a, b)) {
         out.push({
           entry_id: a.id,
           day_of_week: a.day_of_week,
@@ -75,7 +80,7 @@ export function wouldClash(
   for (const other of entries) {
     if (other.id === entryId || other.id === excludeEntryId) continue;
     if (other.day_of_week !== day || other.lesson_num !== lesson) continue;
-    if (other.class_section === entry.class_section) {
+    if (other.class_section === entry.class_section && !coTeachSameSlot(entry, other)) {
       return {
         entry_id: entryId,
         day_of_week: day,
@@ -85,7 +90,7 @@ export function wouldClash(
         other_entry_id: other.id,
       };
     }
-    if (entry.user_id && other.user_id === entry.user_id) {
+    if (entry.user_id && other.user_id === entry.user_id && !coTeachSameSlot(entry, other)) {
       return {
         entry_id: entryId,
         day_of_week: day,

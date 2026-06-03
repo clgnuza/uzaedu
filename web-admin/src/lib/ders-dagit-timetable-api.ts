@@ -1,4 +1,5 @@
 import { apiFetch } from './api';
+import type { ProgramScoreBreakdown } from '@/lib/ders-dagit-score-breakdown';
 import { resolveDefaultApiBase } from './resolve-api-base';
 
 export type EditorEntry = {
@@ -56,6 +57,11 @@ export type EditorContext = {
     user_id: string | null;
     teacher_label: string | null;
   }>;
+  /** Atama kartı blok / haftalık dağılım — sürükle-bırak ve düzenleme */
+  assignment_hints?: Record<
+    string,
+    { block_size: number; max_per_day: number; day_distribution: number[] | null }
+  >;
   clashes: Array<{ entry_id: string; code: string; message: string; day_of_week?: number; lesson_num?: number }>;
   max_lesson: number;
   fairness: {
@@ -68,6 +74,8 @@ export type EditorContext = {
       deviation_from_avg: number;
     }>;
   };
+  /** Güncel program yerleşimine göre hesaplanır (kayıtlı meta değil). */
+  score_breakdown?: ProgramScoreBreakdown | null;
 };
 
 export async function fetchEditorContext(token: string, studioId: string, programId: string) {

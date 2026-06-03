@@ -7,7 +7,7 @@ import { useTimetableEditor } from '@/hooks/use-timetable-editor';
 import { TimetableGrid, type TimetableDragSource } from './TimetableGrid';
 import { TimetableSidebar } from './TimetableSidebar';
 import { CollisionResolveDialog } from './CollisionResolveDialog';
-import { TimetableEntryEditDialog } from './TimetableEntryEditDialog';
+import { TimetableEntryEditDialog, type TimetableEntryEditSave } from './TimetableEntryEditDialog';
 import { TimetableUnplacedTray, type UnplacedRow } from './TimetableUnplacedTray';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -34,9 +34,17 @@ import { TimetableSimulationBar } from './TimetableSimulationBar';
 import { TimetablePrintHeader } from './TimetablePrintHeader';
 import { slotHighlightKey } from '@/lib/timetable-grid-build';
 import { buildTimetableCompare, maxStackedInCell } from '@/lib/timetable-compare';
-import { buildSlotClosures } from '@/lib/timetable-slot-closures';
+import { buildSlotClosures, closureAt } from '@/lib/timetable-slot-closures';
 import { validateTimetableMove } from '@/lib/timetable-move-validation';
-import { listOkPoolSlotsWithClosures, parsePoolAssignmentId, planPoolPlacement } from '@/lib/timetable-pool-place';
+import {
+  canPlaceEntryAt,
+  finalizeMovesForEntry,
+  planBlockEntryMove,
+  planChainEntryMove,
+  planChainPoolPlace,
+} from '@/lib/timetable-drag-resolve';
+import { listOkPoolSlotsWithClosures, parsePoolAssignmentId, planPoolPlacement, planSmartEntryMove } from '@/lib/timetable-pool-place';
+import { entryMatchesMatrixRow, parseMatrixDropId, poolRowMatches } from '@/lib/timetable-matrix-dnd';
 import { clashAtSlot, clashEntryIds } from '@/lib/timetable-clash';
 import { useRouter } from 'next/navigation';
 import {
@@ -50,13 +58,16 @@ import { loadReportPrintMode } from '@/lib/ders-dagit-report-settings';
 import {
   entriesInGridDayColumn,
   type TimetableCellMenuHandlers,
+  type TimetableMatrixRowMenuHandlers,
   type TimetableEmptySlotMenuHandlers,
 } from '@/lib/timetable-cell-menu';
-import { findConsecutivePartner } from '@/lib/timetable-double-block';
+import { findConsecutivePartner, sameDayBlockRun } from '@/lib/timetable-double-block';
 import { filterEntriesForPreview } from '@/lib/timetable-preview-filter';
 import type { TimetablePreviewTarget } from '@/lib/timetable-preview-types';
 import { TimetablePreviewDialog } from './TimetablePreviewDialog';
 import { planlamaIliskileriUrl } from '@/lib/dd-entity-scope';
+import type { LessonAssignmentRow } from '@/lib/lesson-assignment';
+import { assignmentUpsertBodyWithDistribution } from '@/lib/timetable-assignment-edit';
 import './timetable-print.css';
 
 type ProgramRow = DdProgramRow;
@@ -119,6 +130,32 @@ export function TimetableShell({
   const [compareId, setCompareId] = useState(compareProgramId ?? '');
   const [compareCtx, setCompareCtx] = useState<typeof editor.ctx>(null);
   const [editEntry, setEditEntry] = useState<EditorEntry | null>(null);
+  const [editAssignment, setEditAssignment] = useState<LessonAssignmentRow | null>(null);
+  const [editAssignmentLoading, setEditAssignmentLoading] = useState(false);
+
+  useEffect(() => {
+    const aid = editEntry?.assignment_id;
+    if (!aid || !token || !studio?.id) {
+      setEditAssignment(null);
+      setEditAssignmentLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setEditAssignmentLoading(true);
+    void apiFetch<LessonAssignmentRow[]>(`/ders-dagit/studios/${studio.id}/assignments`, { token })
+      .then((list) => {
+        if (!cancelled) setEditAssignment(list.find((a) => a.id === aid) ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setEditAssignment(null);
+      })
+      .finally(() => {
+        if (!cancelled) setEditAssignmentLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editEntry?.assignment_id, token, studio?.id]);
   const [poolDrag, setPoolDrag] = useState<string | null>(null);
   const [dragLabel, setDragLabel] = useState<string | null>(null);
   const [audit, setAudit] = useState<AuditRow[]>([]);
@@ -305,7 +342,6 @@ export function TimetableShell({
     (row: UnplacedRow) => {
       setPickedEntryId(null);
       setPickedPoolAssignmentId(row.assignment_id);
-      setPlacementMode('click');
       const hasTeacher =
         !!row.user_id && !!editor.ctx?.teachers.some((t) => t.id === row.user_id);
       if (hasTeacher && row.user_id) {
@@ -438,12 +474,19 @@ export function TimetableShell({
             return e;
           });
         }
+        const occupant = base.find((e) => e.day_of_week === day && e.lesson_num === lesson && e.id !== entryId);
+        if (occupant && !occupant.is_locked) {
+          return base.map((e) => {
+            if (e.id === entryId) return { ...e, day_of_week: occupant.day_of_week, lesson_num: occupant.lesson_num };
+            if (e.id === occupant.id) return { ...e, day_of_week: entry.day_of_week, lesson_num: entry.lesson_num };
+            return e;
+          });
+        }
         const clash = clashAtSlot(base, entryId, day, lesson);
         if (clash) {
           toast.error(clash === 'CLASS_CLASH' ? 'Sınıf çakışması' : 'Öğretmen çakışması');
           return prev;
         }
-        const occupant = base.find((e) => e.day_of_week === day && e.lesson_num === lesson && e.id !== entryId);
         if (occupant) return prev;
         return base.map((e) => (e.id === entryId ? { ...e, day_of_week: day, lesson_num: lesson } : e));
       });
@@ -664,6 +707,55 @@ export function TimetableShell({
     };
   }, [simulate, displayCtx, editor, router]);
 
+  const matrixRowMenuHandlers = useMemo((): TimetableMatrixRowMenuHandlers | undefined => {
+    if (simulate) return undefined;
+    const allEntries = () => (displayCtx ?? editor.ctx)?.entries ?? [];
+    return {
+      onFocusTeacher: (teacherId, label) => {
+        if (!teacherId) {
+          toast.message('Bu satırda bağlı öğretmen hesabı yok');
+          return;
+        }
+        setView('teacher');
+        setFilterId(teacherId);
+        toast.success(`${label.trim() || 'Öğretmen'} görünümü`);
+      },
+      onFocusClash: (entryId, slotKey) => {
+        focusClash(slotKey, entryId);
+        toast.message('Çakışma vurgulandı');
+      },
+      onLockAll: async (ids, locked) => {
+        if (!ids.length) return;
+        const list = allEntries();
+        let n = 0;
+        for (const id of ids) {
+          const e = list.find((x) => x.id === id);
+          if (!e || !!e.is_locked === locked) continue;
+          await editor.toggleLock(id, locked);
+          n++;
+        }
+        toast.success(locked ? `${n} kart kilitlendi` : `${n} kilit açıldı`);
+      },
+      onClearAll: (ids) => {
+        if (!ids.length) return;
+        toast(`${ids.length} kart kaldırılsın mı?`, {
+          action: {
+            label: 'Kaldır',
+            onClick: () => {
+              void editor.removeEntries(ids).then(() => toast.success(`${ids.length} kart kaldırıldı`));
+            },
+          },
+        });
+      },
+      onOpenAssignments: (teacherId) => {
+        const q = new URLSearchParams();
+        if (teacherId) q.set('teacher', teacherId);
+        router.push(`/ders-dagit/studyo/atamalar?${q.toString()}`);
+        toast.message('Atamalar açılıyor');
+      },
+    };
+  }, [simulate, displayCtx, editor, router, focusClash]);
+
   const reloadAudit = useCallback(async () => {
     if (!token || !studio) return;
     setAudit(await apiFetch<AuditRow[]>(`/ders-dagit/studios/${studio.id}/audit-log?limit=30`, { token }));
@@ -693,27 +785,52 @@ export function TimetableShell({
         return false;
       }
       const closures = slotClosuresForCtx(c);
-      const plan = planPoolPlacement(assignmentId, day, lesson, c, closures);
-      if (!plan.ok) {
-        toast.error(plan.message);
-        return false;
-      }
-      try {
-        if (plan.relocateEntryId && plan.relocateTo) {
-          await editor.moveEntry(
-            plan.relocateEntryId,
-            plan.relocateTo.day,
-            plan.relocateTo.lesson,
-          );
+      const direct = planPoolPlacement(assignmentId, day, lesson, c, closures);
+      let placeDay = day;
+      let placeLesson = lesson;
+      let relocations: Array<{ entryId: string; day: number; lesson: number }> = [];
+
+      if (direct.ok && direct.day === day && direct.lesson === lesson && !direct.relocateEntryId) {
+        relocations = [];
+      } else {
+        const chain = planChainPoolPlace(assignmentId, day, lesson, c, closures);
+        if (chain.ok) {
+          relocations = chain.relocations;
+          placeDay = day;
+          placeLesson = lesson;
+        } else if (direct.ok) {
+          if (direct.relocateEntryId && direct.relocateTo) {
+            relocations = [
+              {
+                entryId: direct.relocateEntryId,
+                day: direct.relocateTo.day,
+                lesson: direct.relocateTo.lesson,
+              },
+            ];
+          }
+          placeDay = direct.day;
+          placeLesson = direct.lesson;
+        } else {
+          toast.error(chain.message || direct.message);
+          return false;
         }
-        await editor.placeUnplaced(assignmentId, plan.day, plan.lesson, { silent: true });
-        const moved =
-          plan.relocateEntryId != null &&
-          (plan.day !== day || plan.lesson !== lesson || plan.relocateTo != null);
-        if (plan.day !== day || plan.lesson !== lesson) {
-          toast.success(`Uygun saat bulundu — ${plan.lesson}. ders, gün ${plan.day}`);
+      }
+
+      try {
+        if (relocations.length) {
+          const ok = await editor.applyMoves(relocations);
+          if (!ok) return false;
+        }
+        await editor.placeUnplaced(assignmentId, placeDay, placeLesson, { silent: true });
+        const moved = relocations.length > 0;
+        if (placeDay !== day || placeLesson !== lesson) {
+          toast.success(`Uygun saat bulundu — ${placeLesson}. ders, gün ${placeDay}`);
         } else if (moved) {
-          toast.success('Mevcut ders taşındı, yerleştirildi');
+          toast.success(
+            relocations.length === 1
+              ? 'Mevcut ders taşındı, yerleştirildi'
+              : `${relocations.length} ders kaydırıldı, yerleştirildi`,
+          );
         } else {
           toast.success('Yerleştirildi');
         }
@@ -730,6 +847,7 @@ export function TimetableShell({
       displayCtx,
       editor.ctx,
       editor.moveEntry,
+      editor.applyMoves,
       editor.placeUnplaced,
       pickedPoolAssignmentId,
       simulate,
@@ -745,12 +863,81 @@ export function TimetableShell({
     [pickedPoolAssignmentId, executePoolPlace],
   );
 
-  const requestMove = useCallback(
-    (entryId: string, day: number, lesson: number) => {
+  const requestMoveAsync = useCallback(
+    async (
+      entryId: string,
+      day: number,
+      lesson: number,
+      opts?: { silent?: boolean },
+    ): Promise<boolean> => {
       const c = displayCtx ?? editor.ctx;
-      if (!c) return;
+      if (!c) return false;
       const closures = slotClosuresForCtx(c);
       const dragging = c.entries.find((e) => e.id === entryId) ?? null;
+      if (!dragging) return false;
+
+      if (simulate) {
+        const occupants = c.entries.filter(
+          (e) => e.day_of_week === day && e.lesson_num === lesson && e.id !== entryId,
+        );
+        if (occupants.length > 1) {
+          setCollision({ entryId, day, lesson, occupants });
+          return false;
+        }
+        if (occupants.length === 1) {
+          applyLocalMove(entryId, day, lesson, occupants[0]!.id);
+          return true;
+        }
+        applyLocalMove(entryId, day, lesson);
+        return true;
+      }
+
+      if (dragging.is_locked) {
+        toast.error('Kilitli ders taşınamaz.');
+        return false;
+      }
+      if (closureAt(closures, day, lesson)) {
+        toast.error('Kapalı saat.');
+        return false;
+      }
+      if (dragging.day_of_week === day && dragging.lesson_num === lesson) return true;
+
+      const applyPlan = async (plan: {
+        ok: true;
+        relocations: Array<{ entryId: string; day: number; lesson: number }>;
+      }) => {
+        const moves = finalizeMovesForEntry(plan, entryId, day, lesson);
+        const ok = await editor.applyMoves(moves, {
+          primaryEntryId: entryId,
+          target: { day, lesson },
+        });
+        if (ok && !opts?.silent) {
+          toast.success(
+            moves.length === 1 ? 'Taşındı' : `${moves.length} kart kaydırılarak yerleştirildi`,
+          );
+        }
+        return ok;
+      };
+
+      const block = sameDayBlockRun(dragging, c.entries, c.assignment_hints);
+      const chain =
+        block.length > 1
+          ? planBlockEntryMove(entryId, day, lesson, c, closures)
+          : planChainEntryMove(entryId, day, lesson, c, closures);
+      if (chain.ok) return applyPlan(chain);
+
+      if (canPlaceEntryAt(c.entries, entryId, day, lesson, closures, c.assignment_hints)) {
+        const ok = await editor.applyMoves([{ entryId, day, lesson }], {
+          primaryEntryId: entryId,
+          target: { day, lesson },
+        });
+        if (ok && !opts?.silent) toast.success('Taşındı');
+        return ok;
+      }
+
+      const smart = planSmartEntryMove(entryId, day, lesson, c, closures);
+      if (smart.ok) return applyPlan(smart);
+
       const v = validateTimetableMove({
         entryId,
         day,
@@ -758,33 +945,26 @@ export function TimetableShell({
         entries: c.entries,
         closures,
         dragging,
+        assignmentHints: c.assignment_hints,
       });
-      if (!v.ok) {
-        toast.error(v.message);
-        return;
-      }
-      const occupants = c.entries.filter(
-        (e) => e.day_of_week === day && e.lesson_num === lesson && e.id !== entryId,
-      );
-      if (simulate) {
-        if (occupants.length === 1) {
-          applyLocalMove(entryId, day, lesson, occupants[0]!.id);
-          return;
-        }
-        if (occupants.length > 1) {
-          setCollision({ entryId, day, lesson, occupants });
-          return;
-        }
-        applyLocalMove(entryId, day, lesson);
-        return;
-      }
-      if (occupants.length > 1) {
-        setCollision({ entryId, day, lesson, occupants });
-        return;
-      }
-      void editor.moveEntry(entryId, day, lesson);
+      toast.error(chain.message || smart.message || v.message || 'Yerleştirilemedi');
+      return false;
     },
-    [displayCtx, editor.ctx, editor.moveEntry, simulate, applyLocalMove, slotClosuresForCtx],
+    [
+      displayCtx,
+      editor.ctx,
+      editor.applyMoves,
+      simulate,
+      applyLocalMove,
+      slotClosuresForCtx,
+    ],
+  );
+
+  const requestMove = useCallback(
+    (entryId: string, day: number, lesson: number) => {
+      void requestMoveAsync(entryId, day, lesson);
+    },
+    [requestMoveAsync],
   );
 
   const emptySlotMenuHandlers = useMemo((): TimetableEmptySlotMenuHandlers | undefined => {
@@ -870,6 +1050,7 @@ export function TimetableShell({
           },
         }
       : undefined,
+    rowMenuHandlers: matrixRowMenuHandlers,
     emptySlotMenuHandlers,
     onLockEntry: simulate ? undefined : (id: string, locked: boolean) => void editor.toggleLock(id, locked),
     onDeleteEntry: simulate ? undefined : (id: string) => void editor.removeEntry(id),
@@ -883,14 +1064,36 @@ export function TimetableShell({
       const c = displayCtx ?? editor.ctx;
       if (!c) return;
       const over = ev.over ? String(ev.over.id) : '';
-      const m = /^slot-(\d+)-(\d+)$/.exec(over);
-      if (!m) {
+      const slotM = /^slot-(\d+)-(\d+)$/.exec(over);
+      const matrixM = parseMatrixDropId(over);
+      if (!slotM && !matrixM) {
         toast.error('Bırakmak için tablodaki bir saat hücresini hedefleyin.');
         return;
       }
-      const day = Number(m[1]);
-      const lesson = Number(m[2]);
+      const day = slotM ? Number(slotM[1]) : matrixM!.day;
+      const lesson = slotM ? Number(slotM[2]) : matrixM!.lesson;
       const active = String(ev.active.id);
+      const axis = matrixAxisForView(view, filterId, matrixAxis);
+      if (matrixM && axis) {
+        if (active.startsWith('pool-')) {
+          const assignmentId = parsePoolAssignmentId(active);
+          if (!assignmentId) return;
+          const u = c.unplaced.find((x) => x.assignment_id === assignmentId);
+          if (
+            u &&
+            !poolRowMatches(matrixM.rowKey, axis, u.class_section, u.user_id ?? null)
+          ) {
+            toast.error('Bu satıra bu atama yerleştirilemez (şube/öğretmen uyuşmuyor).');
+            return;
+          }
+        } else {
+          const ent = c.entries.find((x) => x.id === active);
+          if (ent && !entryMatchesMatrixRow(ent, matrixM.rowKey, axis)) {
+            toast.error('Ders yalnızca kendi satırındaki hücreye taşınabilir.');
+            return;
+          }
+        }
+      }
       if (active.startsWith('pool-')) {
         const assignmentId = parsePoolAssignmentId(active);
         if (!assignmentId) return;
@@ -899,7 +1102,7 @@ export function TimetableShell({
       }
       requestMove(active, day, lesson);
     },
-    [displayCtx, editor.ctx, executePoolPlace, requestMove],
+    [displayCtx, editor.ctx, executePoolPlace, requestMove, view, filterId, matrixAxis],
   );
 
   const editorBusy = editor.busy || busyLocal;
@@ -920,8 +1123,20 @@ export function TimetableShell({
           return;
         }
         const ent = editor.ctx?.entries.find((x) => x.id === id);
-        setDragLabel(ent ? `${ent.class_section} · ${ent.subject}` : null);
-        if (ent) setDragSource({ type: 'entry', entry: ent });
+        if (ent) {
+          const block = sameDayBlockRun(ent, editor.ctx?.entries ?? [], editor.ctx?.assignment_hints);
+          const n = block.length;
+          setDragLabel(
+            n > 1 ? `${ent.class_section} · ${ent.subject} (${n} saat blok)` : `${ent.class_section} · ${ent.subject}`,
+          );
+          setDragSource({
+            type: 'entry',
+            entry: ent,
+            blockIds: n > 1 ? block.map((b) => b.id) : undefined,
+          });
+        } else {
+          setDragLabel(null);
+        }
       }}
       onDragEnd={onGridDragEnd}
       onDragCancel={() => {
@@ -1186,6 +1401,12 @@ export function TimetableShell({
                   Yazdırma için bir şube / öğretmen / derslik seçin (filtre).
                 </p>
               )}
+              {matrixAxisForView(view, filterId, matrixAxis) && (
+                <p className="rounded-md border border-border/80 bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground print:hidden">
+                  Matris görünümü: ders kartını veya alttaki havuzdan sürükleyip hedef hücreye bırakın. Tek şube düzenlemek için{' '}
+                  <strong className="text-foreground">Sınıf</strong> görünümünde şube seçin.
+                </p>
+              )}
               <div className={cn('grid gap-3', compareCtx && !initialAutoPrint && 'lg:grid-cols-2')}>
                 <div className="min-w-0">
                   {compareCtx && !initialAutoPrint && (
@@ -1372,23 +1593,71 @@ export function TimetableShell({
         <TimetableEntryEditDialog
           entry={editEntry}
           open={!!editEntry}
+          assignment={editAssignment}
+          assignmentLoading={editAssignmentLoading}
           rooms={ctx?.rooms ?? []}
           busy={editorBusy}
+          hasClash={editEntry ? editor.clashIds.has(editEntry.id) : false}
+          blockHint={
+            editEntry?.assignment_id && ctx?.assignment_hints?.[editEntry.assignment_id]
+              ? (() => {
+                  const h = ctx.assignment_hints![editEntry.assignment_id!]!;
+                  if (h.block_size < 2) return null;
+                  return h.day_distribution?.length
+                    ? `Haftalık ${h.day_distribution.join('+')}`
+                    : `Blok ${h.block_size} saat`;
+                })()
+              : null
+          }
           onClose={() => setEditEntry(null)}
           onDelete={async () => {
             if (!editEntry) return;
             await editor.removeEntry(editEntry.id);
             setEditEntry(null);
           }}
-          onSave={async ({ day, lesson, locked, roomId }) => {
+          onSave={async (data: TimetableEntryEditSave) => {
             if (!editEntry || !token || !studio) return;
+            if (data.mode === 'release') {
+              if (!editAssignment || !editEntry.assignment_id) {
+                toast.error('Atama bulunamadı');
+                return;
+              }
+              const body = assignmentUpsertBodyWithDistribution(editAssignment, data.day_distribution);
+              if (data.roomId) body.room_ids = [data.roomId];
+              try {
+                await apiFetch(`/ders-dagit/studios/${studio.id}/assignments`, {
+                  token,
+                  method: 'POST',
+                  body,
+                });
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Atama kaydedilemedi');
+                return;
+              }
+              const ids = editor.entries
+                .filter((e) => e.assignment_id === editEntry.assignment_id)
+                .map((e) => e.id);
+              if (ids.length) {
+                await editor.removeEntries(ids, 'Dağılım güncellendi — dersler havuza alındı');
+              } else {
+                toast.success('Dağılım güncellendi');
+              }
+              if (editor.programId) await editor.reloadEditor(editor.programId);
+              setEditEntry(null);
+              return;
+            }
+            const { day, lesson, locked, roomId } = data;
             const moved = editEntry.day_of_week !== day || editEntry.lesson_num !== lesson;
             const roomChanged = (editEntry.room_id ?? '') !== roomId;
             const lockChanged = !!editEntry.is_locked !== locked;
-            if (moved) await editor.moveEntry(editEntry.id, day, lesson);
+            if (moved) {
+              const ok = await requestMoveAsync(editEntry.id, day, lesson, { silent: true });
+              if (!ok) return;
+            }
             if (lockChanged) await editor.toggleLock(editEntry.id, locked);
             if (roomChanged) await editor.setEntryRoom(editEntry.id, roomId || null);
             setEditEntry(null);
+            toast.success('Kart güncellendi');
           }}
         />
       </div>

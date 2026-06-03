@@ -10,6 +10,11 @@ import { PlanningRuleInfoCard } from '@/components/ders-dagit/planning-rule-info
 import { PlanningRuleListItem } from '@/components/ders-dagit/planning-rule-list-item';
 import { planningCatalogRuleLabel, type AdvancedRelationDef, type SimpleRelationDef } from '@/lib/planning-relations';
 import { planningRuleListCopy as listCopy } from '@/lib/planning-rule-list-copy';
+import {
+  PLANNING_SCOPE_META,
+  scopeForRule,
+  type PlanningRuleScope,
+} from '@/lib/planning-rule-scope';
 
 type Mode = 'simple' | 'advanced';
 
@@ -19,6 +24,8 @@ type Props = {
   simpleCatalog: SimpleRelationDef[];
   advancedCatalog: AdvancedRelationDef[];
   initialMode?: Mode;
+  /** Ders / öğretmen / ilişki / kısıt — liste buna göre filtrelenir. */
+  filterScope?: PlanningRuleScope | null;
   onPick: (kind: Mode, ruleId: string) => void;
 };
 
@@ -32,6 +39,7 @@ export function PlanningRelationRulePickerDialog({
   simpleCatalog,
   advancedCatalog,
   initialMode = 'simple',
+  filterScope = null,
   onPick,
 }: Props) {
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -42,8 +50,12 @@ export function PlanningRelationRulePickerDialog({
 
   const list = useMemo(() => {
     const src = mode === 'simple' ? simpleCatalog : advancedCatalog;
-    return onlySupported ? src.filter((r) => r.solver_supported) : src;
-  }, [mode, simpleCatalog, advancedCatalog, onlySupported]);
+    let out = onlySupported ? src.filter((r) => r.solver_supported) : src;
+    if (filterScope) {
+      out = out.filter((r) => scopeForRule(r.id, mode) === filterScope);
+    }
+    return out;
+  }, [mode, simpleCatalog, advancedCatalog, onlySupported, filterScope]);
 
   useEffect(() => {
     if (!open) return;
@@ -81,10 +93,10 @@ export function PlanningRelationRulePickerDialog({
         <header className="flex shrink-0 items-start justify-between gap-2 border-b border-border/80 px-4 py-3">
           <div className="min-w-0">
             <h2 id="dialog-title" className="text-base font-semibold tracking-tight">
-              Kural seç
+              {filterScope ? PLANNING_SCOPE_META[filterScope].addTitle : 'Kural seç'}
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Maddeye tıklayın; özet altta görünür.{' '}
+              {filterScope ? PLANNING_SCOPE_META[filterScope].pickerHint : 'Maddeye tıklayın; özet altta görünür.'}{' '}
               <Link href="/ders-dagit/studyo/kurallar" className="text-primary hover:underline">
                 Okul kuralları
               </Link>
@@ -143,7 +155,9 @@ export function PlanningRelationRulePickerDialog({
             </p>
           ) : list.length === 0 ? (
             <p className="px-4 py-8 text-center text-xs text-muted-foreground">
-              Bu filtrede madde yok. Filtreyi kapatın.
+              {filterScope
+                ? 'Bu türde kural yok — alttan “Tüm plan kartları” veya “Tüm basit kurallar” deneyin.'
+                : 'Bu filtrede madde yok. Filtreyi kapatın.'}
             </p>
           ) : (
             <ol className="m-0 list-none p-0">
@@ -171,6 +185,7 @@ export function PlanningRelationRulePickerDialog({
             <PlanningRuleInfoCard
               title={picked.label_tr}
               copy={pickedCopy}
+              scope={scopeForRule(picked.id, mode)}
               schoolRule={planningCatalogRuleLabel(picked.catalog_key)}
               supported={picked.solver_supported}
             />

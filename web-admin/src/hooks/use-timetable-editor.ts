@@ -13,6 +13,7 @@ import {
   type ValidationIssue,
 } from '@/lib/ders-dagit-timetable-api';
 import { clashAtSlot } from '@/lib/timetable-clash';
+import { detectSwapPair, orderMovesForApply } from '@/lib/timetable-drag-resolve';
 import { apiFetch } from '@/lib/api';
 import {
   addEntryToContext,
@@ -111,16 +112,22 @@ export function useTimetableEditor(token: string | null, studioId: string | null
           return;
         }
       }
-      const clash = clashAtSlot(entries, entryId, toDay, toLesson, swapWithId);
-      if (clash && !swapWithId) {
-        toast.error(clash === 'CLASS_CLASH' ? 'Sınıf çakışması' : 'Öğretmen çakışması');
-        return;
-      }
       const occupant = entries.find(
         (e) => e.day_of_week === toDay && e.lesson_num === toLesson && e.id !== entryId,
       );
       if (occupant && !occupant.is_locked) {
         await moveEntry(entryId, toDay, toLesson, occupant.id);
+        return;
+      }
+      const clash = clashAtSlot(
+        entries,
+        entryId,
+        toDay,
+        toLesson,
+        swapWithId ? new Set([swapWithId]) : undefined,
+      );
+      if (clash && !swapWithId) {
+        toast.error(clash === 'CLASS_CLASH' ? 'Sınıf çakışması' : 'Öğretmen çakışması');
         return;
       }
       if (occupant) {
@@ -151,6 +158,56 @@ export function useTimetableEditor(token: string | null, studioId: string | null
       }
     },
     [token, studioId, programId, entries, ctx],
+  );
+
+  /** Birden çok taşımayı sırayla uygular (akıllı yer açma). */
+  const applyMoves = useCallback(
+    async (
+      moves: Array<{ entryId: string; day: number; lesson: number }>,
+      opts?: { primaryEntryId?: string; target?: { day: number; lesson: number } },
+    ): Promise<boolean> => {
+      if (!token || !studioId || !programId || !moves.length || !ctx) return false;
+      const primary = opts?.primaryEntryId ?? moves[moves.length - 1]!.entryId;
+      const target = opts?.target ?? {
+        day: moves[moves.length - 1]!.day,
+        lesson: moves[moves.length - 1]!.lesson,
+      };
+      const ordered = orderMovesForApply(moves, primary, target, ctx.entries);
+      const swapPair = detectSwapPair(ordered, ctx.entries);
+
+      setBusy(true);
+      try {
+        if (swapPair) {
+          await swapEntries(token, studioId, programId, swapPair.a, swapPair.b);
+          setCtx((prev) => (prev ? swapEntriesInContext(prev, swapPair.a, swapPair.b) : prev));
+          return true;
+        }
+        const movingIds = new Set(ordered.map((m) => m.entryId));
+        let working = ctx.entries;
+        for (const m of ordered) {
+          const clash = clashAtSlot(working, m.entryId, m.day, m.lesson, movingIds);
+          if (clash) {
+            toast.error(clash === 'CLASS_CLASH' ? 'Sınıf çakışması' : 'Öğretmen çakışması');
+            await reloadEditor(programId);
+            return false;
+          }
+          const updated = await patchEntry(token, studioId, programId, m.entryId, {
+            day_of_week: m.day,
+            lesson_num: m.lesson,
+          });
+          working = working.map((e) => (e.id === m.entryId ? updated : e));
+          setCtx((prev) => (prev ? mergeEntryInContext(prev, updated) : prev));
+        }
+        return true;
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Taşıma başarısız');
+        await reloadEditor(programId);
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [token, studioId, programId, ctx, reloadEditor],
   );
 
   const placeUnplaced = useCallback(
@@ -284,6 +341,7 @@ export function useTimetableEditor(token: string | null, studioId: string | null
     load,
     reloadEditor,
     moveEntry,
+    applyMoves,
     placeUnplaced,
     removeEntry,
     removeEntries,

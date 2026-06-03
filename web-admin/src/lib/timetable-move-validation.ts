@@ -1,4 +1,10 @@
 import type { EditorEntry } from '@/lib/ders-dagit-timetable-api';
+import {
+  assignmentBlockPlacementOk,
+  blockPlacementErrorMessage,
+  resolvePlacementHint,
+  type AssignmentPlacementHint,
+} from '@/lib/timetable-assignment-blocks';
 import { clashAtSlot } from '@/lib/timetable-clash';
 import { closureAt, type SlotClosure } from '@/lib/timetable-slot-closures';
 import type { SlotDropStatus } from '@/lib/timetable-slot-status';
@@ -33,6 +39,7 @@ export type MoveValidationInput = {
   closures: Map<string, SlotClosure>;
   dragging?: EditorEntry | null;
   poolClassSection?: string | null;
+  assignmentHints?: Record<string, AssignmentPlacementHint>;
 };
 
 export type MoveValidationResult =
@@ -88,6 +95,10 @@ export function validateTimetableMove(input: MoveValidationInput): MoveValidatio
         status: 'occupied',
       };
     }
+    const hint = resolvePlacementHint(entry, input.assignmentHints, entries);
+    if (!assignmentBlockPlacementOk(entry, day, lesson, entries, hint)) {
+      return { ok: false, message: blockPlacementErrorMessage(hint) };
+    }
   }
 
   if (occupants.length === 1) {
@@ -113,6 +124,7 @@ export function validatePoolPlace(
   classSection: string,
   closures: Map<string, SlotClosure>,
   teacherId?: string | null,
+  assignmentHints?: Record<string, AssignmentPlacementHint>,
 ): MoveValidationResult {
   const closure = closureAt(closures, day, lesson);
   if (closure) {
@@ -134,6 +146,18 @@ export function validatePoolPlace(
   if (occupants.length === 1) {
     return { ok: false, message: 'Dolu saat — bırakınca uygun boş saat aranır veya ders taşınır.', status: 'swap' };
   }
-  void assignmentId;
+  const pseudo: EditorEntry = {
+    id: '__pool__',
+    day_of_week: day,
+    lesson_num: lesson,
+    class_section: classSection,
+    subject: '',
+    user_id: teacherId ?? null,
+    assignment_id: assignmentId,
+  };
+  const hint = assignmentHints?.[assignmentId] ?? null;
+  if (!assignmentBlockPlacementOk(pseudo, day, lesson, entries, hint)) {
+    return { ok: false, message: blockPlacementErrorMessage(hint) };
+  }
   return { ok: true };
 }

@@ -22,6 +22,11 @@ import {
   getPlanningRuleFlow,
   type PlanningRuleFlowConfig,
 } from '@/lib/planning-rule-flow';
+import {
+  PLANNING_SCOPE_META,
+  importanceHintForScope,
+  scopeForRule,
+} from '@/lib/planning-rule-scope';
 
 type SubjectOpt = { id: string; name: string };
 
@@ -50,6 +55,8 @@ export function PlanningRelationRuleFlow({
 }: Props) {
   const [subjectFilter, setSubjectFilter] = useState('');
 
+  const scope = scopeForRule(row.rule_id, row.kind);
+  const scopeMeta = PLANNING_SCOPE_META[scope];
   const catalogLabel = def?.catalog_key ? catalogKeyLabel(def.catalog_key) : undefined;
   const catalogHint = def?.catalog_key ? planningCatalogRuleHint(def.catalog_key) : undefined;
 
@@ -128,10 +135,19 @@ export function PlanningRelationRuleFlow({
   }
 
   const showParamStep = flow.paramKind !== 'none';
+  const paramFirst = scope === 'kisit' && showParamStep;
+  const sectionsBeforeSubjects = scope === 'ogretmen';
   let stepNum = 1;
 
   return (
     <div className="space-y-4 text-sm">
+      <p className="rounded-md border border-[rgb(var(--dd-accent))]/20 bg-[rgb(var(--dd-accent))]/5 px-2 py-1.5 text-[11px] text-muted-foreground">
+        <span className="font-medium text-foreground">
+          {scopeMeta.emoji} {scopeMeta.label}
+        </span>
+        {' — '}
+        {scopeMeta.editorLead}
+      </p>
       <section className="space-y-2 rounded-lg border p-3">
         <p className="font-medium text-foreground">
           {stepNum++}. Kural — {flow.emoji} {flow.title}
@@ -170,7 +186,7 @@ export function PlanningRelationRuleFlow({
         )}
       </section>
 
-      {showParamStep && (
+      {paramFirst && showParamStep && (
         <section className="space-y-2 rounded-lg border p-3">
           <p className="font-medium text-foreground">
             {stepNum++}. {flow.paramTitle ?? 'Sayısal ayar'}
@@ -204,10 +220,69 @@ export function PlanningRelationRuleFlow({
         </section>
       )}
 
+      {sectionsBeforeSubjects && (
+        <section className="space-y-2 rounded-lg border p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-medium text-foreground">{stepNum++}. Öğretmen / şube kapsamı</p>
+            {row.sections_mode === 'pick' && allSections.length > 0 && (
+              <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={selectAllSections}>
+                Tüm şubeler
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">{flow.sectionsHint}</p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={row.sections_mode === 'all' ? 'default' : 'outline'}
+              onClick={() => setRow({ ...row, sections_mode: 'all', sections: [] })}
+            >
+              Tümü
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={row.sections_mode === 'pick' ? 'default' : 'outline'}
+              onClick={() =>
+                setRow({
+                  ...row,
+                  sections_mode: 'pick',
+                  sections: defaultSections?.length ? [...defaultSections] : row.sections,
+                })
+              }
+            >
+              Seçili şubeler
+            </Button>
+          </div>
+          {row.sections_mode === 'pick' && (
+            <div className="max-h-32 space-y-1 overflow-y-auto rounded border bg-muted/30 p-2">
+              {allSections.length === 0 ? (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  Tanımlı şube yok. Sınıf profillerinde şube ekleyin veya “Tümü” kullanın.
+                </p>
+              ) : (
+                allSections.map((sec) => (
+                  <label key={sec} className="flex cursor-pointer items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={row.sections.includes(sec)}
+                      onChange={() => toggleSection(sec)}
+                    />
+                    {sec}
+                  </label>
+                ))
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
       <section className="space-y-2 rounded-lg border p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="font-medium text-foreground">
-            {stepNum++}. {flow.subjectTitle}
+            {stepNum++}.{' '}
+            {scope === 'ogretmen' && flow.subjectOptional ? scopeMeta.editorLead : flow.subjectTitle}
           </p>
           {flow.subjectMode === 'multi' && (
             <div className="flex gap-1">
@@ -220,7 +295,9 @@ export function PlanningRelationRuleFlow({
             </div>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">{flow.subjectHint}</p>
+        <p className="text-xs text-muted-foreground">
+          {scope === 'ogretmen' && flow.subjectOptional ? scopeMeta.pickerHint : flow.subjectHint}
+        </p>
 
         {flow.subjectMode === 'ordered_ab' ? (
           <div className="grid gap-2 sm:grid-cols-2">
@@ -292,6 +369,7 @@ export function PlanningRelationRuleFlow({
         </p>
       </section>
 
+      {!sectionsBeforeSubjects && (
       <section className="space-y-2 rounded-lg border p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="font-medium text-foreground">{stepNum++}. Şubeler</p>
@@ -347,6 +425,41 @@ export function PlanningRelationRuleFlow({
           </div>
         )}
       </section>
+      )}
+
+      {!paramFirst && showParamStep && (
+        <section className="space-y-2 rounded-lg border p-3">
+          <p className="font-medium text-foreground">
+            {stepNum++}. {flow.paramTitle ?? 'Sayısal ayar'}
+          </p>
+          {flow.paramKind === 'lesson_nums' ? (
+            <PlanningLessonSlotList
+              variant={row.rule_id === 'adv_no_end_hour' ? 'end' : 'start'}
+              selected={blockedLessonsFromParams(row.params)}
+              onChange={(blocked_lessons) =>
+                setRow({ ...row, params: { ...row.params, blocked_lessons } })
+              }
+            />
+          ) : (
+            <>
+              {flow.paramHint && (
+                <p className="text-xs text-muted-foreground">{flow.paramHint}</p>
+              )}
+              <div>
+                <Label className="text-xs">{flow.paramTitle}</Label>
+                <Input
+                  type="number"
+                  className="mt-1 h-8 max-w-[8rem]"
+                  min={flow.paramMin ?? 1}
+                  max={flow.paramMax ?? 8}
+                  value={paramValue()}
+                  onChange={(e) => setParamValue(Number(e.target.value))}
+                />
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       <section className="space-y-2 rounded-lg border p-3">
         <p className="font-medium text-foreground">{stepNum++}. Öncelik ve not</p>
@@ -356,7 +469,7 @@ export function PlanningRelationRuleFlow({
           onValueChange={(v) => setRow({ ...row, importance: v as PlanningRelationRow['importance'] })}
           options={IMPORTANCE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
         />
-        <p className="text-[11px] text-muted-foreground">{flow.importanceHint}</p>
+        <p className="text-[11px] text-muted-foreground">{importanceHintForScope(scope)}</p>
         <div>
           <Label className="text-xs">Not</Label>
           <Input
@@ -382,10 +495,12 @@ export function applyPlanningRuleChange(
       ? simpleCatalog.find((r) => r.id === ruleId)
       : advancedCatalog.find((r) => r.id === ruleId);
   const flow = getPlanningRuleFlow(ruleId, row.kind);
+  let importance = nextDef?.solver_supported ? flow.importanceDefault : 'normal';
+  if (importance === 'strict' && !nextDef?.solver_supported) importance = 'normal';
   return {
     ...row,
     rule_id: ruleId,
-    importance: flow.importanceDefault,
+    importance,
     params: defaultParamsForFlow(flow) ?? defaultParamsForRule(nextDef),
     subject_ids: [],
     subject_labels: [],

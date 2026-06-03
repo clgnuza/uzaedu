@@ -76,6 +76,7 @@ function PreviewRow({
           entries={filtered}
           workDays={preview.workDays}
           maxLesson={preview.maxLesson}
+          viewMode={mode}
           compact
         />
       </div>

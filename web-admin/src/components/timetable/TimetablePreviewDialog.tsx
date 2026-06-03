@@ -40,14 +40,15 @@ export function TimetablePreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg gap-3 p-4 sm:max-w-xl">
-        <DialogHeader className="space-y-1">
+      <DialogContent className="max-w-lg gap-3 overflow-hidden rounded-xl p-0 sm:max-w-xl">
+        <DialogHeader className="space-y-1 border-b bg-muted/30 px-4 py-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <DialogTitle className="text-base">{target.title}</DialogTitle>
               {target.subtitle ? (
                 <p className="text-xs text-muted-foreground">{target.subtitle}</p>
               ) : null}
+              <p className="mt-0.5 text-[10px] text-muted-foreground">{entries.length} ders saati</p>
             </div>
             {onOpenFullView ? (
               <Button
@@ -88,12 +89,15 @@ export function TimetablePreviewDialog({
             </div>
           ) : null}
         </DialogHeader>
-        <TimetableMiniPreview
-          title="Haftalık özet"
-          entries={entries}
-          workDays={workDays}
-          maxLesson={maxLesson}
-        />
+        <div className="p-3">
+          <TimetableMiniPreview
+            title="Haftalık özet"
+            entries={entries}
+            workDays={workDays}
+            maxLesson={maxLesson}
+            viewMode={target.mode}
+          />
+        </div>
       </DialogContent>
     </Dialog>
   );

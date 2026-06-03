@@ -10,7 +10,7 @@ export default function PlanlamaIliskileriPage() {
       <DdPageHeader
         icon={GitBranch}
         title="Planlama ilişkileri"
-        description="Ders ve sınıfa özel planlama ilişkileri; okul kurallarıyla uyumlu ekleme."
+        description="Ders, öğretmen, ilişki ve saat kısıtı — türe göre kart. Normal öncelik üretimi kilitlemez."
       />
       <PlanningRelationsPanel />
     </div>

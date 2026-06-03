@@ -1,8 +1,11 @@
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
-import { AlertCircle, ArrowRight, CheckCircle2, Minus } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, ChevronDown, ChevronRight, Crosshair, Minus } from 'lucide-react';
 import type { ProgramScoreBreakdown } from '@/lib/ders-dagit-score-breakdown';
+import { groupScoreDeductions, type ScoreDeductionGroup } from '@/lib/score-breakdown-groups';
+import { canHighlightGroup } from '@/lib/score-breakdown-focus';
 import { cn } from '@/lib/utils';
 
 function ScoreGauge({ score, max }: { score: number; max: number }) {
@@ -44,12 +47,20 @@ export function ProgramScoreBreakdownPanel({
   breakdown,
   title = 'Puan özeti',
   className,
+  activeGroupId,
+  onSelectGroup,
+  focusHint,
 }: {
   breakdown: ProgramScoreBreakdown;
   title?: string;
   className?: string;
+  activeGroupId?: string | null;
+  onSelectGroup?: (group: ScoreDeductionGroup) => void;
+  focusHint?: string | null;
 }) {
   const full = breakdown.points_to_full <= 0;
+  const groups = useMemo(() => groupScoreDeductions(breakdown), [breakdown]);
+  const rawCount = breakdown.deductions.length;
 
   return (
     <section
@@ -70,43 +81,89 @@ export function ProgramScoreBreakdownPanel({
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              <strong className="text-foreground tabular-nums">{breakdown.points_to_full}</strong> puan eksik; 100 için
-              aşağıdaki maddeleri giderin.
+              <strong className="text-foreground tabular-nums">{groups.length}</strong> konu
+              {rawCount > groups.length ? (
+                <>
+                  {' '}
+                  (<span className="tabular-nums">{rawCount}</span> kayıt birleştirildi)
+                </>
+              ) : null}
+              — tıklayınca tabloda tüm ilgili dersler vurgulanır.
             </p>
           )}
         </div>
       </div>
 
-      {!full && breakdown.deductions.length > 0 && (
-        <ol className="divide-y divide-border/40 px-1 py-1">
-          {breakdown.deductions.map((d) => (
-            <li key={d.id} className="group flex gap-3 px-3 py-2.5 transition-colors hover:bg-muted/30">
-              <span
-                className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-rose-500/10 text-rose-700 dark:text-rose-300"
-                aria-hidden
-              >
-                <Minus className="size-3.5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <p className="text-sm font-medium leading-snug">{d.title}</p>
-                  <span className="shrink-0 rounded-full bg-rose-500/12 px-2 py-0.5 text-xs font-semibold tabular-nums text-rose-800 dark:text-rose-200">
-                    −{d.points}
-                  </span>
-                </div>
-                {d.subtitle && <p className="mt-0.5 text-xs text-muted-foreground">{d.subtitle}</p>}
-                {d.href && (
-                  <Link
-                    href={d.href}
-                    className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-[rgb(var(--dd-accent))] hover:underline"
+      {focusHint ? (
+        <p className="border-b border-amber-500/25 bg-amber-500/10 px-4 py-2 text-[11px] font-medium text-amber-950 dark:text-amber-100">
+          {focusHint}
+        </p>
+      ) : null}
+
+      {!full && groups.length > 0 && (
+        <ol className="max-h-[min(42vh,320px)] divide-y divide-border/40 overflow-y-auto overscroll-contain px-1 py-1">
+          {groups.map((g) => {
+            const highlightable = !!onSelectGroup && canHighlightGroup(g);
+            const selected = activeGroupId === g.id;
+            const RowTag = highlightable ? 'button' : 'div';
+            return (
+              <li key={g.id}>
+                <RowTag
+                  type={highlightable ? 'button' : undefined}
+                  className={cn(
+                    'group flex w-full gap-2.5 px-3 py-2 text-left transition-colors',
+                    highlightable && 'cursor-pointer hover:bg-muted/40',
+                    selected && 'bg-amber-500/15 ring-2 ring-inset ring-amber-500',
+                  )}
+                  onClick={highlightable ? () => onSelectGroup!(g) : undefined}
+                >
+                  <span
+                    className={cn(
+                      'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md',
+                      selected
+                        ? 'bg-amber-500 text-amber-950'
+                        : 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
+                    )}
+                    aria-hidden
                   >
-                    Düzelt
-                    <ArrowRight className="size-3 opacity-70 transition-transform group-hover:translate-x-0.5" />
-                  </Link>
-                )}
-              </div>
-            </li>
-          ))}
+                    {highlightable ? <Crosshair className="size-3.5" /> : <Minus className="size-3.5" />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold leading-snug">{g.label}</p>
+                    <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">{g.detail}</p>
+                    {g.href ? (
+                      <Link
+                        href={g.href}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-1 inline-flex items-center gap-0.5 text-[11px] font-medium text-[rgb(var(--dd-accent))] hover:underline"
+                      >
+                        Düzelt
+                        <ArrowRight className="size-3" />
+                      </Link>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1.5 self-start">
+                    {g.aside ? (
+                      <span
+                        className="max-w-[8.5rem] rounded-lg border border-border/70 bg-background/80 px-2 py-1 text-center text-[10px] font-medium leading-snug text-foreground shadow-sm"
+                        title={g.aside}
+                      >
+                        {g.aside}
+                      </span>
+                    ) : null}
+                    <span className="rounded-full bg-rose-500/12 px-2 py-0.5 text-[11px] font-bold tabular-nums text-rose-800 dark:text-rose-200">
+                      −{g.points}
+                    </span>
+                  </div>
+                  {selected ? (
+                    <ChevronDown className="mt-1 size-4 shrink-0 text-amber-700 dark:text-amber-300" aria-hidden />
+                  ) : highlightable ? (
+                    <ChevronRight className="mt-1 size-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-50" aria-hidden />
+                  ) : null}
+                </RowTag>
+              </li>
+            );
+          })}
         </ol>
       )}
 

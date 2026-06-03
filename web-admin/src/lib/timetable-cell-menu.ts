@@ -43,10 +43,39 @@ export type TimetableEmptySlotMenuHandlers = {
   onOpenConstraints?: () => void;
 };
 
-function teacherRowKey(e: EditorEntry): string {
+export function matrixTeacherRowKey(e: EditorEntry): string {
   if (e.user_id) return `u:${e.user_id}`;
   const lb = (e.teacher_label ?? '').trim();
   return lb ? `l:${lb}` : 'l:?';
+}
+
+export function parseMatrixTeacherRowKey(rowKey: string): { userId: string | null; label: string | null } {
+  if (rowKey.startsWith('u:')) return { userId: rowKey.slice(2), label: null };
+  if (rowKey.startsWith('l:')) return { userId: null, label: rowKey.slice(2) || null };
+  return { userId: null, label: null };
+}
+
+export type TimetableMatrixRowMenuHandlers = {
+  onFocusTeacher?: (teacherId: string | null, label: string) => void;
+  onLockAll?: (entryIds: string[], locked: boolean) => void | Promise<void>;
+  onClearAll?: (entryIds: string[]) => void | Promise<void>;
+  onOpenAssignments?: (teacherId: string | null, label: string) => void;
+  onFocusClash?: (entryId: string, slotKey: string) => void;
+};
+
+export function entriesForMatrixRow(
+  entries: EditorEntry[],
+  rowKey: string,
+  axis: TimetableMatrixAxis,
+): EditorEntry[] {
+  if (axis === 'teacher') return entries.filter((e) => matrixTeacherRowKey(e) === rowKey);
+  if (axis === 'class') return entries.filter((e) => `c:${e.class_section.trim()}` === rowKey);
+  if (rowKey === 'r:__none__') return entries.filter((e) => !e.room_id);
+  return entries.filter((e) => e.room_id && `r:${e.room_id}` === rowKey);
+}
+
+function teacherRowKey(e: EditorEntry): string {
+  return matrixTeacherRowKey(e);
 }
 
 export function entriesInMatrixLessonRow(

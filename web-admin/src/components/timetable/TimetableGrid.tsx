@@ -28,6 +28,7 @@ import {
 import { buildSlotClosures, closureAt, type SlotClosure } from '@/lib/timetable-slot-closures';
 import { dropStatusMessage, validateTimetableMove } from '@/lib/timetable-move-validation';
 import {
+  computeBlockDropStatus,
   computeSlotDropStatus,
   dayHeaderStatus,
   SLOT_CLOSED_STATIC,
@@ -36,11 +37,13 @@ import {
   SLOT_STATUS_HEADER,
   type SlotDropStatus,
 } from '@/lib/timetable-slot-status';
-import { AlertTriangle, Ban, BookOpen, DoorOpen, Lock, User } from 'lucide-react';
+import { Ban, BookOpen, DoorOpen, User } from 'lucide-react';
+import { TimetableEntryStatusBadges } from '@/components/timetable/timetable-entry-status-badges';
 import { TimetableCellMenu } from './TimetableCellMenu';
 import {
   entriesInGridLessonRow,
   type TimetableCellMenuHandlers,
+  type TimetableMatrixRowMenuHandlers,
   type TimetableEmptySlotMenuHandlers,
 } from '@/lib/timetable-cell-menu';
 import { TimetableEmptySlotMenu } from './TimetableEmptySlotMenu';
@@ -151,7 +154,10 @@ function CompactChipBody({
         <p className="truncate text-[10px] font-bold leading-tight tracking-tight" style={{ color: colors.text }}>
           {entryShortCode(entry)}
         </p>
-        <p className="mt-0.5 truncate text-[9px] leading-tight opacity-75">{entry.subject}</p>
+        <p className="mt-0.5 truncate text-[9px] leading-tight opacity-80">{entry.subject}</p>
+        {entry.teacher_label ? (
+          <p className="truncate text-[9px] leading-tight opacity-70">{entry.teacher_label}</p>
+        ) : null}
       </>
     );
   }
@@ -164,7 +170,14 @@ function CompactChipBody({
           {entry.subject}
         </span>
       </div>
-      {subLine ? <p className="mt-0.5 truncate pl-3.5 text-[9px] leading-tight opacity-75">{subLine}</p> : null}
+      {entry.teacher_label ? (
+        <p className="mt-0.5 truncate pl-3.5 text-[9px] font-medium leading-tight opacity-85">{entry.teacher_label}</p>
+      ) : null}
+      {entry.room_name ? (
+        <p className="truncate pl-3.5 text-[9px] leading-tight opacity-70">{entry.room_name}</p>
+      ) : subLine && !entry.teacher_label ? (
+        <p className="mt-0.5 truncate pl-3.5 text-[9px] leading-tight opacity-75">{subLine}</p>
+      ) : null}
     </>
   );
 }
@@ -222,39 +235,6 @@ function CompareChipBody({
   );
 }
 
-function ChipStatusIcons({
-  entry,
-  hasClash,
-  noRoom,
-  compact,
-}: {
-  entry: EditorEntry;
-  hasClash: boolean;
-  noRoom: boolean;
-  compact?: boolean;
-}) {
-  const iconCls = compact ? 'size-2.5' : 'size-2.5';
-  return (
-    <div className={cn('flex shrink-0 items-center', compact ? 'gap-0.5' : 'flex-col gap-0.5')}>
-      {hasClash && (
-        <span className="rounded-full bg-destructive p-0.5 text-white shadow-sm" title="Çakışma">
-          <AlertTriangle className={iconCls} aria-hidden />
-        </span>
-      )}
-      {noRoom && (
-        <span className="rounded-full bg-background/95 p-0.5 shadow-sm ring-1 ring-border/50" title="Derslik yok">
-          <DoorOpen className={cn(iconCls, 'text-muted-foreground')} aria-hidden />
-        </span>
-      )}
-      {entry.is_locked && (
-        <span className="rounded-full bg-amber-100 p-0.5 shadow-sm ring-1 ring-amber-300/60" title="Kilitli">
-          <Lock className={cn(iconCls, 'text-amber-800')} aria-hidden />
-        </span>
-      )}
-    </div>
-  );
-}
-
 function CellChip({
   entry,
   viewMode,
@@ -263,6 +243,8 @@ function CellChip({
   hasClash,
   noRoom,
   highlighted,
+  violationFocus,
+  dimmed,
   picked,
   placementMode,
   compareLayout,
@@ -278,6 +260,8 @@ function CellChip({
   hasClash: boolean;
   noRoom: boolean;
   highlighted: boolean;
+  violationFocus?: boolean;
+  dimmed?: boolean;
   picked: boolean;
   placementMode: 'drag' | 'click';
   compareLayout?: boolean;
@@ -332,8 +316,13 @@ function CellChip({
         isDragging && 'scale-[0.98] opacity-50 shadow-none',
         hasClash && (compact ? 'ring-1 ring-destructive' : 'ring-2 ring-destructive/75'),
         highlighted && (compact ? 'ring-1 ring-primary' : 'ring-2 ring-primary ring-offset-1'),
+        violationFocus &&
+          (compact
+            ? 'z-[2] scale-[1.02] ring-[3px] ring-amber-500 shadow-lg shadow-amber-500/35'
+            : 'z-[2] scale-[1.01] ring-[3px] ring-amber-500 ring-offset-2 shadow-lg shadow-amber-500/30'),
+        dimmed && 'opacity-[0.28] saturate-[0.65]',
         picked && (compact ? 'ring-1 ring-sky-500' : 'ring-2 ring-sky-500 ring-offset-1'),
-        entry.is_locked && 'opacity-95',
+        entry.is_locked && 'border-dashed border-amber-400/50',
         compareStatus && COMPARE_CHIP_CLASS[compareStatus.kind],
       )}
       style={{
@@ -352,7 +341,13 @@ function CellChip({
               <CompactChipBody entry={entry} viewMode={viewMode} colors={colors} />
             )}
           </div>
-          <ChipStatusIcons entry={entry} hasClash={hasClash} noRoom={noRoom} compact />
+          <TimetableEntryStatusBadges
+            entry={entry}
+            hasClash={hasClash}
+            noRoom={noRoom}
+            picked={picked}
+            compact
+          />
         </div>
       ) : (
         <>
@@ -401,8 +396,13 @@ function CellChip({
               </>
             )}
           </div>
-          <div className="absolute right-1 top-1">
-            <ChipStatusIcons entry={entry} hasClash={hasClash} noRoom={noRoom} />
+          <div className="absolute right-1 top-1 z-[1]">
+            <TimetableEntryStatusBadges
+              entry={entry}
+              hasClash={hasClash}
+              noRoom={noRoom}
+              picked={picked}
+            />
           </div>
         </>
       )}
@@ -522,7 +522,7 @@ function DropSlot({
 }
 
 export type TimetableDragSource =
-  | { type: 'entry'; entry: EditorEntry }
+  | { type: 'entry'; entry: EditorEntry; blockIds?: string[] }
   | { type: 'pool'; classSection: string }
   | null;
 
@@ -545,6 +545,8 @@ export function TimetableGrid({
   rooms,
   zoom = 100,
   highlightSlotKey,
+  focusEntryIds,
+  dimUnfocusedEntries = false,
   dragSource = null,
   placementMode = 'drag',
   pickedEntryId = null,
@@ -555,6 +557,7 @@ export function TimetableGrid({
   onLockEntry,
   onDeleteEntry,
   cellMenuHandlers,
+  rowMenuHandlers,
   emptySlotMenuHandlers,
   onDropRejected,
   embedded = false,
@@ -587,6 +590,9 @@ export function TimetableGrid({
   rooms?: Array<{ id: string; name: string }>;
   zoom?: number;
   highlightSlotKey?: string | null;
+  focusEntryIds?: Set<string> | null;
+  /** Vurgu dışı kartları soluklaştır (üretim önizlemesi) */
+  dimUnfocusedEntries?: boolean;
   dragSource?: TimetableDragSource;
   placementMode?: 'drag' | 'click';
   pickedEntryId?: string | null;
@@ -597,6 +603,7 @@ export function TimetableGrid({
   onLockEntry?: (entryId: string, locked: boolean) => void;
   onDeleteEntry?: (entryId: string) => void;
   cellMenuHandlers?: TimetableCellMenuHandlers;
+  rowMenuHandlers?: TimetableMatrixRowMenuHandlers;
   emptySlotMenuHandlers?: TimetableEmptySlotMenuHandlers;
   /** Sürükle-bırak reddedildiğinde (toast vb.) */
   onDropRejected?: (message: string) => void;
@@ -614,6 +621,8 @@ export function TimetableGrid({
 
   const draggingEntry =
     dragSource?.type === 'entry' ? dragSource.entry : activeId ? entries.find((e) => e.id === activeId) ?? null : null;
+  const blockDragIds =
+    dragSource?.type === 'entry' && dragSource.blockIds?.length ? dragSource.blockIds : null;
   const poolClassSection = dragSource?.type === 'pool' ? dragSource.classSection : null;
 
   const visible = useMemo(() => {
@@ -667,19 +676,6 @@ export function TimetableGrid({
     }
     const entryId = String(ev.active.id);
     if (entryId.startsWith('pool-')) return;
-    const dragEntry = entries.find((e) => e.id === entryId) ?? null;
-    const v = validateTimetableMove({
-      entryId,
-      day: slot.day,
-      lesson: slot.lesson,
-      entries,
-      closures: slotClosures,
-      dragging: dragEntry,
-    });
-    if (!v.ok) {
-      onDropRejected?.(v.message);
-      return;
-    }
     onMove(entryId, slot.day, slot.lesson);
   };
 
@@ -696,11 +692,18 @@ export function TimetableGrid({
         clashIds={clashIds}
         zoom={zoom}
         editable={editable}
+        busy={busy}
+        placementMode={placementMode}
+        dragSource={dragSource}
         pickedEntryId={pickedEntryId}
+        onPickEntry={onPickEntry}
+        onMove={onMove}
+        onDropRejected={onDropRejected}
         onEditEntry={onEditEntry}
         onLockEntry={onLockEntry}
         onDeleteEntry={onDeleteEntry}
         cellMenuHandlers={cellMenuHandlers}
+        rowMenuHandlers={rowMenuHandlers}
       />
     );
   }
@@ -830,7 +833,23 @@ export function TimetableGrid({
                   const closure = closureAt(slotClosures, day, lesson);
                   const cells = byKey.get(cellKey) ?? [];
                   const dropStatus = isDragging
-                    ? computeSlotDropStatus(draggingEntry, poolClassSection, day, lesson, entries, forbiddenSlots)
+                    ? draggingEntry && blockDragIds
+                      ? computeBlockDropStatus(
+                          draggingEntry,
+                          blockDragIds,
+                          day,
+                          lesson,
+                          entries,
+                          forbiddenSlots,
+                        )
+                      : computeSlotDropStatus(
+                          draggingEntry,
+                          poolClassSection,
+                          day,
+                          lesson,
+                          entries,
+                          forbiddenSlots,
+                        )
                     : null;
                   return (
                     <DropSlot
@@ -873,6 +892,10 @@ export function TimetableGrid({
                           hasClash={clashIds.has(c.id)}
                           noRoom={!c.room_id}
                           highlighted={highlightSlotKey === domKey}
+                          violationFocus={!!focusEntryIds?.has(c.id)}
+                          dimmed={
+                            dimUnfocusedEntries && !!focusEntryIds?.size && !focusEntryIds.has(c.id)
+                          }
                           picked={pickedEntryId === c.id}
                           placementMode={placementMode}
                           compareLayout={compareLayout}
@@ -920,6 +943,8 @@ export function TimetableGrid({
             assignmentSlotCount={assignmentSlotCount}
             lessonRowCount={rowEntries.length}
             clearSlotIds={rowEntries.map((e) => e.id)}
+            hasClash={clashIds.has(menu.entry.id)}
+            noRoom={!menu.entry.room_id}
           />
         );
       })()}
