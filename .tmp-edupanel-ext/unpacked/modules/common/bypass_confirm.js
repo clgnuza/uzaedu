@@ -1,0 +1,1 @@
+!function(){const o=window.confirm;window.confirm=function(n){const a="true"===localStorage.getItem("edupanel_auto_confirm");return window.location.pathname.includes("/IlkOgretim/")&&a?(console.log("EduPanel: [Bypass] Tarayıcı onay kutusu otomatik olarak onaylandı:",n),!0):o(n)},console.log("EduPanel: [Bypass] Onay yakalayıcı (MAIN world) aktif edildi.")}();

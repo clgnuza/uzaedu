@@ -1,0 +1,135 @@
+{
+"update_url": "https://clients2.google.com/service/update2/crx",
+
+  "manifest_version": 3,
+  "name": "EduPanel - E-Okul Yardımcı Uygulaması",
+  "version": "2.0.8",
+  "description": "E-Okul’da özürlü devamsızlık dilekçesi oluşturur, devamsızlığı otomatik düzeltir, sesle rapor ve toplu faaliyet girişi sağlar.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://e-okul.meb.gov.tr/*",
+    "https://eokulyd.meb.gov.tr/*",
+    "https://mebbis.meb.gov.tr/*",
+    "https://ebys.meb.gov.tr/*",
+    "https://meb.k12.tr/*",
+    "https://www.meb.k12.tr/*",
+    "https://tefbis.meb.gov.tr/*",
+    "https://e-kurs.meb.gov.tr/*",
+    "https://edupanel.net/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://edupanel.net/*"
+    ]
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/icons/*"],
+      "matches": ["*://*.e-okul.meb.gov.tr/*"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://e-okul.meb.gov.tr/OrtaOgretim/OGR/OOG02012.aspx",
+        "https://e-okul.meb.gov.tr/OrtaOgretim/OGR/OOG02013.aspx",
+        "https://e-okul.meb.gov.tr/IlkOgretim/OGR/IOG02012.aspx",
+        "https://e-okul.meb.gov.tr/IlkOgretim/OGR/IOG02013.aspx"
+      ],
+      "js": [
+        "modules/common/bypass_confirm.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://e-okul.meb.gov.tr/OrtaOgretim/OGR/OOG02012.aspx",
+        "https://e-okul.meb.gov.tr/OrtaOgretim/OGR/OOG02013.aspx",
+        "https://e-okul.meb.gov.tr/IlkOgretim/OGR/IOG02012.aspx",
+        "https://e-okul.meb.gov.tr/IlkOgretim/OGR/IOG02013.aspx"
+      ],
+      "js": [
+        "modules/devamsizlik/content.js"
+      ],
+      "run_at": "document_end",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://e-okul.meb.gov.tr/*"
+      ],
+      "js": [
+        "modules/faaliyet/content.js"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "*://*.e-okul.meb.gov.tr/*/IOK08001.aspx*"
+      ],
+      "js": [
+        "modules/gunluk-devamsizlik/bypass_alert_iok.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "*://*.e-okul.meb.gov.tr/*/OOK08001.aspx*",
+        "*://*.e-okul.meb.gov.tr/*/IOK08001.aspx*"
+      ],
+      "js": [
+        "shared/api.js",
+        "shared/storage.js",
+        "shared/auth.js",
+        "shared/counter.js",
+        "modules/gunluk-devamsizlik/devamsizlik-storage.js",
+        "modules/gunluk-devamsizlik/devamsizlik-extraction.js",
+        "modules/gunluk-devamsizlik/devamsizlik-processor.js",
+        "modules/gunluk-devamsizlik/devamsizlik-panel.js",
+        "modules/gunluk-devamsizlik/devamsizlik-content.js"
+      ],
+      "css": [
+        "modules/gunluk-devamsizlik/devamsizlik-panel.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://e-okul.meb.gov.tr/*",
+        "https://eokulyd.meb.gov.tr/*"
+      ],
+      "all_frames": false,
+      "js": [
+        "modules/sesli-rapor/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
