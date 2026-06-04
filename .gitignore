@@ -51,6 +51,7 @@ backend/uploads/
 # Web Admin (Next.js)
 web-admin/.next/
 web-admin/out/
+web-admin/public/downloads/*.apk
 
 # Local artifacts
 trust_debug.txt

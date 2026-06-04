@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { OptikApkDownloadSection } from '@/components/landing/optik-apk-download-section';
 import { PwaInstallLanding } from '@/components/landing/pwa-install-landing';
 import { LandingLoginLink } from '@/components/landing/landing-login-link';
+import { fetchMobileConfigPublic } from '@/lib/mobile-config-public';
 
 export const metadata: Metadata = {
   title: 'Uygulamayı yükle',
@@ -10,7 +12,9 @@ export const metadata: Metadata = {
   alternates: { canonical: '/uygulama' },
 };
 
-export default function UygulamaYuklePage() {
+export default async function UygulamaYuklePage() {
+  const mobile = await fetchMobileConfigPublic();
+
   return (
     <div className="landing-page relative flex min-h-dvh flex-col overflow-x-hidden bg-[#050505] text-white">
       <div className="pointer-events-none absolute inset-0" aria-hidden>
@@ -31,6 +35,9 @@ export default function UygulamaYuklePage() {
 
       <main className="relative z-10 flex-1">
         <PwaInstallLanding variant="page" />
+        <div className="relative z-10 mx-auto max-w-2xl px-4 pb-8 sm:px-6">
+          <OptikApkDownloadSection mobile={mobile} className="mt-6" />
+        </div>
       </main>
 
       <footer className="relative z-10 shrink-0 px-4 py-6 text-center sm:px-8">

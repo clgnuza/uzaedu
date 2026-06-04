@@ -31,6 +31,9 @@ const empty: MobileAppPublic = {
   ios_app_store_id: null,
   app_store_url: null,
   play_store_url: null,
+  apk_download_url: null,
+  apk_version_label: null,
+  apk_sideload_enabled: true,
   marketing_url: null,
   faq_url: null,
   privacy_policy_url: null,
@@ -305,6 +308,62 @@ export function MobileAppPanel() {
                   value={form.play_store_url ?? ''}
                   onChange={(e) => setForm((f) => ({ ...f, play_store_url: e.target.value.trim() || null }))}
                 />
+              </WebSettingsField>
+              <WebSettingsField
+                label="APK indirme URL (test)"
+                hint={`Boş bırakılırsa ${siteBaseUrl()}/downloads/uzaedu-optik.apk`}
+                htmlFor="mob-apk"
+              >
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    id="mob-apk"
+                    type="url"
+                    className={WEB_SETTINGS_INPUT}
+                    value={form.apk_download_url ?? ''}
+                    onChange={(e) => setForm((f) => ({ ...f, apk_download_url: e.target.value.trim() || null }))}
+                    placeholder={`${siteBaseUrl()}/downloads/uzaedu-optik.apk`}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        apk_download_url: `${siteBaseUrl()}/downloads/uzaedu-optik.apk`,
+                        apk_sideload_enabled: true,
+                      }))
+                    }
+                  >
+                    Varsayılan yol
+                  </Button>
+                </div>
+              </WebSettingsField>
+              <WebSettingsField label="APK sürüm etiketi" hint="Örn. 1.0.0+1" htmlFor="mob-apk-ver">
+                <Input
+                  id="mob-apk-ver"
+                  className={WEB_SETTINGS_INPUT}
+                  value={form.apk_version_label ?? ''}
+                  onChange={(e) => setForm((f) => ({ ...f, apk_version_label: e.target.value.trim() || null }))}
+                  placeholder="1.0.0+1"
+                />
+              </WebSettingsField>
+              <WebSettingsField
+                label="APK doğrudan indirme (sideload)"
+                hint="Kapalıyken /uygulama sayfasında APK kartı gizlenir"
+                htmlFor="mob-apk-side"
+              >
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    id="mob-apk-side"
+                    type="checkbox"
+                    className="size-4 rounded border-border"
+                    checked={form.apk_sideload_enabled}
+                    onChange={(e) => setForm((f) => ({ ...f, apk_sideload_enabled: e.target.checked }))}
+                  />
+                  Test / okul dağıtımında APK göster
+                </label>
               </WebSettingsField>
               <WebSettingsField label="iOS bundle ID" htmlFor="mob-bid">
                 <Input

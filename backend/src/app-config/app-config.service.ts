@@ -641,6 +641,12 @@ function mergeMobileFromStored(stored: Partial<MobileAppConfig> | null): MobileA
         : d.ios_app_store_id,
     app_store_url: stored.app_store_url !== undefined ? (stored.app_store_url?.trim() || null) : d.app_store_url,
     play_store_url: stored.play_store_url !== undefined ? (stored.play_store_url?.trim() || null) : d.play_store_url,
+    apk_download_url:
+      stored.apk_download_url !== undefined ? (stored.apk_download_url?.trim() || null) : d.apk_download_url,
+    apk_version_label:
+      stored.apk_version_label !== undefined ? (stored.apk_version_label?.trim() || null) : d.apk_version_label,
+    apk_sideload_enabled:
+      typeof stored.apk_sideload_enabled === 'boolean' ? stored.apk_sideload_enabled : d.apk_sideload_enabled,
     marketing_url: stored.marketing_url !== undefined ? (stored.marketing_url?.trim() || null) : d.marketing_url,
     faq_url: stored.faq_url !== undefined ? (stored.faq_url?.trim() || null) : d.faq_url,
     privacy_policy_url:
@@ -1639,6 +1645,9 @@ export class AppConfigService {
     }
     if (dto.app_store_url !== undefined) next.app_store_url = dto.app_store_url?.trim() || null;
     if (dto.play_store_url !== undefined) next.play_store_url = dto.play_store_url?.trim() || null;
+    if (dto.apk_download_url !== undefined) next.apk_download_url = dto.apk_download_url?.trim() || null;
+    if (dto.apk_version_label !== undefined) next.apk_version_label = dto.apk_version_label?.trim() || null;
+    if (dto.apk_sideload_enabled !== undefined) next.apk_sideload_enabled = !!dto.apk_sideload_enabled;
     if (dto.marketing_url !== undefined) next.marketing_url = dto.marketing_url?.trim() || null;
     if (dto.faq_url !== undefined) next.faq_url = dto.faq_url?.trim() || null;
     if (dto.privacy_policy_url !== undefined) next.privacy_policy_url = dto.privacy_policy_url?.trim() || null;

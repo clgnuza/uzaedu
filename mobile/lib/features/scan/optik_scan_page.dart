@@ -73,10 +73,11 @@ class _OptikScanPageState extends State<OptikScanPage> {
           }
         }
         if (st != null) {
+          final label = st.name;
           if (mounted) {
             setState(() {
               _batch = batch;
-              _intent = _intent.copyWith(studentLabel: st.name);
+              _intent = _intent.copyWith(studentLabel: label);
             });
           }
           return;

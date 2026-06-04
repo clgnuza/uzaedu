@@ -733,6 +733,19 @@ class UpdateMobileAppDto {
 
   @IsOptional()
   @IsString()
+  apk_download_url?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  apk_version_label?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  apk_sideload_enabled?: boolean;
+
+  @IsOptional()
+  @IsString()
   marketing_url?: string | null;
 
   @IsOptional()

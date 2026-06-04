@@ -14,6 +14,9 @@ export type MobileAppPublic = {
   ios_app_store_id: string | null;
   app_store_url: string | null;
   play_store_url: string | null;
+  apk_download_url: string | null;
+  apk_version_label: string | null;
+  apk_sideload_enabled: boolean;
   marketing_url: string | null;
   faq_url: string | null;
   privacy_policy_url: string | null;

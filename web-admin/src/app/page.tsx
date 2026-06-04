@@ -111,7 +111,7 @@ export default function HomePage() {
 
         {/* ── Bottom CTA strip ── */}
         <div
-          className="mt-4 flex w-full max-w-xl flex-col items-center gap-2.5 sm:mt-10 sm:max-w-2xl sm:gap-5"
+          className="mt-3 flex w-full max-w-xl flex-col items-center gap-2 px-2 sm:mt-10 sm:max-w-2xl sm:gap-4 sm:px-0 md:gap-5"
           style={{ animation: 'landing-fadein 0.7s ease 0.25s both' }}
         >
           <div className="flex w-full min-w-0 items-center gap-2 px-1 sm:gap-4">

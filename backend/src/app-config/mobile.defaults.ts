@@ -18,6 +18,12 @@ export type MobileAppConfig = {
   ios_app_store_id: string | null;
   app_store_url: string | null;
   play_store_url: string | null;
+  /** Test / okul dağıtımı: doğrudan APK (HTTPS). Boşsa istemci /downloads/uzaedu-optik.apk dener */
+  apk_download_url: string | null;
+  /** Gösterim: örn. 1.0.0+1 */
+  apk_version_label: string | null;
+  /** false iken web’de APK indirme kartı gizlenir (yalnız mağaza) */
+  apk_sideload_enabled: boolean;
   marketing_url: string | null;
   faq_url: string | null;
   privacy_policy_url: string | null;
@@ -54,6 +60,9 @@ export const DEFAULT_MOBILE_APP: MobileAppConfig = {
   ios_app_store_id: null,
   app_store_url: null,
   play_store_url: null,
+  apk_download_url: null,
+  apk_version_label: null,
+  apk_sideload_enabled: true,
   marketing_url: null,
   faq_url: null,
   privacy_policy_url: null,

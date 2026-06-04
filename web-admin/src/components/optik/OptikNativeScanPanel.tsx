@@ -10,6 +10,7 @@ import {
   type OptikNativeScanParams,
 } from '@/lib/optik-native-deeplink';
 import { setOptikScanSurfacePwaOverride } from '@/lib/optik-scan-surface';
+import Link from 'next/link';
 import { Camera, ExternalLink, Smartphone } from 'lucide-react';
 
 type ScanAction = {
@@ -39,7 +40,7 @@ export function OptikNativeScanPanel({
       openOptikNativeScan({ ...base, mode });
       window.setTimeout(() => {
         setHint(
-          `${OPTIK_NATIVE_APP_LABEL} yüklü değilse mağazadan kurun veya geliştirici modunda tarayıcı taramasını açın.`,
+          `${OPTIK_NATIVE_APP_LABEL} yüklü değilse /uygulama#optik-apk üzerinden APK indirin (Android) veya tarayıcı taramasını açın.`,
         );
       }, 1200);
     },
@@ -75,6 +76,9 @@ export function OptikNativeScanPanel({
         {hint ? (
           <Alert variant="warning" className="text-xs">
             {hint}
+            <Link href="/uygulama#optik-apk" className="mt-2 block font-medium text-fuchsia-700 underline dark:text-fuchsia-300">
+              Android APK indir
+            </Link>
             {onEnablePwaCamera ? (
               <button
                 type="button"
