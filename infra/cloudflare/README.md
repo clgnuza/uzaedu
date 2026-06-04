@@ -21,7 +21,7 @@ Set-Location c:\UzaMobil\ogretmenpro
 |------|-----|------|
 | 1 | Hostname equals `api.uzaedu.com` | Bypass cache |
 | 2 | URI Path starts with `/_next/static/` | Eligible for cache, Edge TTL 1 month |
-| 3 | URI Path matches regex `^/.*\.(css\|js\|mjs\|png\|jpg\|jpeg\|gif\|svg\|webp\|ico\|woff2?\|ttf\|otf)$` | Eligible for cache, Edge TTL 1 month |
+| 3 | URI Path extension is one of `css`, `js`, `mjs`, `png`, … | Eligible for cache, Edge TTL 1 month |
 
 HTML (`/`, `/moduller`) **cache’lenmesin** — oturum ve ISR ile karışır.
 

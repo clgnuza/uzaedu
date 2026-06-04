@@ -22,7 +22,7 @@ if (Test-Path $dotenv) {
   }
 }
 
-$token = $env:CLOUDFLARE_API_TOKEN?.Trim()
+$token = if ($env:CLOUDFLARE_API_TOKEN) { $env:CLOUDFLARE_API_TOKEN.Trim() } else { '' }
 if (-not $token) {
   throw "CLOUDFLARE_API_TOKEN yok. infra/cloudflare/.env.local olusturun (.env.example) veya ortam degiskeni verin."
 }
@@ -43,10 +43,10 @@ function Invoke-CfApi {
   return $r.result
 }
 
-$zoneId = $env:CLOUDFLARE_ZONE_ID?.Trim()
+$zoneId = if ($env:CLOUDFLARE_ZONE_ID) { $env:CLOUDFLARE_ZONE_ID.Trim() } else { '' }
 if (-not $zoneId) {
-  $zones = Invoke-CfApi GET "https://api.cloudflare.com/client/v4/zones?name=uzaedu.com&status=active"
-  if (-not $zones -or $zones.Count -lt 1) { throw "uzaedu.com zone bulunamadi." }
+  $zones = @(Invoke-CfApi -Method GET -Uri "https://api.cloudflare.com/client/v4/zones?name=uzaedu.com")
+  if ($zones.Count -lt 1) { throw "uzaedu.com zone bulunamadi." }
   $zoneId = $zones[0].id
   Write-Host "Zone: uzaedu.com ($zoneId)"
 }
@@ -54,22 +54,24 @@ if (-not $zoneId) {
 $phase = "http_request_cache_settings"
 $entryUri = "https://api.cloudflare.com/client/v4/zones/$zoneId/rulesets/phases/$phase/entrypoint"
 $entry = $null
-try { $entry = Invoke-CfApi GET $entryUri } catch { }
+try { $entry = Invoke-CfApi -Method GET -Uri $entryUri } catch { }
 
 $tag = "ogretmenpro-static-cache"
 $rules = @(
   @{
     expression = '(http.host eq "api.uzaedu.com")'
-    description  = "$tag: API bypass"
+    description  = "${tag}: API bypass"
     action       = "set_cache_settings"
+    enabled      = $true
     action_parameters = @{
       cache = $false
     }
   },
   @{
     expression = '(starts_with(http.request.uri.path, "/_next/static/"))'
-    description  = "$tag: Next static"
+    description  = "${tag}: Next static"
     action       = "set_cache_settings"
+    enabled      = $true
     action_parameters = @{
       cache = $true
       edge_ttl = @{
@@ -80,9 +82,10 @@ $rules = @(
     }
   },
   @{
-    expression = '(http.request.uri.path matches "^/.*\\.(css|js|mjs|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|otf)$")'
-    description  = "$tag: static extensions"
+    expression = '(http.request.uri.path.extension in {"css" "js" "mjs" "png" "jpg" "jpeg" "gif" "svg" "webp" "ico" "woff" "woff2" "ttf" "otf"})'
+    description  = "${tag}: static extensions"
     action       = "set_cache_settings"
+    enabled      = $true
     action_parameters = @{
       cache = $true
       edge_ttl = @{
@@ -96,11 +99,11 @@ $rules = @(
 
 $kept = @()
 if ($entry -and $entry.rules) {
-  $kept = @($entry.rules | Where-Object { $_.description -notlike "$tag:*" })
+  $kept = @($entry.rules | Where-Object { $_.description -notlike "${tag}:*" })
 }
 $merged = @($kept + $rules)
 $body = @{ rules = $merged }
 
 Write-Host "Entrypoint guncelleniyor ($($rules.Count) kural, $($kept.Count) mevcut korundu)"
-Invoke-CfApi PUT $entryUri $body | Out-Null
+Invoke-CfApi -Method PUT -Uri $entryUri -Body $body | Out-Null
 Write-Host "Tamam. CF Cache Rules uygulandi."
