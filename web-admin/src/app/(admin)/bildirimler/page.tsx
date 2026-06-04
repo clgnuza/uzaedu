@@ -97,13 +97,13 @@ const MARKET_EVENT_TYPES = ['market.school_credit_added', 'market.user_credit_ad
 const YOLLUK_EVENT_TYPES = ['yolluk.calculation_finalized'];
 
 const BILDIRIM_KAYNAK_ICONS: ToolbarHintItem[] = [
-  { label: 'NÃ¶bet', icon: CalendarClock },
+  { label: 'Nöbet', icon: CalendarClock },
   { label: 'Takvim', icon: CalendarDays },
   { label: 'Ders', icon: Table2 },
-  { label: 'DiÄŸer', icon: LayoutGrid },
+  { label: 'Diğer', icon: LayoutGrid },
 ];
 
-/** Okul sÄ±navlarÄ± sekmesi â€” boÅŸ liste; renk geÃ§iÅŸli kartlar */
+/** Okul sınavları sekmesi — boş liste; renk geçişli kartlar */
 const EXAM_SCHOOL_FOCUS_LINKS: ReadonlyArray<{
   href: string;
   label: string;
@@ -113,14 +113,14 @@ const EXAM_SCHOOL_FOCUS_LINKS: ReadonlyArray<{
 }> = [
   {
     href: '/kelebek-sinav/sinav-islemleri',
-    label: 'Kertenkele sÄ±nav',
+    label: 'Kertenkele sınav',
     Icon: LayoutGrid,
     blob: 'from-amber-400 via-orange-400 to-rose-400',
     ring: 'ring-amber-400/40',
   },
   {
     href: '/sorumluluk-sinav/bilgilendirme',
-    label: 'Sorumluluk sÄ±navÄ±',
+    label: 'Sorumluluk sınavı',
     Icon: GraduationCap,
     blob: 'from-teal-400 via-cyan-400 to-emerald-400',
     ring: 'ring-teal-400/40',
@@ -140,15 +140,15 @@ const EXAM_SCHOOL_MORE_LINKS: ReadonlyArray<{
   Icon: LucideIcon;
   wash: string;
 }> = [
-  { href: '/duty', label: 'NÃ¶betlere git', Icon: CalendarClock, wash: 'from-indigo-400/25 to-violet-500/20' },
+  { href: '/duty', label: 'Nöbetlere git', Icon: CalendarClock, wash: 'from-indigo-400/25 to-violet-500/20' },
   { href: '/akademik-takvim', label: 'Akademik Takvim', Icon: Award, wash: 'from-amber-400/25 to-orange-500/20' },
   { href: '/bilsem/takvim', label: 'Bilsem Takvim', Icon: CalendarDays, wash: 'from-violet-400/25 to-fuchsia-500/20' },
-  { href: '/ogretmen-ajandasi', label: 'Ã–ÄŸretmen AjandasÄ±', Icon: BookOpen, wash: 'from-rose-400/25 to-pink-500/20' },
-  { href: '/ders-programi/programlarim', label: 'ProgramlarÄ±m', Icon: Table2, wash: 'from-emerald-400/25 to-teal-500/20' },
-  { href: '/akilli-tahta', label: 'AkÄ±llÄ± Tahta', Icon: Monitor, wash: 'from-cyan-400/25 to-sky-500/20' },
+  { href: '/ogretmen-ajandasi', label: 'Öğretmen Ajandası', Icon: BookOpen, wash: 'from-rose-400/25 to-pink-500/20' },
+  { href: '/ders-programi/programlarim', label: 'Programlarım', Icon: Table2, wash: 'from-emerald-400/25 to-teal-500/20' },
+  { href: '/akilli-tahta', label: 'Akıllı Tahta', Icon: Monitor, wash: 'from-cyan-400/25 to-sky-500/20' },
   { href: '/support', label: 'Destek Talepleri', Icon: Headphones, wash: 'from-fuchsia-400/25 to-purple-600/20' },
-  { href: '/sinav-gorevlerim', label: 'SÄ±nav GÃ¶revleri', Icon: ClipboardList, wash: 'from-sky-400/25 to-blue-600/20' },
-  { href: '/market', label: 'Market / CÃ¼zdan', Icon: Wallet, wash: 'from-lime-400/25 to-green-600/20' },
+  { href: '/sinav-gorevlerim', label: 'Sınav Görevleri', Icon: ClipboardList, wash: 'from-sky-400/25 to-blue-600/20' },
+  { href: '/market', label: 'Market / Cüzdan', Icon: Wallet, wash: 'from-lime-400/25 to-green-600/20' },
 ];
 
 function formatDate(s: string) {
@@ -156,12 +156,12 @@ function formatDate(s: string) {
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'Az Ã¶nce';
-  if (diffMins < 60) return `${diffMins} dk Ã¶nce`;
+  if (diffMins < 1) return 'Az önce';
+  if (diffMins < 60) return `${diffMins} dk önce`;
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours} saat Ã¶nce`;
+  if (diffHours < 24) return `${diffHours} saat önce`;
   const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays} gÃ¼n Ã¶nce`;
+  if (diffDays < 7) return `${diffDays} gün önce`;
   return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
@@ -293,7 +293,7 @@ function isExamSchoolModuleNotification(eventType: string): boolean {
   );
 }
 
-/** Mesaj merkezi sekmesi: okul WhatsApp + merkez sistem mesajÄ± */
+/** Mesaj merkezi sekmesi: okul WhatsApp + merkez sistem mesajı */
 function isMessageCenterGroupNotification(eventType: string): boolean {
   return (
     eventType?.startsWith('messaging.') ||
@@ -309,7 +309,7 @@ function isAnnouncementNotification(eventType: string): boolean {
   return eventType === 'announcement.created' || eventType?.startsWith('announcement.');
 }
 
-/** Liste satÄ±rÄ± sol ÅŸerit â€” nÃ¶bet hatÄ±rlatma / belirli gÃ¼n ile Ã§akÄ±ÅŸmaz */
+/** Liste satırı sol şerit — nöbet hatırlatma / belirli gün ile çakışmaz */
 function getNotificationRowAccentClass(item: NotificationItem): string | null {
   if (item.event_type === 'duty.reminder' && isTodayReminder(item)) return null;
   if (isBelirliGunReminderHighlight(item)) return null;
@@ -522,37 +522,37 @@ const TAB_PASTEL: Record<
 function getEmptyStateDescription(filter: FilterTab): string {
   switch (filter) {
     case 'all':
-      return 'NÃ¶bet, yolluk, Belirli GÃ¼n, ajanda, ders programÄ±, AkÄ±llÄ± Tahta, okul deÄŸerlendirme cezalarÄ±, market cÃ¼zdanÄ± veya duyuru geldiÄŸinde burada gÃ¶receksiniz.';
+      return 'Nöbet, yolluk, Belirli Gün, ajanda, ders programı, Akıllı Tahta, okul değerlendirme cezaları, market cüzdanı veya duyuru geldiğinde burada göreceksiniz.';
     case 'duty':
-      return 'HenÃ¼z nÃ¶bet bildiriminiz yok.';
+      return 'Henüz nöbet bildiriminiz yok.';
     case 'belirli':
-      return 'HenÃ¼z Belirli GÃ¼n gÃ¶revlendirmesi bildiriminiz yok.';
+      return 'Henüz Belirli Gün görevlendirmesi bildiriminiz yok.';
     case 'bilsem':
-      return 'HenÃ¼z Bilsem gÃ¶revlendirmesi bildiriminiz yok.';
+      return 'Henüz Bilsem görevlendirmesi bildiriminiz yok.';
     case 'timetable':
-      return 'HenÃ¼z ders programÄ± bildiriminiz yok.';
+      return 'Henüz ders programı bildiriminiz yok.';
     case 'agenda':
-      return 'HenÃ¼z ajanda etkinliÄŸi bildiriminiz yok.';
+      return 'Henüz ajanda etkinliği bildiriminiz yok.';
     case 'smart_board':
-      return 'HenÃ¼z AkÄ±llÄ± Tahta bildiriminiz yok.';
+      return 'Henüz Akıllı Tahta bildiriminiz yok.';
     case 'support':
-      return 'HenÃ¼z destek talebi bildiriminiz yok.';
+      return 'Henüz destek talebi bildiriminiz yok.';
     case 'announcement':
-      return 'HenÃ¼z duyuru bildiriminiz yok.';
+      return 'Henüz duyuru bildiriminiz yok.';
     case 'exam_duty':
-      return 'HenÃ¼z sÄ±nav gÃ¶revi bildiriminiz yok.';
+      return 'Henüz sınav görevi bildiriminiz yok.';
     case 'exam_school':
-      return 'HenÃ¼z Kertenkele sÄ±navÄ± veya sorumluluk sÄ±navÄ± bildiriminiz yok.';
+      return 'Henüz Kertenkele sınavı veya sorumluluk sınavı bildiriminiz yok.';
     case 'messaging':
-      return 'HenÃ¼z Mesaj merkezi bildiriminiz yok (WhatsApp kampanyasÄ± tamamlanÄ±nca veya merkez sistem mesajÄ± gelince burada gÃ¶rÃ¼nÃ¼r).';
+      return 'Henüz Mesaj merkezi bildiriminiz yok (WhatsApp kampanyası tamamlanınca veya merkez sistem mesajı gelince burada görünür).';
     case 'yolluk':
-      return 'HenÃ¼z yolluk kesinleÅŸtirme bildiriminiz yok. Okul yÃ¶netimi hesabÄ±nÄ±zÄ± kesinleÅŸtirdiÄŸinde Ã¶zet tablo burada gÃ¶rÃ¼nÃ¼r.';
+      return 'Henüz yolluk kesinleştirme bildiriminiz yok. Okul yönetimi hesabınızı kesinleştirdiğinde özet tablo burada görünür.';
     case 'penalty':
-      return 'HenÃ¼z okul deÄŸerlendirme cezasÄ± veya eriÅŸim kÄ±sÄ±tÄ± bildiriminiz yok.';
+      return 'Henüz okul değerlendirme cezası veya erişim kısıtı bildiriminiz yok.';
     case 'market':
-      return 'HenÃ¼z market / cÃ¼zdan bildiriminiz yok.';
+      return 'Henüz market / cüzdan bildiriminiz yok.';
     default:
-      return 'HenÃ¼z duyuru bildiriminiz yok.';
+      return 'Henüz duyuru bildiriminiz yok.';
   }
 }
 
@@ -690,7 +690,7 @@ export default function BildirimlerPage() {
       emitNotificationsUpdated();
       hapticTap();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Okundu iÅŸaretlenemedi.');
+      toast.error(e instanceof Error ? e.message : 'Okundu işaretlenemedi.');
     } finally {
       setMarkingRead(null);
     }
@@ -703,16 +703,16 @@ export default function BildirimlerPage() {
       await apiFetch('/notifications/read-all', { token, method: 'PATCH' });
       setItems((prev) => prev.map((n) => ({ ...n, read_at: new Date().toISOString() })));
       emitNotificationsUpdated();
-      toast.success('TÃ¼m bildirimler okundu olarak iÅŸaretlendi.');
+      toast.success('Tüm bildirimler okundu olarak işaretlendi.');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Ä°ÅŸlem baÅŸarÄ±sÄ±z.');
+      toast.error(e instanceof Error ? e.message : 'İşlem başarısız.');
     } finally {
       setMarkingAllRead(false);
     }
   };
 
   const handleDeleteOne = async (id: string) => {
-    if (!token || !confirm('Bu bildirimi silmek istediÄŸinize emin misiniz?')) return;
+    if (!token || !confirm('Bu bildirimi silmek istediğinize emin misiniz?')) return;
     setDeletingId(id);
     try {
       await apiFetch(`/notifications/${id}`, { token, method: 'DELETE' });
@@ -728,14 +728,14 @@ export default function BildirimlerPage() {
   };
 
   const handleDeleteAll = async () => {
-    if (!token || !confirm('TÃ¼m bildirimleri silmek istediÄŸinize emin misiniz? Bu iÅŸlem geri alÄ±namaz.')) return;
+    if (!token || !confirm('Tüm bildirimleri silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) return;
     setDeletingAll(true);
     try {
       await apiFetch('/notifications/delete-all', { token, method: 'DELETE' });
       setItems([]);
       setTotal(0);
       emitNotificationsUpdated();
-      toast.success('TÃ¼m bildirimler silindi.');
+      toast.success('Tüm bildirimler silindi.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Silinemedi.');
     } finally {
@@ -765,8 +765,8 @@ export default function BildirimlerPage() {
           <CardContent className="py-12">
             <EmptyState
               icon={<Bell className="size-10 text-muted-foreground" />}
-              title="EriÅŸim yok"
-              description="Bu sayfaya eriÅŸim yetkiniz bulunmuyor."
+              title="Erişim yok"
+              description="Bu sayfaya erişim yetkiniz bulunmuyor."
             />
           </CardContent>
         </Card>
@@ -794,7 +794,7 @@ export default function BildirimlerPage() {
                   compact
                   showOnMobile
                   items={BILDIRIM_KAYNAK_ICONS}
-                  summary="NÃ¶bet, takvim, ders ve diÄŸer modÃ¼llere ait bildirimler burada."
+                  summary="Nöbet, takvim, ders ve diğer modüllere ait bildirimler burada."
                   className="min-w-0 flex-1"
                 />
               </div>
@@ -807,8 +807,8 @@ export default function BildirimlerPage() {
                     size="sm"
                     onClick={handleMarkAllRead}
                     disabled={markingAllRead}
-                    aria-label="TÃ¼mÃ¼nÃ¼ okundu yap"
-                    title="TÃ¼mÃ¼nÃ¼ okundu yap"
+                    aria-label="Tümünü okundu yap"
+                    title="Tümünü okundu yap"
                     className="h-9 w-9 shrink-0 gap-0 p-0 sm:h-auto sm:min-h-9 sm:w-auto sm:gap-2 sm:px-3 sm:py-2"
                   >
                     {markingAllRead ? (
@@ -816,7 +816,7 @@ export default function BildirimlerPage() {
                     ) : (
                       <CheckCheck className="size-4" />
                     )}
-                    <span className="hidden sm:inline">TÃ¼mÃ¼nÃ¼ okundu yap</span>
+                    <span className="hidden sm:inline">Tümünü okundu yap</span>
                   </Button>
                 )}
                 <Button
@@ -824,12 +824,12 @@ export default function BildirimlerPage() {
                   size="sm"
                   onClick={handleDeleteAll}
                   disabled={deletingAll}
-                  aria-label="TÃ¼mÃ¼nÃ¼ sil"
-                  title="TÃ¼mÃ¼nÃ¼ sil"
+                  aria-label="Tümünü sil"
+                  title="Tümünü sil"
                   className="h-9 w-9 shrink-0 gap-0 p-0 text-destructive hover:text-destructive sm:h-auto sm:min-h-9 sm:w-auto sm:gap-2 sm:px-3 sm:py-2"
                 >
                   {deletingAll ? <LoadingSpinner className="size-4" /> : <Trash2 className="size-4" />}
-                  <span className="hidden sm:inline">TÃ¼mÃ¼nÃ¼ sil</span>
+                  <span className="hidden sm:inline">Tümünü sil</span>
                 </Button>
               </div>
             )}
@@ -837,7 +837,7 @@ export default function BildirimlerPage() {
         </ToolbarHeading>
       </Toolbar>
 
-      {/* Filtre sekmeleri â€” mobilde yatay kaydÄ±rma; grup renkleri belirgin */}
+      {/* Filtre sekmeleri — mobilde yatay kaydırma; grup renkleri belirgin */}
       <div
         className={cn(
           'overflow-hidden rounded-2xl border-2 border-violet-300/50 bg-linear-to-br from-violet-100/90 via-fuchsia-50/70 to-amber-50/60 p-2 shadow-md',
@@ -845,7 +845,7 @@ export default function BildirimlerPage() {
         )}
       >
         <p className="mb-1.5 px-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-violet-800 dark:text-violet-200 sm:hidden">
-          Gruba gÃ¶re filtre
+          Gruba göre filtre
         </p>
         <div className="relative sm:static">
           <div
@@ -868,17 +868,17 @@ export default function BildirimlerPage() {
               filter === tab ? TAB_PASTEL[tab].active : TAB_PASTEL[tab].idle,
             )}
           >
-            {tab === 'all' && <>TÃ¼mÃ¼</>}
+            {tab === 'all' && <>Tümü</>}
             {tab === 'duty' && (
               <>
                 <CalendarClock className="size-3.5 shrink-0" />
-                NÃ¶bet
+                Nöbet
               </>
             )}
             {tab === 'belirli' && (
               <>
                 <Award className="size-3.5 shrink-0" />
-                Belirli GÃ¼n
+                Belirli Gün
               </>
             )}
             {tab === 'bilsem' && (
@@ -890,7 +890,7 @@ export default function BildirimlerPage() {
             {tab === 'timetable' && (
               <>
                 <Table2 className="size-3.5 shrink-0" />
-                Ders ProgramÄ±
+                Ders Programı
               </>
             )}
             {tab === 'agenda' && (
@@ -902,7 +902,7 @@ export default function BildirimlerPage() {
             {tab === 'smart_board' && (
               <>
                 <Monitor className="size-3.5 shrink-0" />
-                AkÄ±llÄ± Tahta
+                Akıllı Tahta
               </>
             )}
             {tab === 'support' && (
@@ -920,13 +920,13 @@ export default function BildirimlerPage() {
             {tab === 'exam_duty' && (
               <>
                 <ClipboardList className="size-3.5 shrink-0" />
-                SÄ±nav GÃ¶revi
+                Sınav Görevi
               </>
             )}
             {tab === 'exam_school' && (
               <>
                 <LayoutGrid className="size-3.5 shrink-0" />
-                Okul sÄ±navlarÄ±
+                Okul sınavları
               </>
             )}
             {tab === 'messaging' && (
@@ -958,7 +958,7 @@ export default function BildirimlerPage() {
           </div>
         </div>
         <p className="mt-1.5 text-center text-[10px] font-medium text-violet-700/90 dark:text-violet-300/90 sm:hidden">
-          â† TÃ¼m gruplarÄ± gÃ¶rmek iÃ§in kaydÄ±rÄ±n â†’
+          ← Tüm grupları görmek için kaydırın →
         </p>
       </div>
 
@@ -994,7 +994,7 @@ export default function BildirimlerPage() {
                     <div className="mb-5 flex size-[4.25rem] items-center justify-center rounded-2xl bg-linear-to-br from-violet-500 via-fuchsia-500 to-amber-500 text-white shadow-xl shadow-violet-500/30 ring-4 ring-white/60 dark:ring-zinc-900/90">
                       <Bell className="size-8 sm:size-9" strokeWidth={2} aria-hidden />
                     </div>
-                    <h3 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">HenÃ¼z bildirim yok</h3>
+                    <h3 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">Henüz bildirim yok</h3>
                     <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-muted-foreground">
                       {getEmptyStateDescription(filter)}
                     </p>
@@ -1003,7 +1003,7 @@ export default function BildirimlerPage() {
                   {filter === 'exam_school' ? (
                     <>
                       <p className="mt-8 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-teal-700/90 dark:text-teal-300/90">
-                        Bu grupta bildirim kaynaklarÄ±
+                        Bu grupta bildirim kaynakları
                       </p>
                       <div className="mt-3 grid gap-3 sm:grid-cols-3">
                         {EXAM_SCHOOL_FOCUS_LINKS.map(({ href, label, Icon, blob, ring }) => (
@@ -1030,7 +1030,7 @@ export default function BildirimlerPage() {
                       </div>
 
                       <p className="mt-10 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-700/90 dark:text-violet-300/90">
-                        HÄ±zlÄ± eriÅŸim
+                        Hızlı erişim
                       </p>
                       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                         {EXAM_SCHOOL_MORE_LINKS.map(({ href, label, Icon, wash }) => (
@@ -1054,7 +1054,7 @@ export default function BildirimlerPage() {
                     <div className="mt-8 flex flex-col items-stretch gap-2 sm:mx-auto sm:max-w-3xl sm:flex-row sm:flex-wrap sm:justify-center sm:gap-2.5">
                       <Link href="/duty" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <CalendarClock className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                        NÃ¶betlere git
+                        Nöbetlere git
                       </Link>
                       <Link href="/akademik-takvim" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <Award className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
@@ -1066,15 +1066,15 @@ export default function BildirimlerPage() {
                       </Link>
                       <Link href="/ogretmen-ajandasi" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <CalendarDays className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                        Ã–ÄŸretmen AjandasÄ±
+                        Öğretmen Ajandası
                       </Link>
                       <Link href="/ders-programi/programlarim" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <Table2 className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                        ProgramlarÄ±m
+                        Programlarım
                       </Link>
                       <Link href="/akilli-tahta" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <Monitor className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                        AkÄ±llÄ± Tahta
+                        Akıllı Tahta
                       </Link>
                       <Link href="/support" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <Megaphone className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
@@ -1082,11 +1082,11 @@ export default function BildirimlerPage() {
                       </Link>
                       <Link href="/sinav-gorevlerim" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <ClipboardList className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                        SÄ±nav GÃ¶revleri
+                        Sınav Görevleri
                       </Link>
                       <Link href="/market" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <Wallet className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                        Market / CÃ¼zdan
+                        Market / Cüzdan
                       </Link>
                     </div>
                   )}
@@ -1253,7 +1253,7 @@ export default function BildirimlerPage() {
                           }}
                         >
                           <ExternalLink className="size-3.5" />
-                          GÃ¼nlÃ¼k tabloya git
+                          Günlük tabloya git
                         </Button>
                       )}
                       {(BELIRLI_GUN_EVENT_TYPES.includes(item.event_type) || BILSEM_CALENDAR_EVENT_TYPES.includes(item.event_type)) && (
@@ -1309,7 +1309,7 @@ export default function BildirimlerPage() {
                           }}
                         >
                           <ClipboardList className="size-3.5" />
-                          SÄ±nav gÃ¶revleri
+                          Sınav görevleri
                         </Button>
                       )}
                       {EXAM_DUTY_EVENT_TYPES.includes(item.event_type) && (
@@ -1323,7 +1323,7 @@ export default function BildirimlerPage() {
                           }}
                         >
                           <ClipboardList className="size-3.5" />
-                          SÄ±nav gÃ¶revlerine git
+                          Sınav görevlerine git
                         </Button>
                       )}
                       {isExamSchoolModuleNotification(item.event_type) && (
@@ -1365,7 +1365,7 @@ export default function BildirimlerPage() {
                           }}
                         >
                           <Banknote className="size-3.5" />
-                          Yolluk detayÄ±
+                          Yolluk detayı
                         </Button>
                       )}
                       {MARKET_EVENT_TYPES.includes(item.event_type) && (
@@ -1392,7 +1392,7 @@ export default function BildirimlerPage() {
                             handleMarkRead(item.id);
                           }}
                           disabled={!!markingRead}
-                          title="Okundu iÅŸaretle"
+                          title="Okundu işaretle"
                         >
                           {markingRead === item.id ? (
                             <LoadingSpinner className="size-4" />
@@ -1427,7 +1427,7 @@ export default function BildirimlerPage() {
           {loadMoreVisible && (
             <div className="border-t px-3 py-3 sm:px-4">
               <Button variant="ghost" size="sm" className="min-h-11 w-full sm:min-h-9" onClick={loadMore}>
-                Daha fazla yÃ¼kle
+                Daha fazla yükle
               </Button>
             </div>
           )}
