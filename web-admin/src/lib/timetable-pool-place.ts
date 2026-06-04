@@ -6,10 +6,61 @@ import { assignmentBlockPlacementOk, resolvePlacementHint } from '@/lib/timetabl
 import { validatePoolPlace, validateTimetableMove } from '@/lib/timetable-move-validation';
 import { closureAt, type SlotClosure } from '@/lib/timetable-slot-closures';
 import { computeSlotDropStatus } from '@/lib/timetable-slot-status';
+import type { ParsedPoolDragId } from '@/lib/timetable-pool-id';
+import { parsePoolDragId } from '@/lib/timetable-pool-id';
+import { findUnplacedPoolRow } from '@/lib/timetable-unplaced-pool';
 
-export function parsePoolAssignmentId(activeId: string): string | null {
-  if (!activeId.startsWith('pool-')) return null;
-  return activeId.slice(5);
+export { parsePoolDragId, parsePoolAssignmentId } from '@/lib/timetable-pool-id';
+
+function poolChunkLessons(start: number, chunkHours: number): number[] {
+  return Array.from({ length: chunkHours }, (_, i) => start + i);
+}
+
+function canPlacePoolChunk(
+  assignmentId: string,
+  classSection: string,
+  teacherId: string | null,
+  day: number,
+  startLesson: number,
+  chunkHours: number,
+  entries: EditorEntry[],
+  closures: Map<string, SlotClosure>,
+  assignmentHints?: Record<string, AssignmentPlacementHint>,
+): boolean {
+  for (const lesson of poolChunkLessons(startLesson, chunkHours)) {
+    if (closureAt(closures, day, lesson)) return false;
+    const v = validatePoolPlace(
+      assignmentId,
+      day,
+      lesson,
+      entries,
+      classSection,
+      closures,
+      teacherId,
+      assignmentHints,
+    );
+    if (!v.ok) return false;
+  }
+  return true;
+}
+
+function conflictsInChunk(
+  entries: EditorEntry[],
+  day: number,
+  startLesson: number,
+  chunkHours: number,
+): EditorEntry[] {
+  const seen = new Set<string>();
+  const out: EditorEntry[] = [];
+  for (const lesson of poolChunkLessons(startLesson, chunkHours)) {
+    for (const e of entries) {
+      if (e.day_of_week === day && e.lesson_num === lesson && !seen.has(e.id)) {
+        seen.add(e.id);
+        out.push(e);
+      }
+    }
+  }
+  return out;
 }
 
 function forbiddenKeys(closures: Map<string, SlotClosure>): Set<string> {
@@ -183,65 +234,158 @@ export type PoolPlaceAttemptResult =
       lesson: number;
       relocateEntryId?: string;
       relocateTo?: { day: number; lesson: number };
+      relocations?: Array<{ entryId: string; day: number; lesson: number }>;
     }
   | { ok: false; message: string };
 
-/** Önce hedef, sonra takas için yer açma, sonra uygun başka saat dene. */
+function tryRelocateChunkConflicts(
+  conflicts: EditorEntry[],
+  working: EditorEntry[],
+  day: number,
+  lesson: number,
+  chunkHours: number,
+  closures: Map<string, SlotClosure>,
+  ctx: EditorContext,
+): Array<{ entryId: string; day: number; lesson: number }> | null {
+  const workDays = ctx.period.work_days?.length ? ctx.period.work_days : [1, 2, 3, 4, 5];
+  const lessonsPerDay = ctx.grid?.lessons_per_day_by_dow ?? {};
+  const relocations: Array<{ entryId: string; day: number; lesson: number }> = [];
+  const blocked = new Set(
+    poolChunkLessons(lesson, chunkHours).map((l) => `${day}:${l}`),
+  );
+
+  for (const conf of conflicts) {
+    if (conf.is_locked) return null;
+    const others = working.filter((e) => e.id !== conf.id);
+    const targets = listRelocationSlotsForEntry(
+      conf,
+      others,
+      closures,
+      workDays,
+      ctx.max_lesson,
+      lessonsPerDay,
+      { day, lesson },
+      ctx.assignment_hints,
+    ).filter((t) => !blocked.has(`${t.day}:${t.lesson}`));
+    if (!targets.length) return null;
+    const to = targets[0]!;
+    relocations.push({ entryId: conf.id, day: to.day, lesson: to.lesson });
+    working = working.map((e) =>
+      e.id === conf.id ? { ...e, day_of_week: to.day, lesson_num: to.lesson } : e,
+    );
+  }
+  return relocations;
+}
+
+/** Önce hedef, çakışanları kaydır (sınıf dahil), sonra uygun başka saat dene. */
 export function planPoolPlacement(
-  assignmentId: string,
+  poolKey: string | ParsedPoolDragId,
   day: number,
   lesson: number,
   ctx: EditorContext,
   closures: Map<string, SlotClosure>,
 ): PoolPlaceAttemptResult {
-  const unplaced = ctx.unplaced.find((u) => u.assignment_id === assignmentId);
-  const section = unplaced?.class_section ?? '';
-  const teacherId = unplaced?.user_id ?? null;
+  const parsed = typeof poolKey === 'string' ? parsePoolDragId(poolKey) : poolKey;
+  if (!parsed) return { ok: false, message: 'Geçersiz havuz kartı.' };
+  const row = findUnplacedPoolRow(ctx, poolKey);
+  const section = row?.class_section ?? parsed.classSection;
+  const teacherId = row?.user_id ?? null;
+  const assignmentId = parsed.assignmentId;
+  const chunkHours = row?.chunk_hours ?? parsed.chunkHours;
 
-  const can = (d: number, l: number) =>
-    validatePoolPlace(
-      assignmentId,
-      d,
-      l,
-      ctx.entries,
-      section,
-      closures,
-      teacherId,
-      ctx.assignment_hints,
-    ).ok;
+  const dayMax = maxLessonsOnDay(day, ctx.max_lesson, ctx.grid?.lessons_per_day_by_dow ?? {});
+  if (lesson + chunkHours - 1 > dayMax) {
+    return { ok: false, message: `${chunkHours} saatlik blok bu günde sığmıyor.` };
+  }
 
-  if (can(day, lesson)) return { ok: true, day, lesson };
-
-  const occupants = ctx.entries.filter((e) => e.day_of_week === day && e.lesson_num === lesson);
-  if (occupants.length === 1) {
-    const occ = occupants[0]!;
-    if (!occ.is_locked && occ.class_section !== section) {
-      const workDays = ctx.period.work_days?.length ? ctx.period.work_days : [1, 2, 3, 4, 5];
-      const relocTargets = listMoveTargetsForEntry(
-        occ,
-        ctx.entries,
+  const tryAt = (d: number, start: number, entries: EditorEntry[]): PoolPlaceAttemptResult | null => {
+    if (
+      !canPlacePoolChunk(
+        assignmentId,
+        section,
+        teacherId,
+        d,
+        start,
+        chunkHours,
+        entries,
         closures,
-        workDays,
-        ctx.max_lesson,
-        ctx.grid?.lessons_per_day_by_dow ?? {},
-        { day, lesson },
-      );
-      if (relocTargets.length > 0) {
-        const relocateTo = relocTargets[0]!;
-        return {
-          ok: true,
-          day,
-          lesson,
-          relocateEntryId: occ.id,
-          relocateTo,
-        };
+        ctx.assignment_hints,
+      )
+    ) {
+      return null;
+    }
+    return { ok: true, day: d, lesson: start };
+  };
+
+  const direct = tryAt(day, lesson, ctx.entries);
+  if (direct) return direct;
+
+  let working = [...ctx.entries];
+  const conflicts = conflictsInChunk(working, day, lesson, chunkHours);
+  if (conflicts.length) {
+    const relocations = tryRelocateChunkConflicts(
+      conflicts,
+      working,
+      day,
+      lesson,
+      chunkHours,
+      closures,
+      ctx,
+    );
+    if (relocations) {
+      for (const r of relocations) {
+        working = working.map((e) =>
+          e.id === r.entryId ? { ...e, day_of_week: r.day, lesson_num: r.lesson } : e,
+        );
+      }
+      const after = tryAt(day, lesson, working);
+      if (after) {
+        const first = relocations[0]!;
+        if (relocations.length === 1) {
+          return {
+            ok: true,
+            day,
+            lesson,
+            relocateEntryId: first.entryId,
+            relocateTo: { day: first.day, lesson: first.lesson },
+          };
+        }
+        return { ok: true, day, lesson, relocations };
       }
     }
   }
 
   const slots = listOkPoolSlotsWithClosures(ctx, section, teacherId, closures, { day, lesson });
-  const alt = slots.find((s) => !(s.day === day && s.lesson === lesson));
-  if (alt) return { ok: true, day: alt.day, lesson: alt.lesson };
+  for (const s of slots) {
+    if (s.day === day && s.lesson === lesson) continue;
+    const alt = tryAt(s.day, s.lesson, ctx.entries);
+    if (alt) return alt;
+    const altConflicts = conflictsInChunk(ctx.entries, s.day, s.lesson, chunkHours);
+    if (!altConflicts.length) continue;
+    const reloc = tryRelocateChunkConflicts(
+      altConflicts,
+      [...ctx.entries],
+      s.day,
+      s.lesson,
+      chunkHours,
+      closures,
+      ctx,
+    );
+    if (reloc) {
+      const after = tryAt(s.day, s.lesson, ctx.entries);
+      if (after) {
+        const first = reloc[0]!;
+        return {
+          ok: true,
+          day: s.day,
+          lesson: s.lesson,
+          relocateEntryId: first.entryId,
+          relocateTo: { day: first.day, lesson: first.lesson },
+          relocations: reloc.length > 1 ? reloc : undefined,
+        };
+      }
+    }
+  }
 
   return {
     ok: false,

@@ -15,6 +15,8 @@ import { AuthCard } from '@/components/auth/auth-card';
 import { AuthFlowSubnav } from '@/components/auth/auth-flow-subnav';
 import { cn } from '@/lib/utils';
 import { getPostLoginRedirect } from '@/lib/post-login-redirect';
+import { BiometricLoginButton } from '@/components/auth/biometric-login-button';
+import { getRememberedLoginEmail } from '@/lib/webauthn';
 
 type AuthResponse = { token: string };
 type OtpPurposeSchool = 'login_school' | 'register_school';
@@ -44,6 +46,11 @@ function SchoolLoginForm() {
   const teacherLoginHref = navQ ? `/login/ogretmen?${navQ}` : '/login/ogretmen';
   const [fromTeacherBanner, setFromTeacherBanner] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+
+  useEffect(() => {
+    const r = getRememberedLoginEmail();
+    if (r) setEmail((prev) => prev || r);
+  }, []);
 
   useEffect(() => {
     const wp = searchParams?.get('wrong_portal');
@@ -274,6 +281,17 @@ function SchoolLoginForm() {
                   </button>
                 </div>
                 {error && <Alert message={error} className="text-[11px]" />}
+                <BiometricLoginButton
+                  portal="school"
+                  email={email}
+                  rememberMe={rememberMe}
+                  disabled={loading}
+                  onSuccess={async (token) => {
+                    const ok = await setToken(token);
+                    if (ok) router.push(getPostLoginRedirect(redirectQuery));
+                  }}
+                  onError={setError}
+                />
                 <button
                   type="submit"
                   disabled={loading}

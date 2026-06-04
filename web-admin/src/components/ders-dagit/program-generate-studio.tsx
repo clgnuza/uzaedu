@@ -49,7 +49,7 @@ import {
   DERS_DAGIT_ASSIGNMENTS_CHANGED,
   type AssignmentsChangedDetail,
 } from '@/lib/ders-dagit-assignments-sync';
-import { apiFetch, type ApiError } from '@/lib/api';
+import { apiFetch, createFetchTimeoutSignal, type ApiError } from '@/lib/api';
 import type { ValidationIssue } from '@/lib/ders-dagit-timetable-api';
 import {
   archiveProgram,
@@ -402,6 +402,7 @@ export function ProgramGenerateStudio() {
   const [focusEntryIds, setFocusEntryIds] = useState<Set<string> | null>(null);
   const [focusHint, setFocusHint] = useState<string | null>(null);
   const previewGridRef = useRef<HTMLDivElement>(null);
+  const generateAbortRef = useRef<AbortController | null>(null);
   const [existing, setExisting] = useState<DdProgramRow[]>([]);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [generateBlockers, setGenerateBlockers] = useState<ValidationIssue[]>([]);
@@ -544,6 +545,12 @@ export function ProgramGenerateStudio() {
 
   async function generate() {
     if (!token || !studio) return;
+    if (busy) return;
+    generateAbortRef.current?.abort();
+    const abort = new AbortController();
+    generateAbortRef.current = abort;
+    const durationSecNum = showAdvanced ? Math.max(30, Number(durationSec) || 120) : 180;
+    const timeoutMs = (durationSecNum + 45) * 1000;
     setBusy(true);
     setPreview(null);
     setPreviewId(null);
@@ -562,11 +569,26 @@ export function ProgramGenerateStudio() {
         return;
       }
       const body = showAdvanced
-        ? { duration_sec: Number(durationSec), versions: Number(versions), use_csp: useCsp, priority }
-        : { priority };
+        ? { duration_sec: durationSecNum, versions: Number(versions), use_csp: useCsp, priority }
+        : { priority, duration_sec: durationSecNum };
       const res = await apiFetch<GenerateResult & { entries_count: number }>(
         `/ders-dagit/studios/${studio.id}/generate`,
-        { token, method: 'POST', body },
+        {
+          token,
+          method: 'POST',
+          body,
+          signal: (() => {
+            const timeout = createFetchTimeoutSignal(timeoutMs);
+            if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+              return AbortSignal.any([abort.signal, timeout]);
+            }
+            const merged = new AbortController();
+            const onAbort = () => merged.abort();
+            abort.signal.addEventListener('abort', onAbort);
+            timeout.addEventListener('abort', onAbort);
+            return merged.signal;
+          })(),
+        },
       );
       setResult({
         programs: res.programs.map((p) => ({ id: p.id, name: p.name ?? 'Program', score: p.score })),
@@ -601,9 +623,14 @@ export function ProgramGenerateStudio() {
       await refresh({ force: true });
       await loadExisting();
     } catch (e) {
-      toast.error(generateErrorText(e));
+      if (abort.signal.aborted) {
+        toast.error('Üretim iptal edildi veya zaman aşımına uğradı.');
+      } else {
+        toast.error(generateErrorText(e));
+      }
     } finally {
       setBusy(false);
+      if (generateAbortRef.current === abort) generateAbortRef.current = null;
     }
   }
 

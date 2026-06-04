@@ -21,6 +21,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { EditProfileForm, ChangePasswordForm } from '@/components/account/profile-account-forms';
 import { LoginOtpPreference } from '@/components/account/login-otp-preference';
+import { PasskeyPreference } from '@/components/account/passkey-preference';
 import { DeleteAccountButton } from '@/components/account/data-privacy-actions';
 import { BackupExportPanel } from '@/components/account/backup-export-panel';
 import { SchoolAdminBelgeForm } from '@/components/account/school-admin-belge-form';
@@ -249,6 +250,7 @@ export function SchoolAdminAccountTabs() {
                 initialRequired={me.login_otp_required !== false}
                 onSaved={() => void refetchMe()}
               />
+              <PasskeyPreference token={token} portal="school" />
             </CardContent>
           </Card>
 

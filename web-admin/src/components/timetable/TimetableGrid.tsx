@@ -675,7 +675,7 @@ export function TimetableGrid({
       return;
     }
     const entryId = String(ev.active.id);
-    if (entryId.startsWith('pool-')) return;
+    if (entryId.startsWith('pool:') || entryId.startsWith('pool-')) return;
     onMove(entryId, slot.day, slot.lesson);
   };
 

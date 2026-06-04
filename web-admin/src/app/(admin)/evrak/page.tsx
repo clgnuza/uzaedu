@@ -1,14 +1,19 @@
 'use client';
 
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { YillikPlanTeacherWizard } from '@/components/yillik-plan/yillik-plan-teacher-wizard';
+import { PwaShareBanner } from '@/components/pwa-share-banner';
 
 export default function EvrakPage() {
   const searchParams = useSearchParams();
   const tab = searchParams.get('tab') === 'plan-katki' ? 'plan-katki' : 'olustur';
   return (
     <div className="mx-auto w-full min-w-0 max-w-7xl pb-24 sm:pb-0">
+      <Suspense fallback={null}>
+        <PwaShareBanner expect="evrak" />
+      </Suspense>
       {tab === 'plan-katki' ? (
         <div className="mx-auto max-w-3xl">
           <Link href="/evrak/plan-katki" className="text-sm underline">Plan katkı listesine git</Link>

@@ -20,17 +20,24 @@ export function removeEntriesFromContext(prev: EditorContext, removedIds: Set<st
   const removed = prev.entries.filter((e) => removedIds.has(e.id));
   let unplaced = prev.unplaced;
   for (const e of removed) {
-    if (e.assignment_id) unplaced = adjustUnplaced(unplaced, e.assignment_id, -1);
+    if (e.assignment_id) {
+      unplaced = adjustUnplaced(unplaced, e.assignment_id, e.class_section, -1);
+    }
   }
   const entries = prev.entries.filter((e) => !removedIds.has(e.id));
   return { ...prev, entries, unplaced, clashes: clashesForEntries(entries) };
 }
 
-export function addEntryToContext(prev: EditorContext, entry: EditorEntry): EditorContext {
+export function addEntryToContext(
+  prev: EditorContext,
+  entry: EditorEntry,
+  opts?: { removePoolId?: string },
+): EditorContext {
   const entries = [...prev.entries, entry];
-  const unplaced = entry.assignment_id
-    ? adjustUnplaced(prev.unplaced, entry.assignment_id, 1)
-    : prev.unplaced;
+  let unplaced = prev.unplaced;
+  if (opts?.removePoolId) {
+    unplaced = unplaced.filter((u) => u.pool_id !== opts.removePoolId);
+  }
   return { ...prev, entries, unplaced, clashes: clashesForEntries(entries) };
 }
 
@@ -49,9 +56,12 @@ export function swapEntriesInContext(prev: EditorContext, idA: string, idB: stri
 function adjustUnplaced(
   unplaced: EditorContext['unplaced'],
   assignmentId: string,
+  classSection: string,
   placedDelta: number,
 ): EditorContext['unplaced'] {
-  const idx = unplaced.findIndex((u) => u.assignment_id === assignmentId);
+  const idx = unplaced.findIndex(
+    (u) => u.assignment_id === assignmentId && u.class_section === classSection,
+  );
   if (idx < 0) return unplaced;
   const row = unplaced[idx]!;
   const placed_hours = row.placed_hours + placedDelta;

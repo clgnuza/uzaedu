@@ -8,6 +8,8 @@ import { closureAt, type SlotClosure } from '@/lib/timetable-slot-closures';
 import { allEntriesRespectAssignmentBlocks } from '@/lib/timetable-assignment-blocks';
 import { sameDayBlockRun } from '@/lib/timetable-double-block';
 import { validatePoolPlace } from '@/lib/timetable-move-validation';
+import { parsePoolDragId } from '@/lib/timetable-pool-id';
+import { findUnplacedPoolRow } from '@/lib/timetable-unplaced-pool';
 
 type Slot = { day: number; lesson: number };
 export type TimetableMove = { entryId: string; day: number; lesson: number };
@@ -85,27 +87,34 @@ function goalEntryAt(
 }
 
 function poolAtTargetOk(
-  assignmentId: string,
+  poolKey: string,
   target: Slot,
   base: EditorEntry[],
   positions: Map<string, Slot>,
   ctx: EditorContext,
   closures: Map<string, SlotClosure>,
 ): boolean {
-  const row = ctx.unplaced.find((u) => u.assignment_id === assignmentId);
-  if (!row) return false;
+  const parsed = parsePoolDragId(poolKey);
+  const row = findUnplacedPoolRow(ctx, poolKey);
+  if (!parsed || !row) return false;
   const entries = entriesAtPositions(base, positions);
   if (!placementValid(entries, closures, ctx.assignment_hints)) return false;
-  return validatePoolPlace(
-    assignmentId,
-    target.day,
-    target.lesson,
-    entries,
-    row.class_section,
-    closures,
-    row.user_id ?? null,
-    ctx.assignment_hints,
-  ).ok;
+  const chunk = row.chunk_hours ?? parsed.chunkHours;
+  for (let i = 0; i < chunk; i++) {
+    const lesson = target.lesson + i;
+    const ok = validatePoolPlace(
+      parsed.assignmentId,
+      target.day,
+      lesson,
+      entries,
+      row.class_section,
+      closures,
+      row.user_id ?? null,
+      ctx.assignment_hints,
+    ).ok;
+    if (!ok) return false;
+  }
+  return true;
 }
 
 function orderedMovable(
@@ -134,10 +143,12 @@ function runPlacementBfs(
   ctx: EditorContext,
   closures: Map<string, SlotClosure>,
   isGoal: (positions: Map<string, Slot>) => boolean,
-  opts?: { maxDepth?: number; maxNodes?: number; focusEntryId?: string; target?: Slot },
+  opts?: { maxDepth?: number; maxNodes?: number; maxMs?: number; focusEntryId?: string; target?: Slot },
 ): EntryMovePlan {
-  const maxDepth = opts?.maxDepth ?? 12;
-  const maxNodes = opts?.maxNodes ?? 16000;
+  const maxDepth = opts?.maxDepth ?? 10;
+  const maxNodes = opts?.maxNodes ?? 3500;
+  const maxMs = opts?.maxMs ?? 150;
+  const started = Date.now();
   const workDays = ctx.period.work_days?.length ? ctx.period.work_days : [1, 2, 3, 4, 5];
   const lessonsPerDay = ctx.grid?.lessons_per_day_by_dow ?? {};
   const target = opts?.target;
@@ -152,7 +163,7 @@ function runPlacementBfs(
 
   let explored = 0;
 
-  while (queue.length > 0 && explored < maxNodes) {
+  while (queue.length > 0 && explored < maxNodes && Date.now() - started < maxMs) {
     const node = queue.shift()!;
     explored++;
 
@@ -299,7 +310,7 @@ export function planChainEntryMove(
   targetLesson: number,
   ctx: EditorContext,
   closures: Map<string, SlotClosure>,
-  opts?: { maxDepth?: number; maxNodes?: number },
+  opts?: { maxDepth?: number; maxNodes?: number; maxMs?: number },
 ): EntryMovePlan {
   const target: Slot = { day: targetDay, lesson: targetLesson };
 
@@ -330,14 +341,14 @@ export function planChainEntryMove(
 }
 
 export function planChainPoolPlace(
-  assignmentId: string,
+  poolKey: string,
   targetDay: number,
   targetLesson: number,
   ctx: EditorContext,
   closures: Map<string, SlotClosure>,
-  opts?: { maxDepth?: number; maxNodes?: number },
+  opts?: { maxDepth?: number; maxNodes?: number; maxMs?: number },
 ): EntryMovePlan {
-  const row = ctx.unplaced.find((u) => u.assignment_id === assignmentId);
+  const row = findUnplacedPoolRow(ctx, poolKey);
   if (!row) return { ok: false, message: 'Atama bulunamadı.' };
   if (closureAt(closures, targetDay, targetLesson)) {
     return { ok: false, message: 'Kapalı saat.' };
@@ -355,7 +366,7 @@ export function planChainPoolPlace(
   return runPlacementBfs(
     ctx,
     closures,
-    (positions) => poolAtTargetOk(assignmentId, target, ctx.entries, positions, ctx, closures),
+    (positions) => poolAtTargetOk(poolKey, target, ctx.entries, positions, ctx, closures),
     { ...opts, target },
   );
 }

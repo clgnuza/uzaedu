@@ -8,6 +8,7 @@ import {
   BadRequestException,
   Req,
   Query,
+  Param,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -34,6 +35,13 @@ import { RegisterSchoolDto } from './dto/register-school.dto';
 import { VerifySchoolJoinBodyDto } from './dto/verify-school-join-body.dto';
 import { JwtAuthGuard } from './guards/auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { WebauthnService } from './webauthn.service';
+import {
+  WebauthnLoginOptionsDto,
+  WebauthnLoginVerifyDto,
+  WebauthnRegisterVerifyDto,
+} from './dto/webauthn-login.dto';
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 
 function toUserResponse(user: User) {
   const eff = effectiveTeacherSchoolMembership(user);
@@ -66,6 +74,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly auditService: AuditService,
     private readonly schoolsService: SchoolsService,
+    private readonly webauthnService: WebauthnService,
   ) {}
 
   /** Öğretmen / süperadmin / moderatör — şifre sonrası OTP (demo ortamında tek adım). */
@@ -316,6 +325,90 @@ export class AuthController {
       schoolId: user.school_id,
       ip: getClientIp(req),
       meta: { provider: 'firebase' },
+    });
+    return { token, user: toUserResponse(user) };
+  }
+
+  @Get('webauthn/supported')
+  webauthnSupported() {
+    return { supported: this.webauthnService.isConfigured() };
+  }
+
+  @Get('webauthn/has-credentials')
+  @Throttle({ public: { limit: 60, ttl: 60000 } })
+  async webauthnHasCredentials(
+    @Query('email') email: string,
+    @Query('portal') portal: 'teacher' | 'school',
+  ) {
+    if (!email?.trim() || (portal !== 'teacher' && portal !== 'school')) {
+      return { available: false, count: 0 };
+    }
+    return this.webauthnService.hasCredentials(email.trim(), portal);
+  }
+
+  @Post('webauthn/register/options')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async webauthnRegisterOptions(@CurrentUser() user: User, @Req() req: Request) {
+    return this.webauthnService.registrationOptions(user.id, req.headers.origin ?? '');
+  }
+
+  @Post('webauthn/register/verify')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async webauthnRegisterVerify(
+    @CurrentUser() user: User,
+    @Req() req: Request,
+    @Body() dto: WebauthnRegisterVerifyDto,
+  ) {
+    return this.webauthnService.registrationVerify(
+      user.id,
+      req.headers.origin ?? '',
+      dto.response as unknown as RegistrationResponseJSON,
+      dto.name,
+    );
+  }
+
+  @Get('webauthn/credentials')
+  @UseGuards(JwtAuthGuard)
+  async webauthnListCredentials(@CurrentUser() user: User) {
+    return this.webauthnService.listCredentials(user.id);
+  }
+
+  @Post('webauthn/credentials/:id/delete')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async webauthnDeleteCredential(@CurrentUser() user: User, @Param('id') id: string) {
+    await this.webauthnService.deleteCredential(user.id, id);
+    return { ok: true };
+  }
+
+  @Post('webauthn/login/options')
+  @HttpCode(HttpStatus.OK)
+  async webauthnLoginOptions(@Body() dto: WebauthnLoginOptionsDto, @Req() req: Request) {
+    return this.webauthnService.loginOptions(dto.email, dto.portal, req.headers.origin ?? '');
+  }
+
+  @Post('webauthn/login/verify')
+  @HttpCode(HttpStatus.OK)
+  async webauthnLoginVerify(
+    @Body() dto: WebauthnLoginVerifyDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { token, user } = await this.webauthnService.loginVerify(
+      dto.email,
+      dto.portal,
+      req.headers.origin ?? '',
+      dto.response as unknown as AuthenticationResponseJSON,
+    );
+    setSessionCookie(res, token, { remember: dto.remember_me === true });
+    await this.auditService.log({
+      action: 'login',
+      userId: user.id,
+      schoolId: user.school_id,
+      ip: getClientIp(req),
+      meta: { portal: dto.portal, method: 'webauthn' },
     });
     return { token, user: toUserResponse(user) };
   }

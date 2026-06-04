@@ -55,10 +55,8 @@ import { TeacherQrClaimPanel } from './components/TeacherQrClaimPanel';
 import { TeacherActiveSessionBar } from './components/TeacherActiveSessionBar';
 import { TeacherQrStatusBanner } from './components/TeacherQrStatusBanner';
 import { TeacherSmartBoardStickyBar } from './components/TeacherSmartBoardStickyBar';
-import { PwaInstallHint } from './components/PwaInstallHint';
 import { TeacherPendingQrBanner } from './components/TeacherPendingQrBanner';
 import { TeacherSmartBoardUsageCard } from './components/TeacherSmartBoardUsageCard';
-import { SmartBoardPwaRegister } from '@/components/smart-board-pwa-register';
 import type { SmartBoardQrClaimParams } from '@/lib/smart-board-qr-parse';
 import { postClassroomBoardSync } from '@/lib/smart-board-classroom-sync';
 import { smartBoardConnectErrorMessage } from '@/lib/smart-board-connect-messages';
@@ -1071,8 +1069,6 @@ export default function AkilliTahtaPage() {
         />
       )}
 
-      <SmartBoardPwaRegister />
-
       {isTeacher && status?.enabled && status?.authorized && (
         <>
           <TeacherPendingQrBanner token={token} />
@@ -1222,7 +1218,6 @@ export default function AkilliTahtaPage() {
         <TeacherSmartBoardUsageCard authorized={!!status?.authorized} />
       ) : null}
 
-      {isTeacher && status?.enabled && status?.authorized ? <PwaInstallHint /> : null}
       </div>
 
       <TeacherSmartBoardStickyBar

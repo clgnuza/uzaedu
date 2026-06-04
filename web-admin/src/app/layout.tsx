@@ -10,6 +10,8 @@ import { QueryProvider } from '@/providers/query-provider';
 import { fetchWebExtrasPublic } from '@/lib/web-extras-public';
 import { normalizePublicSiteUrl } from '@/lib/site-url';
 import './globals.css';
+import { PwaHeadLinks } from '@/components/pwa-head-links';
+import { PWA_MASKABLE_ICON, PWA_SPLASH_LINKS } from '@/lib/pwa-assets';
 
 const inter = localFont({
   src: [
@@ -85,7 +87,17 @@ export async function generateMetadata(): Promise<Metadata> {
       ...(ogImage ? { images: [ogImage] } : {}),
     },
     alternates:  { canonical: SITE_URL },
-    icons:       extras?.favicon_url ? { icon: extras.favicon_url } : undefined,
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: 'black-translucent',
+      title: appName,
+      startupImage: PWA_SPLASH_LINKS.map((s) => ({ url: s.href, media: s.media })),
+    },
+    formatDetection: { telephone: false },
+    manifest: '/manifest.webmanifest',
+    icons:       extras?.favicon_url
+      ? { icon: extras.favicon_url, apple: PWA_MASKABLE_ICON }
+      : { icon: '/favicon.ico', apple: PWA_MASKABLE_ICON },
     ...(extras?.google_site_verification?.trim()
       ? { verification: { google: extras.google_site_verification.trim() } }
       : {}),
@@ -95,8 +107,17 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export async function generateViewport(): Promise<Viewport> {
   const extras = await fetchWebExtrasPublic();
-  if (!extras?.theme_color) return {};
-  return { themeColor: extras.theme_color };
+  const theme = extras?.theme_color?.trim() || '#0d9488';
+  return {
+    width: 'device-width',
+    initialScale: 1,
+    viewportFit: 'cover',
+    themeColor: [
+      { media: '(prefers-color-scheme: light)', color: theme },
+      { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
+    ],
+    colorScheme: 'light dark',
+  };
 }
 
 export default async function RootLayout({
@@ -105,11 +126,15 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const extras = await fetchWebExtrasPublic();
+  const themeColor = extras?.theme_color?.trim() || '#0d9488';
   const gtm = extras?.gtm_id && safeGtmId(extras.gtm_id) ? extras.gtm_id.trim() : null;
   const ga4 = extras?.ga4_measurement_id && safeGa4Id(extras.ga4_measurement_id) ? extras.ga4_measurement_id.trim() : null;
 
   return (
     <html lang="tr" className="h-full" data-scroll-behavior="smooth" suppressHydrationWarning>
+      <head>
+        <PwaHeadLinks themeColor={themeColor} />
+      </head>
       <body
         className={cn(
           'flex h-full text-base text-foreground bg-background antialiased',
@@ -228,7 +253,7 @@ export default async function RootLayout({
           >
             <AuthProvider>
               <QueryProvider>
-                <div className="min-h-full w-full">{children}</div>
+                <div className="min-h-full min-h-dvh w-full">{children}</div>
               </QueryProvider>
             </AuthProvider>
             <ClientShellWidgets />

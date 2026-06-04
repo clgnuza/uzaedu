@@ -3,11 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import { Notification } from './entities/notification.entity';
 import { NotificationPreference } from './entities/notification-preference.entity';
+import { NotificationPushSettings } from './entities/notification-push-settings.entity';
 import { User } from '../users/entities/user.entity';
 import { PaginationDto } from '../common/dtos/pagination.dto';
 import { paginate } from '../common/dtos/pagination.dto';
 import { MailService } from '../mail/mail.service';
 import { notificationEventLabel } from './notification-event-labels';
+import { WebPushService } from './web-push.service';
+import { NOTIFICATION_CHANNELS } from './notification-channels';
 
 @Injectable()
 export class NotificationsService {
@@ -26,10 +29,17 @@ export class NotificationsService {
     private readonly notificationRepo: Repository<Notification>,
     @InjectRepository(NotificationPreference)
     private readonly preferenceRepo: Repository<NotificationPreference>,
+    @InjectRepository(NotificationPushSettings)
+    private readonly pushSettingsRepo: Repository<NotificationPushSettings>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly mailService: MailService,
+    private readonly webPushService: WebPushService,
   ) {}
+
+  listChannelCatalog() {
+    return NOTIFICATION_CHANNELS;
+  }
 
   async list(userId: string, dto: PaginationDto & { event_type?: string; event_group?: string }) {
     const page = dto.page ?? 1;
@@ -165,14 +175,92 @@ export class NotificationsService {
     return this.preferenceRepo.find({ where: { user_id: userId } });
   }
 
-  async updatePreferences(userId: string, channels: { channel: string; push_enabled: boolean }[]): Promise<NotificationPreference[]> {
-    for (const { channel, push_enabled } of channels) {
-      await this.preferenceRepo.upsert(
-        { user_id: userId, channel, push_enabled },
-        { conflictPaths: ['user_id', 'channel'] },
-      );
+  defaultPushSettings(): NotificationPushSettings {
+    return this.pushSettingsRepo.create({
+      user_id: '',
+      quiet_hours_enabled: false,
+      quiet_start_minutes: 22 * 60,
+      quiet_end_minutes: 8 * 60,
+      timezone: 'Europe/Istanbul',
+      sound_enabled: true,
+      vibration_enabled: true,
+    });
+  }
+
+  async getPushSettings(userId: string): Promise<NotificationPushSettings> {
+    const row = await this.pushSettingsRepo.findOne({ where: { user_id: userId } });
+    if (row) return row;
+    return { ...this.defaultPushSettings(), user_id: userId };
+  }
+
+  async updatePushSettings(
+    userId: string,
+    patch: Partial<{
+      quiet_hours_enabled: boolean;
+      quiet_start_minutes: number;
+      quiet_end_minutes: number;
+      timezone: string;
+      sound_enabled: boolean;
+      vibration_enabled: boolean;
+    }>,
+  ): Promise<NotificationPushSettings> {
+    const existing = await this.pushSettingsRepo.findOne({ where: { user_id: userId } });
+    const defaults = this.defaultPushSettings();
+    const base =
+      existing ??
+      this.pushSettingsRepo.create({
+        ...defaults,
+        user_id: userId,
+      });
+    if (patch.quiet_start_minutes != null) {
+      base.quiet_start_minutes = Math.min(1439, Math.max(0, patch.quiet_start_minutes));
+    }
+    if (patch.quiet_end_minutes != null) {
+      base.quiet_end_minutes = Math.min(1439, Math.max(0, patch.quiet_end_minutes));
+    }
+    if (patch.quiet_hours_enabled != null) base.quiet_hours_enabled = patch.quiet_hours_enabled;
+    if (patch.timezone != null) base.timezone = patch.timezone.slice(0, 64) || 'Europe/Istanbul';
+    if (patch.sound_enabled != null) base.sound_enabled = patch.sound_enabled;
+    if (patch.vibration_enabled != null) base.vibration_enabled = patch.vibration_enabled;
+    return this.pushSettingsRepo.save(base);
+  }
+
+  async updatePreferences(
+    userId: string,
+    channels: { channel: string; push_enabled?: boolean; critical?: boolean }[],
+  ): Promise<NotificationPreference[]> {
+    for (const { channel, push_enabled, critical } of channels) {
+      const row: Partial<NotificationPreference> = { user_id: userId, channel };
+      if (push_enabled != null) row.push_enabled = push_enabled;
+      if (critical != null) row.critical = critical;
+      const existing = await this.preferenceRepo.findOne({ where: { user_id: userId, channel } });
+      await this.preferenceRepo.save({
+        user_id: userId,
+        channel,
+        push_enabled: push_enabled ?? existing?.push_enabled ?? true,
+        critical: critical ?? existing?.critical ?? false,
+      });
     }
     return this.getPreferences(userId);
+  }
+
+  async getPreferencesBundle(userId: string) {
+    const [preferences, settings] = await Promise.all([
+      this.getPreferences(userId),
+      this.getPushSettings(userId),
+    ]);
+    return {
+      channels: this.listChannelCatalog(),
+      preferences,
+      settings: {
+        quiet_hours_enabled: settings.quiet_hours_enabled,
+        quiet_start_minutes: settings.quiet_start_minutes,
+        quiet_end_minutes: settings.quiet_end_minutes,
+        timezone: settings.timezone,
+        sound_enabled: settings.sound_enabled,
+        vibration_enabled: settings.vibration_enabled,
+      },
+    };
   }
 
   /** Event sonrası Inbox kaydı oluşturmak için (diğer modüller çağırır) */
@@ -188,6 +276,7 @@ export class NotificationsService {
     const n = this.notificationRepo.create(params);
     const saved = await this.notificationRepo.save(n);
     this.sendNotificationEmailAsync(params).catch(() => {});
+    this.webPushService.sendForInboxNotification(saved).catch(() => {});
     return saved;
   }
 

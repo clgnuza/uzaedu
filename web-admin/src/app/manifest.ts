@@ -1,37 +1,88 @@
 import type { MetadataRoute } from 'next';
+import { fetchWebExtrasPublic } from '@/lib/web-extras-public';
+import { PWA_MASKABLE_ICON, PWA_SCREENSHOTS } from '@/lib/pwa-assets';
+import { PWA_FILE_HANDLERS, PWA_LAUNCH_HANDLER, PWA_SHARE_TARGET } from '@/lib/pwa-manifest-extras';
 
-export default function manifest(): MetadataRoute.Manifest {
+const ICONS: MetadataRoute.Manifest['icons'] = [
+  { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+  { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+  { src: PWA_MASKABLE_ICON, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+  { src: '/brand/og-default.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+];
+
+export default async function manifest(): Promise<MetadataRoute.Manifest> {
+  const extras = await fetchWebExtrasPublic();
+  const shortName = extras?.pwa_short_name?.trim() || 'Öğretmen';
+  const theme = extras?.theme_color?.trim() || '#0d9488';
+
   return {
-    name: 'Uzaedu Öğretmen',
-    short_name: 'Öğretmen',
-    description: 'Okul yönetimi, akıllı tahta, ders programı',
-    start_url: '/',
+    id: '/',
+    name: `Uzaedu ${shortName}`,
+    short_name: shortName,
+    description: 'Okul yönetimi: ders programı, optik, akıllı tahta, nöbet, ek ders ve daha fazlası',
+    start_url: '/dashboard?source=pwa',
+    scope: '/',
     display: 'standalone',
+    display_override: ['fullscreen', 'standalone', 'minimal-ui', 'browser'],
+    prefer_related_applications: false,
     background_color: '#0f172a',
-    theme_color: '#0d9488',
+    theme_color: theme,
     lang: 'tr',
     orientation: 'any',
-    icons: [
-      { src: '/brand/og-default.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-    ],
+    categories: ['education', 'productivity'],
+    icons: ICONS,
+    screenshots: PWA_SCREENSHOTS.map((s) => ({
+      src: s.src,
+      sizes: s.sizes,
+      type: s.type,
+      form_factor: s.form_factor,
+      label: 'Uzaedu Öğretmen',
+    })),
+    share_target: PWA_SHARE_TARGET,
+    file_handlers: PWA_FILE_HANDLERS,
+    launch_handler: PWA_LAUNCH_HANDLER,
     shortcuts: [
+      {
+        name: 'Panel',
+        short_name: 'Panel',
+        url: '/dashboard',
+        description: 'Ana kontrol paneli',
+      },
       {
         name: 'Akıllı Tahta',
         short_name: 'Tahta',
         url: '/akilli-tahta',
-        description: 'Tahta QR onayı ve bağlantı',
+        description: 'Tahta QR ve oturum',
       },
       {
-        name: 'Sınav oturumları',
-        short_name: 'Sınav',
+        name: 'Optik okuma',
+        short_name: 'Optik',
         url: '/optik-oturumlar',
-        description: 'Oturum → anahtar → tara → sonuç',
+        description: 'Sınav oturumları ve raporlar (tarama mobil uygulama)',
       },
       {
-        name: 'Serbest tarama',
-        short_name: 'Tara',
-        url: '/optik-okuma',
-        description: 'Oturumsuz tek kağıt',
+        name: 'Ders programı',
+        short_name: 'Program',
+        url: '/ders-dagit',
+        description: 'Ders dağıtım ve program',
+      },
+      {
+        name: 'Nöbet',
+        short_name: 'Nöbet',
+        url: '/duty',
+        description: 'Nöbet planı',
+      },
+      {
+        name: 'Ajanda',
+        short_name: 'Ajanda',
+        url: '/ogretmen-ajandasi',
+        description: 'Öğretmen ajandası',
+      },
+      {
+        name: 'Mesaj merkezi',
+        short_name: 'Mesaj',
+        url: '/mesaj-merkezi',
+        description: 'Veli / öğretmen mesajları',
       },
     ],
   };

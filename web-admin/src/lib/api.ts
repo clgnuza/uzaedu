@@ -163,13 +163,15 @@ export type ApiFetchOptions = Omit<RequestInit, 'body'> & {
   token?: string | null;
   apiBase?: string | null;
   body?: BodyInit | ApiJsonBody | null;
+  /** false: çevrimdışıyken kuyruğa alma */
+  offlineQueue?: boolean;
 };
 
 export async function apiFetch<T>(
   path: string,
   options: ApiFetchOptions = {}
 ): Promise<T> {
-  const { token, apiBase, ...init } = options;
+  const { token, apiBase, offlineQueue, ...init } = options;
   const requestBase =
     (apiBase != null && String(apiBase).trim() !== '' ? String(apiBase).trim() : null) ?? resolveDefaultApiBase();
   const isFormData = init.body instanceof FormData;
@@ -249,6 +251,34 @@ export async function apiFetch<T>(
     if (isAbortError(e)) throw e;
     if (isConnectionError(e)) {
       registerApiUnavailable(15_000);
+      const method = (init.method ?? 'GET').toUpperCase();
+      const mayQueue =
+        offlineQueue !== false &&
+        !isFormData &&
+        (typeof body === 'string' || body == null) &&
+        typeof window !== 'undefined';
+      if (mayQueue) {
+        try {
+          const { canQueueOfflineMethod, canQueueOfflinePath, enqueueOfflineRequest } = await import(
+            './pwa-offline-queue'
+          );
+          if (canQueueOfflineMethod(method) && canQueueOfflinePath(path)) {
+            const queueHeaders: Record<string, string> = {};
+            if (headers.Authorization) queueHeaders.Authorization = headers.Authorization;
+            if (headers['Content-Type']) queueHeaders['Content-Type'] = headers['Content-Type'];
+            await enqueueOfflineRequest({
+              path,
+              apiBase: requestBase,
+              method,
+              headers: queueHeaders,
+              body: typeof body === 'string' ? body : null,
+            });
+            throw new Error('Çevrimdışı kaydedildi. Bağlantı gelince otomatik gönderilir.');
+          }
+        } catch (qe) {
+          if (qe instanceof Error && qe.message.includes('Çevrimdışı kaydedildi')) throw qe;
+        }
+      }
       throw new Error(CONNECTION_ERROR_MESSAGE);
     }
     throw e;

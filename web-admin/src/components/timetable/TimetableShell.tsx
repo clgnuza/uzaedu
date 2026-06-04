@@ -43,7 +43,10 @@ import {
   planChainEntryMove,
   planChainPoolPlace,
 } from '@/lib/timetable-drag-resolve';
-import { listOkPoolSlotsWithClosures, parsePoolAssignmentId, planPoolPlacement, planSmartEntryMove } from '@/lib/timetable-pool-place';
+import { listOkPoolSlotsWithClosures, planPoolPlacement, planSmartEntryMove } from '@/lib/timetable-pool-place';
+import { parsePoolDragId } from '@/lib/timetable-pool-id';
+import { findUnplacedPoolRow } from '@/lib/timetable-unplaced-pool';
+import { POOL_PLACEMENT_BFS, ENTRY_MOVE_BFS, yieldToMain } from '@/lib/timetable-placement-budget';
 import { entryMatchesMatrixRow, parseMatrixDropId, poolRowMatches } from '@/lib/timetable-matrix-dnd';
 import { clashAtSlot, clashEntryIds } from '@/lib/timetable-clash';
 import { useRouter } from 'next/navigation';
@@ -178,6 +181,7 @@ export function TimetableShell({
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [busyLocal, setBusyLocal] = useState(false);
   const gridWrapRef = useRef<HTMLDivElement>(null);
+  const placementInFlight = useRef(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -229,24 +233,6 @@ export function TimetableShell({
     setSimBaseline(null);
     setDraftEntries(null);
   }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && editor.canUndo && !editor.busy && !simulate) {
-        e.preventDefault();
-        void editor.undo();
-      }
-      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        setShowShortcuts((v) => !v);
-      }
-      if (e.key === 'Escape' && simulate) {
-        discardSimulation();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [editor.canUndo, editor.busy, editor.undo, simulate, discardSimulation]);
 
   const startSimulation = useCallback(() => {
     if (!editor.ctx) return;
@@ -321,7 +307,7 @@ export function TimetableShell({
 
   const pickedUnplaced = useMemo(() => {
     if (!pickedPoolAssignmentId || !ctx) return null;
-    return ctx.unplaced.find((u) => u.assignment_id === pickedPoolAssignmentId) ?? null;
+    return findUnplacedPoolRow(ctx, pickedPoolAssignmentId) ?? null;
   }, [pickedPoolAssignmentId, ctx]);
 
   const poolPlacementView = useMemo((): 'class' | 'teacher' | null => {
@@ -341,7 +327,7 @@ export function TimetableShell({
   const selectUnplacedLesson = useCallback(
     (row: UnplacedRow) => {
       setPickedEntryId(null);
-      setPickedPoolAssignmentId(row.assignment_id);
+      setPickedPoolAssignmentId(row.pool_id);
       const hasTeacher =
         !!row.user_id && !!editor.ctx?.teachers.some((t) => t.id === row.user_id);
       if (hasTeacher && row.user_id) {
@@ -361,8 +347,41 @@ export function TimetableShell({
   }, []);
 
   useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && editor.canUndo && !editor.busy && !simulate) {
+        e.preventDefault();
+        void editor.undo();
+      }
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setShowShortcuts((v) => !v);
+      }
+      if (e.key === 'Escape') {
+        if (simulate) {
+          discardSimulation();
+        } else if (pickedPoolAssignmentId || pickedEntryId) {
+          e.preventDefault();
+          clearPoolSelection();
+          setPickedEntryId(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [
+    editor.canUndo,
+    editor.busy,
+    editor.undo,
+    simulate,
+    discardSimulation,
+    pickedPoolAssignmentId,
+    pickedEntryId,
+    clearPoolSelection,
+  ]);
+
+  useEffect(() => {
     if (!pickedPoolAssignmentId || !ctx) return;
-    if (!ctx.unplaced.some((u) => u.assignment_id === pickedPoolAssignmentId)) {
+    if (!ctx.unplaced.some((u) => u.pool_id === pickedPoolAssignmentId)) {
       clearPoolSelection();
     }
   }, [ctx?.unplaced, pickedPoolAssignmentId, clearPoolSelection, ctx]);
@@ -777,29 +796,35 @@ export function TimetableShell({
   );
 
   const executePoolPlace = useCallback(
-    async (assignmentId: string, day: number, lesson: number) => {
+    async (poolId: string, day: number, lesson: number) => {
+      if (placementInFlight.current || editor.busy) return false;
       const c = displayCtx ?? editor.ctx;
       if (!c) return false;
+      const parsed = parsePoolDragId(poolId);
+      const row = findUnplacedPoolRow(c, poolId);
+      if (!parsed || !row) {
+        toast.error('Havuz kartı bulunamadı.');
+        return false;
+      }
       if (simulate) {
         toast.message('Deneme modunda havuzdan yerleştirme kaydedilmez');
         return false;
       }
-      const closures = slotClosuresForCtx(c);
-      const direct = planPoolPlacement(assignmentId, day, lesson, c, closures);
-      let placeDay = day;
-      let placeLesson = lesson;
-      let relocations: Array<{ entryId: string; day: number; lesson: number }> = [];
 
-      if (direct.ok && direct.day === day && direct.lesson === lesson && !direct.relocateEntryId) {
-        relocations = [];
-      } else {
-        const chain = planChainPoolPlace(assignmentId, day, lesson, c, closures);
-        if (chain.ok) {
-          relocations = chain.relocations;
-          placeDay = day;
-          placeLesson = lesson;
-        } else if (direct.ok) {
-          if (direct.relocateEntryId && direct.relocateTo) {
+      placementInFlight.current = true;
+      setBusyLocal(true);
+      try {
+        await yieldToMain();
+        const closures = slotClosuresForCtx(c);
+        const direct = planPoolPlacement(poolId, day, lesson, c, closures);
+        let placeDay = day;
+        let placeLesson = lesson;
+        let relocations: Array<{ entryId: string; day: number; lesson: number }> = [];
+
+        if (direct.ok) {
+          if (direct.relocations?.length) {
+            relocations = direct.relocations;
+          } else if (direct.relocateEntryId && direct.relocateTo) {
             relocations = [
               {
                 entryId: direct.relocateEntryId,
@@ -811,44 +836,62 @@ export function TimetableShell({
           placeDay = direct.day;
           placeLesson = direct.lesson;
         } else {
-          toast.error(chain.message || direct.message);
-          return false;
+          await yieldToMain();
+          const chain = planChainPoolPlace(poolId, day, lesson, c, closures, POOL_PLACEMENT_BFS);
+          if (chain.ok) {
+            relocations = chain.relocations;
+          } else {
+            toast.error(chain.message || direct.message);
+            return false;
+          }
         }
-      }
 
-      try {
+        const chunkHours = row.chunk_hours ?? parsed.chunkHours;
         if (relocations.length) {
           const ok = await editor.applyMoves(relocations);
           if (!ok) return false;
         }
-        await editor.placeUnplaced(assignmentId, placeDay, placeLesson, { silent: true });
+        await editor.placeUnplacedChunk(
+          parsed.assignmentId,
+          placeDay,
+          placeLesson,
+          chunkHours,
+          {
+            silent: true,
+            classSection: row.class_section,
+            removePoolId: poolId,
+          },
+        );
         const moved = relocations.length > 0;
         if (placeDay !== day || placeLesson !== lesson) {
           toast.success(`Uygun saat bulundu — ${placeLesson}. ders, gün ${placeDay}`);
         } else if (moved) {
           toast.success(
             relocations.length === 1
-              ? 'Mevcut ders taşındı, yerleştirildi'
+              ? 'Çakışan ders taşındı, yerleştirildi'
               : `${relocations.length} ders kaydırıldı, yerleştirildi`,
           );
         } else {
-          toast.success('Yerleştirildi');
+          toast.success(chunkHours > 1 ? `${chunkHours} saatlik blok yerleştirildi` : 'Yerleştirildi');
         }
-        if (pickedPoolAssignmentId === assignmentId) {
+        if (pickedPoolAssignmentId === poolId) {
           setPickedPoolAssignmentId(null);
           setDragSource(null);
         }
         return true;
       } catch {
         return false;
+      } finally {
+        placementInFlight.current = false;
+        setBusyLocal(false);
       }
     },
     [
       displayCtx,
       editor.ctx,
-      editor.moveEntry,
+      editor.busy,
       editor.applyMoves,
-      editor.placeUnplaced,
+      editor.placeUnplacedChunk,
       pickedPoolAssignmentId,
       simulate,
       slotClosuresForCtx,
@@ -919,40 +962,52 @@ export function TimetableShell({
         return ok;
       };
 
-      const block = sameDayBlockRun(dragging, c.entries, c.assignment_hints);
-      const chain =
-        block.length > 1
-          ? planBlockEntryMove(entryId, day, lesson, c, closures)
-          : planChainEntryMove(entryId, day, lesson, c, closures);
-      if (chain.ok) return applyPlan(chain);
+      if (placementInFlight.current || editor.busy) return false;
+      placementInFlight.current = true;
+      setBusyLocal(true);
+      try {
+        await yieldToMain();
+        const block = sameDayBlockRun(dragging, c.entries, c.assignment_hints);
+        const chain =
+          block.length > 1
+            ? planBlockEntryMove(entryId, day, lesson, c, closures)
+            : planChainEntryMove(entryId, day, lesson, c, closures, ENTRY_MOVE_BFS);
+        if (chain.ok) return await applyPlan(chain);
 
-      if (canPlaceEntryAt(c.entries, entryId, day, lesson, closures, c.assignment_hints)) {
-        const ok = await editor.applyMoves([{ entryId, day, lesson }], {
-          primaryEntryId: entryId,
-          target: { day, lesson },
+        if (canPlaceEntryAt(c.entries, entryId, day, lesson, closures, c.assignment_hints)) {
+          const ok = await editor.applyMoves([{ entryId, day, lesson }], {
+            primaryEntryId: entryId,
+            target: { day, lesson },
+          });
+          if (ok && !opts?.silent) toast.success('Taşındı');
+          return ok;
+        }
+
+        const smart = planSmartEntryMove(entryId, day, lesson, c, closures);
+        if (smart.ok) return await applyPlan(smart);
+
+        const v = validateTimetableMove({
+          entryId,
+          day,
+          lesson,
+          entries: c.entries,
+          closures,
+          dragging,
+          assignmentHints: c.assignment_hints,
         });
-        if (ok && !opts?.silent) toast.success('Taşındı');
-        return ok;
+        toast.error(
+          chain.message || smart.message || (!v.ok ? v.message : undefined) || 'Yerleştirilemedi',
+        );
+        return false;
+      } finally {
+        placementInFlight.current = false;
+        setBusyLocal(false);
       }
-
-      const smart = planSmartEntryMove(entryId, day, lesson, c, closures);
-      if (smart.ok) return applyPlan(smart);
-
-      const v = validateTimetableMove({
-        entryId,
-        day,
-        lesson,
-        entries: c.entries,
-        closures,
-        dragging,
-        assignmentHints: c.assignment_hints,
-      });
-      toast.error(chain.message || smart.message || v.message || 'Yerleştirilemedi');
-      return false;
     },
     [
       displayCtx,
       editor.ctx,
+      editor.busy,
       editor.applyMoves,
       simulate,
       applyLocalMove,
@@ -1061,6 +1116,7 @@ export function TimetableShell({
       setPoolDrag(null);
       setDragLabel(null);
       setDragSource(null);
+      if (placementInFlight.current || editor.busy) return;
       const c = displayCtx ?? editor.ctx;
       if (!c) return;
       const over = ev.over ? String(ev.over.id) : '';
@@ -1075,10 +1131,8 @@ export function TimetableShell({
       const active = String(ev.active.id);
       const axis = matrixAxisForView(view, filterId, matrixAxis);
       if (matrixM && axis) {
-        if (active.startsWith('pool-')) {
-          const assignmentId = parsePoolAssignmentId(active);
-          if (!assignmentId) return;
-          const u = c.unplaced.find((x) => x.assignment_id === assignmentId);
+        if (active.startsWith('pool:') || active.startsWith('pool-')) {
+          const u = findUnplacedPoolRow(c, active);
           if (
             u &&
             !poolRowMatches(matrixM.rowKey, axis, u.class_section, u.user_id ?? null)
@@ -1094,15 +1148,13 @@ export function TimetableShell({
           }
         }
       }
-      if (active.startsWith('pool-')) {
-        const assignmentId = parsePoolAssignmentId(active);
-        if (!assignmentId) return;
-        void executePoolPlace(assignmentId, day, lesson);
+      if (active.startsWith('pool:') || active.startsWith('pool-')) {
+        void executePoolPlace(active, day, lesson);
         return;
       }
       requestMove(active, day, lesson);
     },
-    [displayCtx, editor.ctx, executePoolPlace, requestMove, view, filterId, matrixAxis],
+    [displayCtx, editor.ctx, editor.busy, executePoolPlace, requestMove, view, filterId, matrixAxis],
   );
 
   const editorBusy = editor.busy || busyLocal;
@@ -1114,11 +1166,15 @@ export function TimetableShell({
       collisionDetection={pointerWithin}
       onDragStart={(e) => {
         const id = String(e.active.id);
-        if (id.startsWith('pool-')) {
+        if (id.startsWith('pool:') || id.startsWith('pool-')) {
           setPoolDrag(id);
-          setDragLabel('Atama');
-          const aid = id.slice(5);
-          const u = editor.ctx?.unplaced.find((x) => x.assignment_id === aid);
+          const u = editor.ctx ? findUnplacedPoolRow(editor.ctx, id) : undefined;
+          const chunk = u?.chunk_hours ?? 1;
+          setDragLabel(
+            u
+              ? `${u.class_section} · ${u.subject_name}${chunk > 1 ? ` (${chunk} saat)` : ''}`
+              : 'Atama',
+          );
           setDragSource(u ? { type: 'pool', classSection: u.class_section } : null);
           return;
         }
@@ -1143,6 +1199,8 @@ export function TimetableShell({
         setPoolDrag(null);
         setDragLabel(null);
         setDragSource(null);
+        clearPoolSelection();
+        setPickedEntryId(null);
       }}
     >
       <div className="space-y-4">

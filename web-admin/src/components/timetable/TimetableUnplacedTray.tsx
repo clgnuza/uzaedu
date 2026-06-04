@@ -5,6 +5,7 @@ import { useDraggable } from '@dnd-kit/core';
 import { GripVertical, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { EditorContext } from '@/lib/ders-dagit-timetable-api';
+import { classSectionColor, entryCellInlineStyle } from '@/lib/timetable-colors';
 import { TimetableUnplacedMenu } from './TimetableUnplacedMenu';
 
 export type UnplacedRow = EditorContext['unplaced'][number];
@@ -17,6 +18,12 @@ export type UnplacedTrayActions = {
   onOpenAssignments?: (row: UnplacedRow) => void;
   onCopyInfo?: (row: UnplacedRow) => void;
 };
+
+function chunkLabel(row: UnplacedRow): string {
+  const h = row.chunk_hours ?? row.remaining_hours;
+  if (h >= 2) return `${h} saat blok`;
+  return '1 saat';
+}
 
 function UnplacedCard({
   row,
@@ -31,9 +38,10 @@ function UnplacedCard({
   onSelect: (row: UnplacedRow) => void;
   onContextMenu: (row: UnplacedRow, e: React.MouseEvent) => void;
 }) {
-  const dragId = `pool-${row.assignment_id}`;
+  const colors = classSectionColor(row.class_section);
+  const style = entryCellInlineStyle(colors);
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } = useDraggable({
-    id: dragId,
+    id: row.pool_id,
     disabled,
   });
 
@@ -43,11 +51,16 @@ function UnplacedCard({
       className={cn(
         'flex gap-1 rounded-lg border bg-card/90 text-left shadow-sm transition-shadow',
         selected
-          ? 'border-primary ring-2 ring-primary/40'
+          ? 'ring-2 ring-primary/45'
           : 'border-border/80 hover:border-primary/35 hover:shadow-md',
         isDragging && 'opacity-55',
         disabled && 'opacity-60',
       )}
+      style={{
+        borderLeftWidth: 4,
+        borderLeftColor: colors.border,
+        backgroundColor: selected ? colors.bg : undefined,
+      }}
     >
       <button
         type="button"
@@ -74,23 +87,31 @@ function UnplacedCard({
         }}
       >
         <div className="flex items-start justify-between gap-1">
-          <span className="truncate text-[11px] font-semibold leading-tight text-foreground">
+          <span className="truncate text-[11px] font-semibold leading-tight" style={{ color: style.color }}>
             {row.subject_name}
           </span>
-          <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold tabular-nums text-amber-900 dark:text-amber-100">
-            {row.remaining_hours} sa
+          <span
+            className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold tabular-nums"
+            style={{ backgroundColor: colors.border, color: '#fff' }}
+          >
+            {chunkLabel(row)}
           </span>
         </div>
-        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{row.class_section}</p>
+        <p className="mt-0.5 truncate text-[10px] font-medium" style={{ color: colors.text }}>
+          {row.class_section}
+        </p>
         <p className="truncate text-[10px] text-muted-foreground/90">
           {row.teacher_label ?? 'Öğretmen atanmamış'}
+          {row.pattern_label ? (
+            <span className="text-muted-foreground"> · desen {row.pattern_label}</span>
+          ) : null}
         </p>
       </button>
     </div>
   );
 }
 
-/** Alt panel: tüm yerleşmemiş atamalar */
+/** Alt panel: yerleşmemiş atama parçaları (2+1 → ayrı kartlar) */
 export function TimetableUnplacedTray({
   unplaced,
   busy,
@@ -123,14 +144,14 @@ export function TimetableUnplacedTray({
     const needle = q.trim().toLocaleLowerCase('tr');
     if (!needle) return unplaced;
     return unplaced.filter((u) => {
-      const hay = `${u.class_section} ${u.subject_name} ${u.teacher_label ?? ''}`.toLocaleLowerCase('tr');
+      const hay = `${u.class_section} ${u.subject_name} ${u.teacher_label ?? ''} ${u.pattern_label ?? ''}`.toLocaleLowerCase('tr');
       return hay.includes(needle);
     });
   }, [unplaced, q]);
 
   if (unplaced.length === 0) return null;
 
-  const selected = selectedId ? unplaced.find((u) => u.assignment_id === selectedId) : null;
+  const selected = selectedId ? unplaced.find((u) => u.pool_id === selectedId) : null;
 
   return (
     <section className="print:hidden overflow-hidden rounded-xl border border-primary/25 bg-gradient-to-b from-primary/[0.06] to-muted/20 shadow-sm">
@@ -141,7 +162,7 @@ export function TimetableUnplacedTray({
             <span className="ml-1.5 tabular-nums text-primary">({unplaced.length})</span>
           </h3>
           <p className="text-[10px] text-muted-foreground">
-            {totalHours} saat · tutamaktan sürükleyin veya karta tıklayıp tabloda saate tıklayın
+            {totalHours} saat · her kart bir blok/parça (2+2+1) · sürükle veya seçip hücreye tıkla · Esc seçimi bırakır
           </p>
         </div>
         {selected && onClearSelection && (
@@ -151,7 +172,7 @@ export function TimetableUnplacedTray({
             onClick={onClearSelection}
           >
             <X className="size-3" aria-hidden />
-            Seçimi kaldır
+            Seçimi kaldır (Esc)
           </button>
         )}
       </header>
@@ -171,6 +192,8 @@ export function TimetableUnplacedTray({
             <span className="font-semibold">{selected.subject_name}</span>
             {' · '}
             {selected.class_section}
+            {' · '}
+            {chunkLabel(selected)}
             {' — '}
             uygun boş saate tıklayın
           </p>
@@ -182,9 +205,9 @@ export function TimetableUnplacedTray({
             <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {filtered.map((u) => (
                 <UnplacedCard
-                  key={u.assignment_id}
+                  key={u.pool_id}
                   row={u}
-                  selected={selectedId === u.assignment_id}
+                  selected={selectedId === u.pool_id}
                   disabled={busy}
                   onSelect={act.onSelect}
                   onContextMenu={(row, e) => {

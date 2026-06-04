@@ -1,5 +1,28 @@
 import type { NextConfig } from "next";
+import withSerwistInit from "@serwist/next";
+import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import { networkInterfaces, type NetworkInterfaceInfo } from "node:os";
+
+function serwistRevision(): string {
+  const r = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf-8" });
+  if (r.status === 0 && r.stdout?.trim()) return r.stdout.trim();
+  return crypto.randomUUID();
+}
+
+const withSerwist = withSerwistInit({
+  swSrc: "src/sw.ts",
+  swDest: "public/sw.js",
+  register: false,
+  cacheOnNavigation: true,
+  additionalPrecacheEntries: [
+    { url: "/offline", revision: serwistRevision() },
+    { url: "/icon-192.png", revision: serwistRevision() },
+    { url: "/pwa/icon-maskable-512.png", revision: serwistRevision() },
+    { url: "/pwa/splash-android-portrait.png", revision: serwistRevision() },
+  ],
+  disable: process.env.NODE_ENV === "development",
+});
 
 /** Aynı ağdaki telefon / tablet — next dev HMR ve cross-origin için (NEXT_DEV_EXTRA_ORIGINS ile genişletilebilir). */
 function localLanHttpOrigins(ports: readonly string[]): string[] {
@@ -63,6 +86,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      {
         source: "/_next/static/:path*",
         headers: [
           { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
@@ -87,6 +117,14 @@ const nextConfig: NextConfig = {
         headers: [
           { key: "Permissions-Policy", value: "camera=(self), microphone=()" },
         ],
+      },
+      {
+        source: "/optik-okuma/:path*",
+        headers: [{ key: "Permissions-Policy", value: "camera=(self), microphone=()" }],
+      },
+      {
+        source: "/optik-oturumlar/:path*",
+        headers: [{ key: "Permissions-Policy", value: "camera=(self), microphone=()" }],
       },
       {
         source: "/:path*",
@@ -128,4 +166,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSerwist(nextConfig);

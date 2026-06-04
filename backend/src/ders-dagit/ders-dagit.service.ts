@@ -147,6 +147,12 @@ import {
   shouldEnforceDistributionPattern,
   type DistributionPolicy,
 } from './ders-dagit.distribution-policy';
+import {
+  inferDayDistribution,
+  isValidDayDistribution,
+  remainingPatternChunks,
+} from './ders-dagit.day-distribution';
+import { placementPatternForAssignment } from './ders-dagit.solver-distribution';
 import { parseSchoolProfile, type MebSchoolType, type StudioSchoolProfile } from './ders-dagit.school-profile';
 import {
   classProfilePresetsForSchool,
@@ -3567,23 +3573,14 @@ export class DersDagitService {
   }
 
   async listUnplacedAssignments(studioId: string, programId: string) {
-    const assignments = await this.assignmentRepo.find({ where: { studio_id: studioId } });
-    const entries = await this.programEntryRepo.find({ where: { program_id: programId } });
-    const countBy = new Map<string, number>();
-    for (const e of entries) {
-      if (!e.assignment_id) continue;
-      countBy.set(e.assignment_id, (countBy.get(e.assignment_id) ?? 0) + 1);
-    }
-    const out: Array<{
-      assignment_id: string;
-      subject_name: string;
-      class_section: string;
-      weekly_hours: number;
-      placed_hours: number;
-      remaining_hours: number;
-      user_id: string | null;
-      teacher_label: string | null;
-    }> = [];
+    const [assignments, entries, studio] = await Promise.all([
+      this.assignmentRepo.find({ where: { studio_id: studioId } }),
+      this.programEntryRepo.find({ where: { program_id: programId } }),
+      this.studioRepo.findOne({ where: { id: studioId } }),
+    ]);
+    const distribution_policy = parseDistributionPolicy(studio?.settings?.distribution_policy);
+    const placementCtx = { distribution_policy } as SolverContext;
+
     const links = await this.assignmentTeacherRepo.find({
       where: { assignment_id: In(assignments.map((a) => a.id)) },
     });
@@ -3597,25 +3594,105 @@ export class DersDagitService {
         ? await this.userRepo.find({ where: { id: In(userIds) }, select: ['id', 'display_name', 'email'] })
         : [];
     const userMap = new Map(users.map((u) => [u.id, u.display_name?.trim() || u.email || '—']));
+
+    const out: Array<{
+      pool_id: string;
+      assignment_id: string;
+      subject_name: string;
+      class_section: string;
+      weekly_hours: number;
+      placed_hours: number;
+      remaining_hours: number;
+      chunk_hours: number;
+      pattern_label: string | null;
+      user_id: string | null;
+      teacher_label: string | null;
+    }> = [];
+
     for (const a of assignments) {
       const need = a.biweekly ? Math.ceil(a.weekly_hours / 2) : a.weekly_hours;
-      const placed = countBy.get(a.id) ?? 0;
-      const remaining = need - placed;
-      if (remaining <= 0) continue;
+      const secs = a.class_sections?.length ? a.class_sections : ['—'];
       const uid = primaryTeacher.get(a.id) ?? null;
-      const section = a.class_sections[0] ?? '—';
-      out.push({
-        assignment_id: a.id,
+      const solverA: SolverAssignment = {
+        id: a.id,
         subject_name: a.subject_name,
-        class_section: section,
+        class_sections: a.class_sections ?? [],
         weekly_hours: a.weekly_hours,
-        placed_hours: placed,
-        remaining_hours: remaining,
-        user_id: uid,
-        teacher_label: uid ? userMap.get(uid) ?? null : null,
-      });
+        teacher_ids: uid ? [uid] : [],
+        room_ids: a.room_ids ?? [],
+        group_id: a.group_id,
+        max_per_day: a.max_per_day,
+        min_days_per_week: a.min_days_per_week,
+        fixed_slots: (a.fixed_slots ?? []) as SolverAssignment['fixed_slots'],
+        place_first: a.place_first,
+        biweekly: a.biweekly,
+        unavailable_periods: [],
+        options: (a.options ?? {}) as Record<string, unknown>,
+      };
+      const pattern = placementPatternForAssignment(solverA, need, placementCtx);
+      const patternLabel = pattern?.length ? pattern.join('+') : null;
+
+      for (const section of secs) {
+        const slotKeys = new Set<string>();
+        for (const e of entries) {
+          if (e.assignment_id !== a.id || e.class_section !== section) continue;
+          slotKeys.add(`${e.day_of_week}:${e.lesson_num}`);
+        }
+        const placed = slotKeys.size;
+        const remaining = need - placed;
+        if (remaining <= 0) continue;
+
+        const secEntries = entries
+          .filter((e) => e.assignment_id === a.id && e.class_section === section)
+          .map((e) => ({
+            assignment_id: e.assignment_id,
+            day_of_week: e.day_of_week,
+            lesson_num: e.lesson_num,
+          }));
+
+        let chunks: number[] = [];
+        if (pattern && isValidDayDistribution(pattern, need)) {
+          chunks = remainingPatternChunks(a.id, secEntries, pattern);
+        }
+        if (!chunks.length) {
+          const inferred = inferDayDistribution(
+            a.weekly_hours,
+            (a.options ?? {}) as Record<string, unknown>,
+            a.biweekly,
+            distribution_policy.mode,
+          );
+          if (isValidDayDistribution(inferred, need)) {
+            chunks = remainingPatternChunks(a.id, secEntries, inferred);
+          }
+        }
+        if (!chunks.length) {
+          chunks = [remaining];
+        }
+
+        chunks.forEach((chunk, chunkIndex) => {
+          const pool_id = `pool:${a.id}|${encodeURIComponent(section)}|${chunk}|${chunkIndex}`;
+          out.push({
+            pool_id,
+            assignment_id: a.id,
+            subject_name: a.subject_name,
+            class_section: section,
+            weekly_hours: a.weekly_hours,
+            placed_hours: placed,
+            remaining_hours: chunk,
+            chunk_hours: chunk,
+            pattern_label: patternLabel,
+            user_id: uid,
+            teacher_label: uid ? userMap.get(uid) ?? null : null,
+          });
+        });
+      }
     }
-    return out.sort((a, b) => b.remaining_hours - a.remaining_hours);
+    return out.sort(
+      (x, y) =>
+        y.remaining_hours - x.remaining_hours ||
+        x.class_section.localeCompare(y.class_section, 'tr') ||
+        x.assignment_id.localeCompare(y.assignment_id),
+    );
   }
 
   /** Atama kotasına göre yerleşme özeti (yayın / hazırlık yüzdesi). Hafif: sadece saat sayıları. */
@@ -3699,7 +3776,12 @@ export class DersDagitService {
     studioId: string,
     programId: string,
     userId: string,
-    body: { assignment_id: string; day_of_week: number; lesson_num: number },
+    body: {
+      assignment_id: string;
+      day_of_week: number;
+      lesson_num: number;
+      class_section?: string;
+    },
   ) {
     const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
     if (!program) throw new NotFoundException();
@@ -3707,7 +3789,11 @@ export class DersDagitService {
     if (!a) throw new NotFoundException('Atama bulunamadı');
     const links = await this.assignmentTeacherRepo.find({ where: { assignment_id: a.id }, take: 1 });
     const teacherId = links[0]?.user_id ?? null;
-    const classSection = a.class_sections[0];
+    const requested = body.class_section?.trim();
+    const classSection =
+      requested && a.class_sections?.some((s) => s === requested)
+        ? requested
+        : a.class_sections[0];
     if (!classSection) {
       throw new BadRequestException({ code: 'NO_CLASS', message: 'Atamada şube yok.' });
     }

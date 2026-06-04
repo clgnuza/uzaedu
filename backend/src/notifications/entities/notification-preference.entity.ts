@@ -10,4 +10,8 @@ export class NotificationPreference {
 
   @Column({ type: 'boolean', default: true })
   push_enabled: boolean;
+
+  /** Sessiz saatte bile push gönder */
+  @Column({ type: 'boolean', default: false })
+  critical: boolean;
 }

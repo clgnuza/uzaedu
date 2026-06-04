@@ -30,6 +30,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { EditProfileForm, ChangePasswordForm } from '@/components/account/profile-account-forms';
 import { LoginOtpPreference } from '@/components/account/login-otp-preference';
+import { PasskeyPreference } from '@/components/account/passkey-preference';
 import { DataExportButton, DeleteAccountButton } from '@/components/account/data-privacy-actions';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -231,6 +232,7 @@ export function SuperadminAccountTabs() {
                 initialRequired={me.login_otp_required !== false}
                 onSaved={() => void refetchMe()}
               />
+              <PasskeyPreference token={token} portal="teacher" />
             </CardContent>
           </Card>
 

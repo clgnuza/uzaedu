@@ -43,6 +43,19 @@ export default function TeacherWaQuickSend({ token, q, onCampaignCreated }: Prop
       .catch(() => setApiReady(false));
   }, [token, q]);
 
+  useEffect(() => {
+    try {
+      const draft = sessionStorage.getItem('pwa-mesaj-draft');
+      if (draft?.trim()) {
+        setBody((prev) => (prev.trim() ? `${draft}\n\n---\n${prev}` : draft));
+        sessionStorage.removeItem('pwa-mesaj-draft');
+        toast.message('Paylaşılan metin eklendi');
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const addRow = () => setRows((r) => [...r, { name: '', phone: '' }]);
   const removeRow = (i: number) => setRows((r) => r.filter((_, idx) => idx !== i));
   const updateRow = (i: number, field: keyof Row, v: string) =>

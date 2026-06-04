@@ -50,10 +50,14 @@ export type EditorContext = {
     unavailable_periods: Array<{ day_of_week: number; lesson_num?: number }>;
   }>;
   unplaced: Array<{
+    pool_id: string;
     assignment_id: string;
     subject_name: string;
     class_section: string;
+    placed_hours?: number;
     remaining_hours: number;
+    chunk_hours: number;
+    pattern_label: string | null;
     user_id: string | null;
     teacher_label: string | null;
   }>;
@@ -119,11 +123,17 @@ export async function createEntryFromAssignment(
   assignmentId: string,
   day: number,
   lesson: number,
+  classSection?: string,
 ) {
   return apiFetch<EditorEntry>(`/ders-dagit/studios/${studioId}/programs/${programId}/entries`, {
     token,
     method: 'POST',
-    body: JSON.stringify({ assignment_id: assignmentId, day_of_week: day, lesson_num: lesson }),
+    body: JSON.stringify({
+      assignment_id: assignmentId,
+      day_of_week: day,
+      lesson_num: lesson,
+      ...(classSection ? { class_section: classSection } : {}),
+    }),
   });
 }
 

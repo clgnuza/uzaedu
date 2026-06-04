@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
@@ -36,6 +36,7 @@ import { apiFetch } from '@/lib/api';
 import { smartBoardNotificationHref } from '@/lib/smart-board-notification-link';
 import { dedupeSmartBoardQrPending } from '@/lib/dedupe-smart-board-notifications';
 import { emitNotificationsUpdated } from '@/hooks/use-duty-notifications-unread';
+import { hapticTap } from '@/lib/pwa-haptic';
 import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -44,7 +45,10 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { YollukFinalizedNotificationBody } from '@/components/notifications/yolluk-finalized-notification-body';
+import { NotificationPushSettings } from '@/components/notification-push-settings';
+import { NotificationChannelIcon } from '@/components/notification-channel-icon';
 import { notificationEventLabel } from '@/lib/notification-event-label';
+import { getThemeForEventTypeDetailed } from '@/lib/notification-channel-theme';
 
 type NotificationItem = {
   id: string;
@@ -93,13 +97,13 @@ const MARKET_EVENT_TYPES = ['market.school_credit_added', 'market.user_credit_ad
 const YOLLUK_EVENT_TYPES = ['yolluk.calculation_finalized'];
 
 const BILDIRIM_KAYNAK_ICONS: ToolbarHintItem[] = [
-  { label: 'Nöbet', icon: CalendarClock },
+  { label: 'NÃ¶bet', icon: CalendarClock },
   { label: 'Takvim', icon: CalendarDays },
   { label: 'Ders', icon: Table2 },
-  { label: 'Diğer', icon: LayoutGrid },
+  { label: 'DiÄŸer', icon: LayoutGrid },
 ];
 
-/** Okul sınavları sekmesi — boş liste; renk geçişli kartlar */
+/** Okul sÄ±navlarÄ± sekmesi â€” boÅŸ liste; renk geÃ§iÅŸli kartlar */
 const EXAM_SCHOOL_FOCUS_LINKS: ReadonlyArray<{
   href: string;
   label: string;
@@ -109,14 +113,14 @@ const EXAM_SCHOOL_FOCUS_LINKS: ReadonlyArray<{
 }> = [
   {
     href: '/kelebek-sinav/sinav-islemleri',
-    label: 'Kertenkele sınav',
+    label: 'Kertenkele sÄ±nav',
     Icon: LayoutGrid,
     blob: 'from-amber-400 via-orange-400 to-rose-400',
     ring: 'ring-amber-400/40',
   },
   {
     href: '/sorumluluk-sinav/bilgilendirme',
-    label: 'Sorumluluk sınavı',
+    label: 'Sorumluluk sÄ±navÄ±',
     Icon: GraduationCap,
     blob: 'from-teal-400 via-cyan-400 to-emerald-400',
     ring: 'ring-teal-400/40',
@@ -136,15 +140,15 @@ const EXAM_SCHOOL_MORE_LINKS: ReadonlyArray<{
   Icon: LucideIcon;
   wash: string;
 }> = [
-  { href: '/duty', label: 'Nöbetlere git', Icon: CalendarClock, wash: 'from-indigo-400/25 to-violet-500/20' },
+  { href: '/duty', label: 'NÃ¶betlere git', Icon: CalendarClock, wash: 'from-indigo-400/25 to-violet-500/20' },
   { href: '/akademik-takvim', label: 'Akademik Takvim', Icon: Award, wash: 'from-amber-400/25 to-orange-500/20' },
   { href: '/bilsem/takvim', label: 'Bilsem Takvim', Icon: CalendarDays, wash: 'from-violet-400/25 to-fuchsia-500/20' },
-  { href: '/ogretmen-ajandasi', label: 'Öğretmen Ajandası', Icon: BookOpen, wash: 'from-rose-400/25 to-pink-500/20' },
-  { href: '/ders-programi/programlarim', label: 'Programlarım', Icon: Table2, wash: 'from-emerald-400/25 to-teal-500/20' },
-  { href: '/akilli-tahta', label: 'Akıllı Tahta', Icon: Monitor, wash: 'from-cyan-400/25 to-sky-500/20' },
+  { href: '/ogretmen-ajandasi', label: 'Ã–ÄŸretmen AjandasÄ±', Icon: BookOpen, wash: 'from-rose-400/25 to-pink-500/20' },
+  { href: '/ders-programi/programlarim', label: 'ProgramlarÄ±m', Icon: Table2, wash: 'from-emerald-400/25 to-teal-500/20' },
+  { href: '/akilli-tahta', label: 'AkÄ±llÄ± Tahta', Icon: Monitor, wash: 'from-cyan-400/25 to-sky-500/20' },
   { href: '/support', label: 'Destek Talepleri', Icon: Headphones, wash: 'from-fuchsia-400/25 to-purple-600/20' },
-  { href: '/sinav-gorevlerim', label: 'Sınav Görevleri', Icon: ClipboardList, wash: 'from-sky-400/25 to-blue-600/20' },
-  { href: '/market', label: 'Market / Cüzdan', Icon: Wallet, wash: 'from-lime-400/25 to-green-600/20' },
+  { href: '/sinav-gorevlerim', label: 'SÄ±nav GÃ¶revleri', Icon: ClipboardList, wash: 'from-sky-400/25 to-blue-600/20' },
+  { href: '/market', label: 'Market / CÃ¼zdan', Icon: Wallet, wash: 'from-lime-400/25 to-green-600/20' },
 ];
 
 function formatDate(s: string) {
@@ -152,12 +156,12 @@ function formatDate(s: string) {
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'Az önce';
-  if (diffMins < 60) return `${diffMins} dk önce`;
+  if (diffMins < 1) return 'Az Ã¶nce';
+  if (diffMins < 60) return `${diffMins} dk Ã¶nce`;
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours} saat önce`;
+  if (diffHours < 24) return `${diffHours} saat Ã¶nce`;
   const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays} gün önce`;
+  if (diffDays < 7) return `${diffDays} gÃ¼n Ã¶nce`;
   return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
@@ -289,7 +293,7 @@ function isExamSchoolModuleNotification(eventType: string): boolean {
   );
 }
 
-/** Mesaj merkezi sekmesi: okul WhatsApp + merkez sistem mesajı */
+/** Mesaj merkezi sekmesi: okul WhatsApp + merkez sistem mesajÄ± */
 function isMessageCenterGroupNotification(eventType: string): boolean {
   return (
     eventType?.startsWith('messaging.') ||
@@ -305,7 +309,7 @@ function isAnnouncementNotification(eventType: string): boolean {
   return eventType === 'announcement.created' || eventType?.startsWith('announcement.');
 }
 
-/** Liste satırı sol şerit — nöbet hatırlatma / belirli gün ile çakışmaz */
+/** Liste satÄ±rÄ± sol ÅŸerit â€” nÃ¶bet hatÄ±rlatma / belirli gÃ¼n ile Ã§akÄ±ÅŸmaz */
 function getNotificationRowAccentClass(item: NotificationItem): string | null {
   if (item.event_type === 'duty.reminder' && isTodayReminder(item)) return null;
   if (isBelirliGunReminderHighlight(item)) return null;
@@ -354,185 +358,24 @@ function getNotificationRowAccentClass(item: NotificationItem): string | null {
   if (isYollukNotification(item.event_type)) {
     return 'border-l-[3px] border-l-teal-500 bg-teal-50/45 dark:border-l-teal-400 dark:bg-teal-950/25';
   }
-  return null;
+  return getThemeForEventTypeDetailed(item.event_type).rowAccent;
 }
 
 function getNotificationIcon(item: NotificationItem): { icon: React.ReactNode; bgClass: string } {
-  const iconSm = 'size-[0.9375rem] sm:size-4';
-  if (isAnnouncementNotification(item.event_type)) {
-    return {
-      icon: <Newspaper className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-yellow-300/90 to-amber-200/90 text-amber-950 ring-2 ring-yellow-400/60 shadow-sm dark:from-yellow-600/40 dark:to-amber-700/35 dark:text-yellow-50 dark:ring-yellow-500/40',
-    };
-  }
-  if (isBilsemCalendarNotification(item.event_type)) {
-    return {
-      icon: <CalendarDays className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-violet-400/35 to-purple-500/30 text-violet-950 ring-2 ring-violet-400/50 shadow-sm dark:from-violet-600/45 dark:to-purple-700/40 dark:text-violet-100 dark:ring-violet-400/35',
-    };
-  }
-  if (isBelirliGunNotification(item.event_type)) {
-    return {
-      icon: <Award className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-amber-300/90 to-orange-300/80 text-amber-950 ring-2 ring-amber-400/55 shadow-sm dark:from-amber-600/40 dark:to-orange-700/35 dark:text-amber-50 dark:ring-amber-500/40',
-    };
-  }
-  if (isDutyNotification(item.event_type)) {
-    return {
-      icon: <CalendarClock className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-indigo-400/35 to-violet-500/30 text-indigo-950 ring-2 ring-indigo-400/50 shadow-sm dark:from-indigo-600/45 dark:to-violet-700/40 dark:text-indigo-50 dark:ring-indigo-400/40',
-    };
-  }
-  if (isTimetableNotification(item.event_type)) {
-    return {
-      icon: <Table2 className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-emerald-400/35 to-teal-500/30 text-emerald-950 ring-2 ring-emerald-400/50 shadow-sm dark:from-emerald-600/45 dark:to-teal-700/40 dark:text-emerald-50 dark:ring-emerald-400/40',
-    };
-  }
-  if (isSmartBoardNotification(item.event_type)) {
-    return {
-      icon: <Monitor className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-cyan-400/35 to-sky-500/30 text-cyan-950 ring-2 ring-cyan-400/50 shadow-sm dark:from-cyan-600/45 dark:to-sky-700/40 dark:text-cyan-50 dark:ring-cyan-400/40',
-    };
-  }
-  if (isSupportNotification(item.event_type)) {
-    return {
-      icon: <Headphones className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-fuchsia-400/40 to-purple-500/35 text-purple-950 ring-2 ring-fuchsia-400/50 shadow-sm dark:from-fuchsia-600/45 dark:to-purple-800/40 dark:text-fuchsia-50 dark:ring-fuchsia-400/40',
-    };
-  }
-  if (isExamDutyNotification(item.event_type)) {
-    return {
-      icon: <ClipboardList className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-sky-400/40 to-blue-600/35 text-sky-950 ring-2 ring-sky-400/50 shadow-sm dark:from-sky-600/45 dark:to-blue-800/40 dark:text-sky-50 dark:ring-sky-400/40',
-    };
-  }
-  if (isAgendaNotification(item.event_type)) {
-    return {
-      icon: <BookOpen className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-rose-400/35 to-pink-500/30 text-rose-950 ring-2 ring-rose-400/50 shadow-sm dark:from-rose-600/45 dark:to-pink-800/40 dark:text-rose-50 dark:ring-rose-400/40',
-    };
-  }
-  if (isMarketNotification(item.event_type)) {
-    return {
-      icon: <Wallet className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-lime-400/50 to-green-500/35 text-lime-950 ring-2 ring-lime-400/55 shadow-sm dark:from-lime-600/40 dark:to-green-800/35 dark:text-lime-50 dark:ring-lime-400/40',
-    };
-  }
-  if (item.event_type?.startsWith('butterfly_exam.')) {
-    return {
-      icon: <LayoutGrid className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-amber-400/45 to-orange-500/35 text-amber-950 ring-2 ring-amber-400/50 shadow-sm dark:from-amber-600/45 dark:to-orange-800/40 dark:text-amber-50 dark:ring-amber-400/40',
-    };
-  }
-  if (item.event_type?.startsWith('sorumluluk_exam.')) {
-    return {
-      icon: <GraduationCap className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-teal-400/40 to-cyan-600/35 text-teal-950 ring-2 ring-teal-400/50 shadow-sm dark:from-teal-600/45 dark:to-cyan-800/40 dark:text-teal-50 dark:ring-teal-400/40',
-    };
-  }
-  if (item.event_type?.startsWith('admin_message.')) {
-    return {
-      icon: <Mail className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-sky-400/45 to-indigo-500/35 text-sky-950 ring-2 ring-sky-400/50 shadow-sm dark:from-sky-600/45 dark:to-indigo-800/40 dark:text-sky-50 dark:ring-sky-400/40',
-    };
-  }
-  if (item.event_type?.startsWith('messaging.')) {
-    return {
-      icon: <MessageSquare className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-emerald-400/45 to-green-600/35 text-emerald-950 ring-2 ring-emerald-400/50 shadow-sm dark:from-emerald-600/45 dark:to-green-800/40 dark:text-emerald-50 dark:ring-emerald-400/40',
-    };
-  }
-  if (isSchoolReviewsPenaltyNotification(item.event_type)) {
-    return {
-      icon: <Gavel className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-rose-500/50 to-red-700/40 text-white ring-2 ring-rose-400/55 shadow-sm dark:from-rose-700/55 dark:to-red-900/45 dark:ring-rose-400/45',
-    };
-  }
-  if (isYollukNotification(item.event_type)) {
-    return {
-      icon: <Banknote className={iconSm} strokeWidth={2} />,
-      bgClass:
-        'bg-linear-to-br from-teal-400/45 to-emerald-600/40 text-teal-950 ring-2 ring-teal-400/50 shadow-sm dark:from-teal-600/50 dark:to-emerald-800/45 dark:text-teal-50 dark:ring-teal-400/40',
-    };
-  }
+  const theme = getThemeForEventTypeDetailed(item.event_type);
+  const Icon = theme.icon;
   return {
-    icon: <Megaphone className={iconSm} strokeWidth={2} />,
-    bgClass:
-      'bg-linear-to-br from-slate-200/90 to-slate-300/80 text-slate-800 ring-2 ring-slate-400/40 shadow-sm dark:from-slate-600/50 dark:to-slate-700/50 dark:text-slate-100 dark:ring-slate-500/40',
+    icon: <Icon className={theme.iconClass} strokeWidth={2} />,
+    bgClass: theme.tileClass,
   };
 }
 
 function getChipClass(item: NotificationItem): string {
-  if (isAnnouncementNotification(item.event_type)) {
-    return 'border border-yellow-400/50 bg-yellow-200/90 font-semibold text-yellow-950 ring-1 ring-yellow-500/25 dark:border-yellow-500/30 dark:bg-yellow-900/50 dark:text-yellow-100 dark:ring-yellow-400/20';
-  }
-  if (isBilsemCalendarNotification(item.event_type)) {
-    return 'border border-violet-300/50 bg-violet-200/80 font-medium text-violet-950 dark:border-violet-500/35 dark:bg-violet-900/45 dark:text-violet-100';
-  }
-  if (isBelirliGunNotification(item.event_type)) {
-    return 'border border-amber-300/50 bg-amber-200/80 font-medium text-amber-950 dark:border-amber-500/35 dark:bg-amber-900/45 dark:text-amber-100';
-  }
-  if (isDutyNotification(item.event_type)) {
-    return 'border border-indigo-300/50 bg-indigo-200/80 font-medium text-indigo-950 dark:border-indigo-500/35 dark:bg-indigo-900/45 dark:text-indigo-100';
-  }
-  if (isTimetableNotification(item.event_type)) {
-    return 'border border-emerald-300/50 bg-emerald-200/80 font-medium text-emerald-950 dark:border-emerald-500/35 dark:bg-emerald-900/45 dark:text-emerald-100';
-  }
-  if (isSmartBoardNotification(item.event_type)) {
-    return 'border border-cyan-300/50 bg-cyan-200/80 font-medium text-cyan-950 dark:border-cyan-500/35 dark:bg-cyan-900/45 dark:text-cyan-100';
-  }
-  if (isSupportNotification(item.event_type)) {
-    return 'border border-fuchsia-300/50 bg-fuchsia-200/80 font-medium text-purple-950 dark:border-fuchsia-500/35 dark:bg-fuchsia-950/50 dark:text-fuchsia-100';
-  }
   if (item.event_type === 'exam_duty.sync_source_error') {
     return 'border border-red-300/60 bg-red-200/90 font-semibold text-red-950 dark:border-red-500/40 dark:bg-red-950/50 dark:text-red-50';
   }
-  if (isExamDutyNotification(item.event_type)) {
-    return 'border border-sky-300/50 bg-sky-200/80 font-medium text-sky-950 dark:border-sky-500/35 dark:bg-sky-900/45 dark:text-sky-100';
-  }
-  if (isAgendaNotification(item.event_type)) {
-    return 'border border-rose-300/50 bg-rose-200/80 font-medium text-rose-950 dark:border-rose-500/35 dark:bg-rose-900/45 dark:text-rose-100';
-  }
-  if (isMarketNotification(item.event_type)) {
-    return 'border border-lime-300/50 bg-lime-200/85 font-medium text-lime-950 dark:border-lime-500/35 dark:bg-lime-900/45 dark:text-lime-100';
-  }
-  if (item.event_type?.startsWith('butterfly_exam.')) {
-    return 'border border-amber-300/50 bg-amber-200/85 font-medium text-amber-950 dark:border-amber-500/35 dark:bg-amber-900/45 dark:text-amber-100';
-  }
-  if (item.event_type?.startsWith('sorumluluk_exam.')) {
-    return 'border border-teal-300/50 bg-teal-200/85 font-medium text-teal-950 dark:border-teal-500/35 dark:bg-teal-900/45 dark:text-teal-100';
-  }
-  if (item.event_type?.startsWith('admin_message.')) {
-    return 'border border-sky-300/50 bg-sky-200/85 font-medium text-sky-950 dark:border-sky-500/35 dark:bg-sky-900/45 dark:text-sky-100';
-  }
-  if (item.event_type?.startsWith('messaging.')) {
-    return 'border border-emerald-300/50 bg-emerald-200/85 font-medium text-emerald-950 dark:border-emerald-500/35 dark:bg-emerald-900/45 dark:text-emerald-100';
-  }
-  if (isSchoolReviewsPenaltyNotification(item.event_type)) {
-    return 'border border-rose-400/55 bg-rose-200/90 font-semibold text-rose-950 dark:border-rose-500/40 dark:bg-rose-950/55 dark:text-rose-50';
-  }
-  if (isYollukNotification(item.event_type)) {
-    return 'border border-teal-300/55 bg-teal-200/90 font-semibold text-teal-950 dark:border-teal-500/40 dark:bg-teal-950/55 dark:text-teal-50';
-  }
-  return 'border border-slate-300/50 bg-slate-200/80 font-medium text-slate-800 dark:border-slate-500/35 dark:bg-slate-800/60 dark:text-slate-200';
+  return getThemeForEventTypeDetailed(item.event_type).chipClass;
 }
-
 function isTodayReminder(item: NotificationItem): boolean {
   if (item.event_type !== 'duty.reminder') return false;
   const metaDate = item.metadata?.date;
@@ -679,37 +522,37 @@ const TAB_PASTEL: Record<
 function getEmptyStateDescription(filter: FilterTab): string {
   switch (filter) {
     case 'all':
-      return 'Nöbet, yolluk, Belirli Gün, ajanda, ders programı, Akıllı Tahta, okul değerlendirme cezaları, market cüzdanı veya duyuru geldiğinde burada göreceksiniz.';
+      return 'NÃ¶bet, yolluk, Belirli GÃ¼n, ajanda, ders programÄ±, AkÄ±llÄ± Tahta, okul deÄŸerlendirme cezalarÄ±, market cÃ¼zdanÄ± veya duyuru geldiÄŸinde burada gÃ¶receksiniz.';
     case 'duty':
-      return 'Henüz nöbet bildiriminiz yok.';
+      return 'HenÃ¼z nÃ¶bet bildiriminiz yok.';
     case 'belirli':
-      return 'Henüz Belirli Gün görevlendirmesi bildiriminiz yok.';
+      return 'HenÃ¼z Belirli GÃ¼n gÃ¶revlendirmesi bildiriminiz yok.';
     case 'bilsem':
-      return 'Henüz Bilsem görevlendirmesi bildiriminiz yok.';
+      return 'HenÃ¼z Bilsem gÃ¶revlendirmesi bildiriminiz yok.';
     case 'timetable':
-      return 'Henüz ders programı bildiriminiz yok.';
+      return 'HenÃ¼z ders programÄ± bildiriminiz yok.';
     case 'agenda':
-      return 'Henüz ajanda etkinliği bildiriminiz yok.';
+      return 'HenÃ¼z ajanda etkinliÄŸi bildiriminiz yok.';
     case 'smart_board':
-      return 'Henüz Akıllı Tahta bildiriminiz yok.';
+      return 'HenÃ¼z AkÄ±llÄ± Tahta bildiriminiz yok.';
     case 'support':
-      return 'Henüz destek talebi bildiriminiz yok.';
+      return 'HenÃ¼z destek talebi bildiriminiz yok.';
     case 'announcement':
-      return 'Henüz duyuru bildiriminiz yok.';
+      return 'HenÃ¼z duyuru bildiriminiz yok.';
     case 'exam_duty':
-      return 'Henüz sınav görevi bildiriminiz yok.';
+      return 'HenÃ¼z sÄ±nav gÃ¶revi bildiriminiz yok.';
     case 'exam_school':
-      return 'Henüz Kertenkele sınavı veya sorumluluk sınavı bildiriminiz yok.';
+      return 'HenÃ¼z Kertenkele sÄ±navÄ± veya sorumluluk sÄ±navÄ± bildiriminiz yok.';
     case 'messaging':
-      return 'Henüz Mesaj merkezi bildiriminiz yok (WhatsApp kampanyası tamamlanınca veya merkez sistem mesajı gelince burada görünür).';
+      return 'HenÃ¼z Mesaj merkezi bildiriminiz yok (WhatsApp kampanyasÄ± tamamlanÄ±nca veya merkez sistem mesajÄ± gelince burada gÃ¶rÃ¼nÃ¼r).';
     case 'yolluk':
-      return 'Henüz yolluk kesinleştirme bildiriminiz yok. Okul yönetimi hesabınızı kesinleştirdiğinde özet tablo burada görünür.';
+      return 'HenÃ¼z yolluk kesinleÅŸtirme bildiriminiz yok. Okul yÃ¶netimi hesabÄ±nÄ±zÄ± kesinleÅŸtirdiÄŸinde Ã¶zet tablo burada gÃ¶rÃ¼nÃ¼r.';
     case 'penalty':
-      return 'Henüz okul değerlendirme cezası veya erişim kısıtı bildiriminiz yok.';
+      return 'HenÃ¼z okul deÄŸerlendirme cezasÄ± veya eriÅŸim kÄ±sÄ±tÄ± bildiriminiz yok.';
     case 'market':
-      return 'Henüz market / cüzdan bildiriminiz yok.';
+      return 'HenÃ¼z market / cÃ¼zdan bildiriminiz yok.';
     default:
-      return 'Henüz duyuru bildiriminiz yok.';
+      return 'HenÃ¼z duyuru bildiriminiz yok.';
   }
 }
 
@@ -845,8 +688,9 @@ export default function BildirimlerPage() {
         prev.map((n) => (n.id === id ? { ...n, read_at: new Date().toISOString() } : n)),
       );
       emitNotificationsUpdated();
+      hapticTap();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Okundu işaretlenemedi.');
+      toast.error(e instanceof Error ? e.message : 'Okundu iÅŸaretlenemedi.');
     } finally {
       setMarkingRead(null);
     }
@@ -859,16 +703,16 @@ export default function BildirimlerPage() {
       await apiFetch('/notifications/read-all', { token, method: 'PATCH' });
       setItems((prev) => prev.map((n) => ({ ...n, read_at: new Date().toISOString() })));
       emitNotificationsUpdated();
-      toast.success('Tüm bildirimler okundu olarak işaretlendi.');
+      toast.success('TÃ¼m bildirimler okundu olarak iÅŸaretlendi.');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'İşlem başarısız.');
+      toast.error(e instanceof Error ? e.message : 'Ä°ÅŸlem baÅŸarÄ±sÄ±z.');
     } finally {
       setMarkingAllRead(false);
     }
   };
 
   const handleDeleteOne = async (id: string) => {
-    if (!token || !confirm('Bu bildirimi silmek istediğinize emin misiniz?')) return;
+    if (!token || !confirm('Bu bildirimi silmek istediÄŸinize emin misiniz?')) return;
     setDeletingId(id);
     try {
       await apiFetch(`/notifications/${id}`, { token, method: 'DELETE' });
@@ -884,14 +728,14 @@ export default function BildirimlerPage() {
   };
 
   const handleDeleteAll = async () => {
-    if (!token || !confirm('Tüm bildirimleri silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) return;
+    if (!token || !confirm('TÃ¼m bildirimleri silmek istediÄŸinize emin misiniz? Bu iÅŸlem geri alÄ±namaz.')) return;
     setDeletingAll(true);
     try {
       await apiFetch('/notifications/delete-all', { token, method: 'DELETE' });
       setItems([]);
       setTotal(0);
       emitNotificationsUpdated();
-      toast.success('Tüm bildirimler silindi.');
+      toast.success('TÃ¼m bildirimler silindi.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Silinemedi.');
     } finally {
@@ -921,8 +765,8 @@ export default function BildirimlerPage() {
           <CardContent className="py-12">
             <EmptyState
               icon={<Bell className="size-10 text-muted-foreground" />}
-              title="Erişim yok"
-              description="Bu sayfaya erişim yetkiniz bulunmuyor."
+              title="EriÅŸim yok"
+              description="Bu sayfaya eriÅŸim yetkiniz bulunmuyor."
             />
           </CardContent>
         </Card>
@@ -934,6 +778,7 @@ export default function BildirimlerPage() {
 
   return (
     <div className="max-sm:-mt-2 space-y-2 sm:space-y-6">
+      <NotificationPushSettings />
       <Toolbar className="max-sm:border-0 max-sm:pb-1.5 max-sm:pt-0 sm:pb-5">
         <ToolbarHeading>
           <div className="flex items-center justify-between gap-2 sm:min-h-0 sm:items-start sm:justify-between sm:gap-4">
@@ -949,7 +794,7 @@ export default function BildirimlerPage() {
                   compact
                   showOnMobile
                   items={BILDIRIM_KAYNAK_ICONS}
-                  summary="Nöbet, takvim, ders ve diğer modüllere ait bildirimler burada."
+                  summary="NÃ¶bet, takvim, ders ve diÄŸer modÃ¼llere ait bildirimler burada."
                   className="min-w-0 flex-1"
                 />
               </div>
@@ -962,8 +807,8 @@ export default function BildirimlerPage() {
                     size="sm"
                     onClick={handleMarkAllRead}
                     disabled={markingAllRead}
-                    aria-label="Tümünü okundu yap"
-                    title="Tümünü okundu yap"
+                    aria-label="TÃ¼mÃ¼nÃ¼ okundu yap"
+                    title="TÃ¼mÃ¼nÃ¼ okundu yap"
                     className="h-9 w-9 shrink-0 gap-0 p-0 sm:h-auto sm:min-h-9 sm:w-auto sm:gap-2 sm:px-3 sm:py-2"
                   >
                     {markingAllRead ? (
@@ -971,7 +816,7 @@ export default function BildirimlerPage() {
                     ) : (
                       <CheckCheck className="size-4" />
                     )}
-                    <span className="hidden sm:inline">Tümünü okundu yap</span>
+                    <span className="hidden sm:inline">TÃ¼mÃ¼nÃ¼ okundu yap</span>
                   </Button>
                 )}
                 <Button
@@ -979,12 +824,12 @@ export default function BildirimlerPage() {
                   size="sm"
                   onClick={handleDeleteAll}
                   disabled={deletingAll}
-                  aria-label="Tümünü sil"
-                  title="Tümünü sil"
+                  aria-label="TÃ¼mÃ¼nÃ¼ sil"
+                  title="TÃ¼mÃ¼nÃ¼ sil"
                   className="h-9 w-9 shrink-0 gap-0 p-0 text-destructive hover:text-destructive sm:h-auto sm:min-h-9 sm:w-auto sm:gap-2 sm:px-3 sm:py-2"
                 >
                   {deletingAll ? <LoadingSpinner className="size-4" /> : <Trash2 className="size-4" />}
-                  <span className="hidden sm:inline">Tümünü sil</span>
+                  <span className="hidden sm:inline">TÃ¼mÃ¼nÃ¼ sil</span>
                 </Button>
               </div>
             )}
@@ -992,7 +837,7 @@ export default function BildirimlerPage() {
         </ToolbarHeading>
       </Toolbar>
 
-      {/* Filtre sekmeleri — mobilde yatay kaydırma; grup renkleri belirgin */}
+      {/* Filtre sekmeleri â€” mobilde yatay kaydÄ±rma; grup renkleri belirgin */}
       <div
         className={cn(
           'overflow-hidden rounded-2xl border-2 border-violet-300/50 bg-linear-to-br from-violet-100/90 via-fuchsia-50/70 to-amber-50/60 p-2 shadow-md',
@@ -1000,7 +845,7 @@ export default function BildirimlerPage() {
         )}
       >
         <p className="mb-1.5 px-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-violet-800 dark:text-violet-200 sm:hidden">
-          Gruba göre filtre
+          Gruba gÃ¶re filtre
         </p>
         <div className="relative sm:static">
           <div
@@ -1023,17 +868,17 @@ export default function BildirimlerPage() {
               filter === tab ? TAB_PASTEL[tab].active : TAB_PASTEL[tab].idle,
             )}
           >
-            {tab === 'all' && <>Tümü</>}
+            {tab === 'all' && <>TÃ¼mÃ¼</>}
             {tab === 'duty' && (
               <>
                 <CalendarClock className="size-3.5 shrink-0" />
-                Nöbet
+                NÃ¶bet
               </>
             )}
             {tab === 'belirli' && (
               <>
                 <Award className="size-3.5 shrink-0" />
-                Belirli Gün
+                Belirli GÃ¼n
               </>
             )}
             {tab === 'bilsem' && (
@@ -1045,7 +890,7 @@ export default function BildirimlerPage() {
             {tab === 'timetable' && (
               <>
                 <Table2 className="size-3.5 shrink-0" />
-                Ders Programı
+                Ders ProgramÄ±
               </>
             )}
             {tab === 'agenda' && (
@@ -1057,7 +902,7 @@ export default function BildirimlerPage() {
             {tab === 'smart_board' && (
               <>
                 <Monitor className="size-3.5 shrink-0" />
-                Akıllı Tahta
+                AkÄ±llÄ± Tahta
               </>
             )}
             {tab === 'support' && (
@@ -1075,13 +920,13 @@ export default function BildirimlerPage() {
             {tab === 'exam_duty' && (
               <>
                 <ClipboardList className="size-3.5 shrink-0" />
-                Sınav Görevi
+                SÄ±nav GÃ¶revi
               </>
             )}
             {tab === 'exam_school' && (
               <>
                 <LayoutGrid className="size-3.5 shrink-0" />
-                Okul sınavları
+                Okul sÄ±navlarÄ±
               </>
             )}
             {tab === 'messaging' && (
@@ -1113,7 +958,7 @@ export default function BildirimlerPage() {
           </div>
         </div>
         <p className="mt-1.5 text-center text-[10px] font-medium text-violet-700/90 dark:text-violet-300/90 sm:hidden">
-          ← Tüm grupları görmek için kaydırın →
+          â† TÃ¼m gruplarÄ± gÃ¶rmek iÃ§in kaydÄ±rÄ±n â†’
         </p>
       </div>
 
@@ -1149,7 +994,7 @@ export default function BildirimlerPage() {
                     <div className="mb-5 flex size-[4.25rem] items-center justify-center rounded-2xl bg-linear-to-br from-violet-500 via-fuchsia-500 to-amber-500 text-white shadow-xl shadow-violet-500/30 ring-4 ring-white/60 dark:ring-zinc-900/90">
                       <Bell className="size-8 sm:size-9" strokeWidth={2} aria-hidden />
                     </div>
-                    <h3 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">Henüz bildirim yok</h3>
+                    <h3 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">HenÃ¼z bildirim yok</h3>
                     <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-muted-foreground">
                       {getEmptyStateDescription(filter)}
                     </p>
@@ -1158,7 +1003,7 @@ export default function BildirimlerPage() {
                   {filter === 'exam_school' ? (
                     <>
                       <p className="mt-8 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-teal-700/90 dark:text-teal-300/90">
-                        Bu grupta bildirim kaynakları
+                        Bu grupta bildirim kaynaklarÄ±
                       </p>
                       <div className="mt-3 grid gap-3 sm:grid-cols-3">
                         {EXAM_SCHOOL_FOCUS_LINKS.map(({ href, label, Icon, blob, ring }) => (
@@ -1185,7 +1030,7 @@ export default function BildirimlerPage() {
                       </div>
 
                       <p className="mt-10 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-700/90 dark:text-violet-300/90">
-                        Hızlı erişim
+                        HÄ±zlÄ± eriÅŸim
                       </p>
                       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                         {EXAM_SCHOOL_MORE_LINKS.map(({ href, label, Icon, wash }) => (
@@ -1209,7 +1054,7 @@ export default function BildirimlerPage() {
                     <div className="mt-8 flex flex-col items-stretch gap-2 sm:mx-auto sm:max-w-3xl sm:flex-row sm:flex-wrap sm:justify-center sm:gap-2.5">
                       <Link href="/duty" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <CalendarClock className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                        Nöbetlere git
+                        NÃ¶betlere git
                       </Link>
                       <Link href="/akademik-takvim" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <Award className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
@@ -1221,15 +1066,15 @@ export default function BildirimlerPage() {
                       </Link>
                       <Link href="/ogretmen-ajandasi" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <CalendarDays className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                        Öğretmen Ajandası
+                        Ã–ÄŸretmen AjandasÄ±
                       </Link>
                       <Link href="/ders-programi/programlarim" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <Table2 className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                        Programlarım
+                        ProgramlarÄ±m
                       </Link>
                       <Link href="/akilli-tahta" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <Monitor className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                        Akıllı Tahta
+                        AkÄ±llÄ± Tahta
                       </Link>
                       <Link href="/support" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <Megaphone className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
@@ -1237,11 +1082,11 @@ export default function BildirimlerPage() {
                       </Link>
                       <Link href="/sinav-gorevlerim" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <ClipboardList className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                        Sınav Görevleri
+                        SÄ±nav GÃ¶revleri
                       </Link>
                       <Link href="/market" className={BILDIRIM_EMPTY_SHORTCUT_CLASS}>
                         <Wallet className="size-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                        Market / Cüzdan
+                        Market / CÃ¼zdan
                       </Link>
                     </div>
                   )}
@@ -1257,7 +1102,6 @@ export default function BildirimlerPage() {
                 const isDutyDaily = DUTY_DAILY_EVENT_TYPES.includes(item.event_type) && item.metadata?.date;
                 const isToday = isTodayReminder(item);
                 const isBelirliHighlight = isBelirliGunReminderHighlight(item);
-                const { icon, bgClass } = getNotificationIcon(item);
                 const rowAccent = getNotificationRowAccentClass(item);
                 const isExamDutySync = EXAM_DUTY_SYNC_EVENT_TYPES.includes(item.event_type);
                 const isYolluk = isYollukNotification(item.event_type);
@@ -1283,15 +1127,7 @@ export default function BildirimlerPage() {
                       onClick={(e) => handleLinkClick(e, item)}
                     >
                       <div className="flex items-start gap-2 sm:gap-2.5">
-                        <div
-                          className={cn(
-                            'mt-0 flex size-8 shrink-0 items-center justify-center rounded-lg sm:mt-0.5 sm:size-9 sm:rounded-xl',
-                            bgClass,
-                            'ring-1 sm:ring-2',
-                          )}
-                        >
-                          {icon}
-                        </div>
+                        <NotificationChannelIcon eventType={item.event_type} size="sm" className="mt-0 sm:mt-0.5" />
                         <div className="min-w-0 flex-1">
                           {isExamDutySync ? (
                             <div className="min-w-0 space-y-0.5">
@@ -1417,7 +1253,7 @@ export default function BildirimlerPage() {
                           }}
                         >
                           <ExternalLink className="size-3.5" />
-                          Günlük tabloya git
+                          GÃ¼nlÃ¼k tabloya git
                         </Button>
                       )}
                       {(BELIRLI_GUN_EVENT_TYPES.includes(item.event_type) || BILSEM_CALENDAR_EVENT_TYPES.includes(item.event_type)) && (
@@ -1473,7 +1309,7 @@ export default function BildirimlerPage() {
                           }}
                         >
                           <ClipboardList className="size-3.5" />
-                          Sınav görevleri
+                          SÄ±nav gÃ¶revleri
                         </Button>
                       )}
                       {EXAM_DUTY_EVENT_TYPES.includes(item.event_type) && (
@@ -1487,7 +1323,7 @@ export default function BildirimlerPage() {
                           }}
                         >
                           <ClipboardList className="size-3.5" />
-                          Sınav görevlerine git
+                          SÄ±nav gÃ¶revlerine git
                         </Button>
                       )}
                       {isExamSchoolModuleNotification(item.event_type) && (
@@ -1529,7 +1365,7 @@ export default function BildirimlerPage() {
                           }}
                         >
                           <Banknote className="size-3.5" />
-                          Yolluk detayı
+                          Yolluk detayÄ±
                         </Button>
                       )}
                       {MARKET_EVENT_TYPES.includes(item.event_type) && (
@@ -1556,7 +1392,7 @@ export default function BildirimlerPage() {
                             handleMarkRead(item.id);
                           }}
                           disabled={!!markingRead}
-                          title="Okundu işaretle"
+                          title="Okundu iÅŸaretle"
                         >
                           {markingRead === item.id ? (
                             <LoadingSpinner className="size-4" />
@@ -1591,7 +1427,7 @@ export default function BildirimlerPage() {
           {loadMoreVisible && (
             <div className="border-t px-3 py-3 sm:px-4">
               <Button variant="ghost" size="sm" className="min-h-11 w-full sm:min-h-9" onClick={loadMore}>
-                Daha fazla yükle
+                Daha fazla yÃ¼kle
               </Button>
             </div>
           )}
@@ -1600,3 +1436,4 @@ export default function BildirimlerPage() {
     </div>
   );
 }
+

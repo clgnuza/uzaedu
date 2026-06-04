@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { PwaShareBanner } from '@/components/pwa-share-banner';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { Campaign, TYPE_LABELS, STATUS_COLORS, STATUS_LABELS, loadCampaigns, deleteCampaign, msgQ } from '@/lib/messaging-api';
@@ -61,6 +62,9 @@ export default function MesajMerkeziPage() {
 
   return (
     <div className="space-y-5">
+      <Suspense fallback={null}>
+        <PwaShareBanner expect="mesaj" />
+      </Suspense>
       {isTeacher ? (
         <Link
           href={`/mesaj-merkezi/ogretmen-ayarlar${q}`}

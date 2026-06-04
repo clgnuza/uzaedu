@@ -23,6 +23,8 @@ import { AuthCompactDetails } from '@/components/auth/auth-compact-details';
 import { ForgotPasswordGateDialog } from '@/components/auth/forgot-password-gate-dialog';
 import { cn } from '@/lib/utils';
 import { getPostLoginRedirect } from '@/lib/post-login-redirect';
+import { BiometricLoginButton } from '@/components/auth/biometric-login-button';
+import { getRememberedLoginEmail } from '@/lib/webauthn';
 
 const RECAPTCHA_ID = 'recaptcha-phone';
 
@@ -70,6 +72,11 @@ export function TeacherLoginForm() {
   const [pendingEmail, setPendingEmail] = useState('');
   const [otpPurpose, setOtpPurpose] = useState<OtpPurposeTeacher>('login_teacher');
   const [rememberMe, setRememberMe] = useState(false);
+
+  useEffect(() => {
+    const r = getRememberedLoginEmail();
+    if (r) setEmail((prev) => prev || r);
+  }, []);
 
   const setTokenAndRedirect = async (token: string) => {
     const ok = await setToken(token);
@@ -402,6 +409,15 @@ export function TeacherLoginForm() {
                     role="teacher"
                   />
                   {error && <Alert message={error} className="px-2.5 py-2 text-[11px] leading-snug [&_svg]:size-4" />}
+                  <BiometricLoginButton
+                    portal="teacher"
+                    email={email}
+                    rememberMe={rememberMe}
+                    disabled={loading}
+                    onSuccess={setTokenAndRedirect}
+                    onError={setError}
+                    className="mb-1"
+                  />
                   <button
                     type="submit"
                     disabled={loading}

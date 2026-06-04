@@ -27,6 +27,7 @@ import { toast } from 'sonner';
 import type { EvrakDefaults } from '@/components/evrak-defaults-form';
 import { DeleteAccountButton } from '@/components/account/data-privacy-actions';
 import { LoginOtpPreference } from '@/components/account/login-otp-preference';
+import { PasskeyPreference } from '@/components/account/passkey-preference';
 import { BackupExportPanel } from '@/components/account/backup-export-panel';
 import { AvatarPickerField } from '@/components/account/avatar-picker';
 import { UserAvatarBubble } from '@/components/user-avatar';
@@ -467,6 +468,7 @@ export function TeacherAccountTabs() {
               initialRequired={me?.login_otp_required !== false}
               onSaved={() => void refetchMe()}
             />
+            <PasskeyPreference token={token} portal="teacher" />
 
             {/* Hesap kapatma */}
             <section className="space-y-1.5 rounded-lg border border-border/60 bg-linear-to-br from-muted/20 via-muted/10 to-muted/20 p-2.5 transition-all duration-300 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/20 dark:to-zinc-800/40 sm:space-y-2 sm:rounded-xl sm:p-4">

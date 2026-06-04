@@ -211,7 +211,12 @@ export function useTimetableEditor(token: string | null, studioId: string | null
   );
 
   const placeUnplaced = useCallback(
-    async (assignmentId: string, day: number, lesson: number, opts?: { silent?: boolean }) => {
+    async (
+      assignmentId: string,
+      day: number,
+      lesson: number,
+      opts?: { silent?: boolean; classSection?: string; removePoolId?: string },
+    ) => {
       if (!token || !studioId || !programId) return;
       setBusy(true);
       try {
@@ -222,8 +227,11 @@ export function useTimetableEditor(token: string | null, studioId: string | null
           assignmentId,
           day,
           lesson,
+          opts?.classSection,
         );
-        setCtx((prev) => (prev ? addEntryToContext(prev, created) : prev));
+        setCtx((prev) =>
+          prev ? addEntryToContext(prev, created, { removePoolId: opts?.removePoolId }) : prev,
+        );
         if (!opts?.silent) toast.success('Yerleştirildi');
       } catch (e) {
         toast.error(e instanceof Error ? e.message : 'Yerleştirilemedi');
@@ -233,6 +241,49 @@ export function useTimetableEditor(token: string | null, studioId: string | null
       }
     },
     [token, studioId, programId],
+  );
+
+  /** Ardışık saatleri tek busy döngüsünde yerleştirir (UI kilitlenmesini azaltır). */
+  const placeUnplacedChunk = useCallback(
+    async (
+      assignmentId: string,
+      day: number,
+      startLesson: number,
+      chunkHours: number,
+      opts?: { silent?: boolean; classSection?: string; removePoolId?: string },
+    ) => {
+      if (!token || !studioId || !programId || chunkHours < 1) return;
+      setBusy(true);
+      try {
+        let nextCtx = ctx;
+        for (let i = 0; i < chunkHours; i++) {
+          const created = await createEntryFromAssignment(
+            token,
+            studioId,
+            programId,
+            assignmentId,
+            day,
+            startLesson + i,
+            opts?.classSection,
+          );
+          if (nextCtx) {
+            nextCtx = addEntryToContext(nextCtx, created, {
+              removePoolId: i === chunkHours - 1 ? opts?.removePoolId : undefined,
+            });
+          }
+        }
+        if (nextCtx) setCtx(nextCtx);
+        if (!opts?.silent) {
+          toast.success(chunkHours > 1 ? `${chunkHours} saatlik blok yerleştirildi` : 'Yerleştirildi');
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Yerleştirilemedi');
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [token, studioId, programId, ctx],
   );
 
   const removeEntry = useCallback(
@@ -343,6 +394,7 @@ export function useTimetableEditor(token: string | null, studioId: string | null
     moveEntry,
     applyMoves,
     placeUnplaced,
+    placeUnplacedChunk,
     removeEntry,
     removeEntries,
     setEntryRoom,
