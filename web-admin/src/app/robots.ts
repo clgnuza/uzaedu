@@ -18,6 +18,8 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
         userAgent: '*',
         allow: [
           '/',
+          '/moduller',
+          '/moduller/',
           '/login',
           '/login/',
           '/register',

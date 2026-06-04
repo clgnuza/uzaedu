@@ -1,4 +1,9 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
+import { LANDING_MODULES_SEO, landingModulesJsonLd, modulePublicPath } from '@/lib/landing-modules-seo';
+import { normalizePublicSiteUrl } from '@/lib/site-url';
+
+const SITE_URL = normalizePublicSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
 
 export const metadata: Metadata = {
   title: 'Uzaedu Öğretmen | Dijital Okul Yönetim Platformu',
@@ -19,12 +24,14 @@ import { UserPlus } from 'lucide-react';
 import { AuthTransitionLink } from '@/components/landing/auth-transition-link';
 import { LandingLoginLink } from '@/components/landing/landing-login-link';
 import { SealHubClient } from '@/components/landing/seal-hub-client';
+import { LandingFeaturesSection } from '@/components/landing/landing-features-section';
 import { CookiePreferencesLink } from '@/components/cookie-preferences-link';
 
-const LEGAL = [
-  { href: '/gizlilik',        label: 'Gizlilik' },
+const FOOTER_LINKS = [
+  { href: '/gizlilik', label: 'Gizlilik' },
   { href: '/kullanim-sartlari', label: 'Kullanım şartları' },
-  { href: '/cerez',           label: 'Çerez politikası' },
+  { href: '/cerez', label: 'Çerez politikası' },
+  { href: '/iletisim', label: 'İletişim' },
 ] as const;
 
 function AppleIcon({ className }: { className?: string }) {
@@ -45,7 +52,27 @@ function AndroidIcon({ className }: { className?: string }) {
 
 export default function HomePage() {
   return (
-    <div className="landing-page relative flex min-h-dvh w-full flex-col overflow-x-hidden bg-[#050505] text-white">
+    <div className="landing-page relative flex min-h-dvh w-full flex-col overflow-x-hidden overflow-y-auto bg-[#050505] text-white">
+      <Script
+        id="landing-modules-jsonld"
+        type="application/ld+json"
+        strategy="beforeInteractive"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(landingModulesJsonLd(SITE_URL)),
+        }}
+      />
+      <nav className="sr-only" aria-label="Okul modülleri">
+        <ul>
+          <li>
+            <Link href="/moduller">Tüm modüller</Link>
+          </li>
+          {LANDING_MODULES_SEO.map((m) => (
+            <li key={m.slug}>
+              <Link href={modulePublicPath(m)}>{m.label}</Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
 
       {/* ── Background ── */}
       <div className="pointer-events-none absolute inset-0" aria-hidden>
@@ -67,7 +94,13 @@ export default function HomePage() {
         style={{ animation: 'landing-fadein 0.5s ease both' }}
       >
         <p className="text-[10px] font-bold uppercase tracking-[0.32em] text-zinc-600">Uzaedu Öğretmen</p>
-        <nav className="flex items-center gap-2" aria-label="Hesap">
+        <nav className="flex items-center gap-2 sm:gap-3" aria-label="Hesap">
+          <a
+            href="#ozellikler"
+            className="hidden rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:border-white/20 hover:text-zinc-200 sm:inline-flex"
+          >
+            Modüller
+          </a>
           <LandingLoginLink />
           <AuthTransitionLink
             href="/register"
@@ -80,10 +113,11 @@ export default function HomePage() {
       </header>
 
       {/* ── Main ── */}
-      <main
-        className="relative z-10 mx-auto flex w-full min-h-0 min-w-0 flex-1 flex-col items-center justify-center px-2 pb-4 pt-1 sm:px-4 sm:pb-7 sm:pt-2 md:px-6 lg:px-8"
-        style={{ animation: 'landing-fadein 0.7s ease 0.1s both' }}
-      >
+      <main className="relative z-10 mx-auto flex w-full min-w-0 flex-col items-center">
+        <section
+          className="flex w-full min-h-[min(100dvh,920px)] flex-col items-center justify-center px-2 pb-4 pt-1 sm:min-h-dvh sm:px-4 sm:pb-7 sm:pt-2 md:px-6 lg:px-8"
+          style={{ animation: 'landing-fadein 0.7s ease 0.1s both' }}
+        >
         <div className="flex w-full min-w-0 flex-col items-center justify-center gap-0">
           <SealHubClient />
         </div>
@@ -129,19 +163,30 @@ export default function HomePage() {
             </button>
           </div>
         </div>
+        </section>
+
+        <LandingFeaturesSection />
       </main>
 
       {/* ── Footer ── */}
       <footer
-        className="relative z-10 flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 px-4 py-4 text-[10px] text-zinc-700 sm:gap-x-5 sm:py-5 sm:text-[10.5px]"
+        className="relative z-10 shrink-0 px-4 py-5 sm:px-8 sm:py-6"
         style={{ animation: 'landing-fadein 0.7s ease 0.35s both' }}
       >
-        {LEGAL.map((l) => (
-          <Link key={l.href} href={l.href} className="transition hover:text-zinc-400">
-            {l.label}
+        <nav
+          className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-2"
+          aria-label="Alt bağlantılar"
+        >
+          <Link href="/moduller" className="landing-footer-chip landing-footer-chip--brand">
+            Modüller
           </Link>
-        ))}
-        <CookiePreferencesLink className="transition hover:text-zinc-400" />
+          {FOOTER_LINKS.map((l) => (
+            <Link key={l.href} href={l.href} className="landing-footer-chip">
+              {l.label}
+            </Link>
+          ))}
+          <CookiePreferencesLink className="landing-footer-chip" />
+        </nav>
       </footer>
     </div>
   );

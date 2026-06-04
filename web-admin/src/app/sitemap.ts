@@ -1,5 +1,6 @@
 import type { MetadataRoute } from 'next';
 import { fetchWebExtrasPublic } from '@/lib/web-extras-public';
+import { LANDING_MODULES_SEO, modulePublicPath } from '@/lib/landing-modules-seo';
 import { normalizePublicSiteUrl } from '@/lib/site-url';
 
 const SITE_URL = normalizePublicSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
@@ -9,14 +10,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = SITE_URL.replace(/\/$/, '');
   const now  = new Date();
 
+  const moduleEntries: MetadataRoute.Sitemap = [
+    { url: `${base}/moduller`, lastModified: now, changeFrequency: 'weekly', priority: 0.95 },
+    ...LANDING_MODULES_SEO.map((m) => ({
+      url: `${base}${modulePublicPath(m)}`,
+      lastModified: now,
+      changeFrequency: 'monthly' as const,
+      priority: 0.85,
+    })),
+  ];
+
   const entries: MetadataRoute.Sitemap = [
     { url: base,                              lastModified: now, changeFrequency: 'weekly',  priority: 1.0 },
-    { url: `${base}/login`,                   lastModified: now, changeFrequency: 'monthly', priority: 0.7 },
-    { url: `${base}/login/ogretmen`,          lastModified: now, changeFrequency: 'monthly', priority: 0.6 },
-    { url: `${base}/login/okul`,              lastModified: now, changeFrequency: 'monthly', priority: 0.6 },
-    { url: `${base}/register`,                lastModified: now, changeFrequency: 'monthly', priority: 0.7 },
-    { url: `${base}/register/ogretmen`,       lastModified: now, changeFrequency: 'monthly', priority: 0.6 },
-    { url: `${base}/register/okul`,           lastModified: now, changeFrequency: 'monthly', priority: 0.6 },
+    ...moduleEntries,
+    { url: `${base}/login`,                   lastModified: now, changeFrequency: 'yearly',  priority: 0.4 },
+    { url: `${base}/login/ogretmen`,          lastModified: now, changeFrequency: 'yearly',  priority: 0.35 },
+    { url: `${base}/login/okul`,              lastModified: now, changeFrequency: 'yearly',  priority: 0.35 },
+    { url: `${base}/register`,                lastModified: now, changeFrequency: 'yearly',  priority: 0.4 },
+    { url: `${base}/register/ogretmen`,       lastModified: now, changeFrequency: 'yearly',  priority: 0.35 },
+    { url: `${base}/register/okul`,           lastModified: now, changeFrequency: 'yearly',  priority: 0.35 },
     { url: `${base}/sinav-gorev-ucretleri`,   lastModified: now, changeFrequency: 'monthly', priority: 0.8 },
     { url: `${base}/ek-ders-hesaplama`,        lastModified: now, changeFrequency: 'monthly', priority: 0.8 },
     { url: `${base}/hesaplamalar`,             lastModified: now, changeFrequency: 'monthly', priority: 0.7 },
