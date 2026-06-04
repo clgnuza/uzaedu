@@ -11,8 +11,21 @@
 #>
 $ErrorActionPreference = "Stop"
 
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+$dotenv = Join-Path $PSScriptRoot ".env.local"
+if (Test-Path $dotenv) {
+  Get-Content $dotenv | ForEach-Object {
+    if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$') {
+      $k = $matches[1]; $v = $matches[2].Trim().Trim('"').Trim("'")
+      if ($v) { Set-Item -Path "env:$k" -Value $v }
+    }
+  }
+}
+
 $token = $env:CLOUDFLARE_API_TOKEN?.Trim()
-if (-not $token) { throw "CLOUDFLARE_API_TOKEN tanimli degil." }
+if (-not $token) {
+  throw "CLOUDFLARE_API_TOKEN yok. infra/cloudflare/.env.local olusturun (.env.example) veya ortam degiskeni verin."
+}
 
 $headers = @{
   Authorization = "Bearer $token"
@@ -39,14 +52,15 @@ if (-not $zoneId) {
 }
 
 $phase = "http_request_cache_settings"
-$existing = Invoke-CfApi GET "https://api.cloudflare.com/client/v4/zones/$zoneId/rulesets?phase=$phase"
-$rulesetName = "Uzaedu static cache (repo)"
-$found = $existing | Where-Object { $_.name -eq $rulesetName } | Select-Object -First 1
+$entryUri = "https://api.cloudflare.com/client/v4/zones/$zoneId/rulesets/phases/$phase/entrypoint"
+$entry = $null
+try { $entry = Invoke-CfApi GET $entryUri } catch { }
 
+$tag = "ogretmenpro-static-cache"
 $rules = @(
   @{
     expression = '(http.host eq "api.uzaedu.com")'
-    description  = "API — edge cache kapali"
+    description  = "$tag: API bypass"
     action       = "set_cache_settings"
     action_parameters = @{
       cache = $false
@@ -54,7 +68,7 @@ $rules = @(
   },
   @{
     expression = '(starts_with(http.request.uri.path, "/_next/static/"))'
-    description  = "Next build static"
+    description  = "$tag: Next static"
     action       = "set_cache_settings"
     action_parameters = @{
       cache = $true
@@ -67,7 +81,7 @@ $rules = @(
   },
   @{
     expression = '(http.request.uri.path matches "^/.*\\.(css|js|mjs|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|otf)$")'
-    description  = "Statik dosya uzantilari"
+    description  = "$tag: static extensions"
     action       = "set_cache_settings"
     action_parameters = @{
       cache = $true
@@ -80,20 +94,13 @@ $rules = @(
   }
 )
 
-$body = @{
-  name        = $rulesetName
-  description = "ogretmenpro infra/cloudflare — statik onbellek"
-  kind        = "zone"
-  phase       = $phase
-  rules       = $rules
+$kept = @()
+if ($entry -and $entry.rules) {
+  $kept = @($entry.rules | Where-Object { $_.description -notlike "$tag:*" })
 }
+$merged = @($kept + $rules)
+$body = @{ rules = $merged }
 
-if ($found) {
-  Write-Host "Guncelleniyor: $($found.id)"
-  Invoke-CfApi PUT "https://api.cloudflare.com/client/v4/zones/$zoneId/rulesets/$($found.id)" $body | Out-Null
-} else {
-  Write-Host "Olusturuluyor: $rulesetName"
-  Invoke-CfApi POST "https://api.cloudflare.com/client/v4/zones/$zoneId/rulesets" $body | Out-Null
-}
-
+Write-Host "Entrypoint guncelleniyor ($($rules.Count) kural, $($kept.Count) mevcut korundu)"
+Invoke-CfApi PUT $entryUri $body | Out-Null
 Write-Host "Tamam. CF Cache Rules uygulandi."
