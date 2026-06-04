@@ -2,6 +2,7 @@
 export const PWA_SHARE_TARGET = {
   action: '/pwa/gelen',
   method: 'GET' as const,
+  enctype: 'application/x-www-form-urlencoded' as const,
   params: {
     title: 'title',
     text: 'text',
