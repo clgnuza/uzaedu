@@ -277,26 +277,28 @@ export function NotificationPushSettings() {
   const toggleChannel = async (channelId: string, enabled: boolean) => {
     if (!token) return;
     setPreviewChannel(channelId);
-    await apiFetch('/notification-preferences', {
-      token,
-      method: 'PATCH',
-      body: JSON.stringify({ channels: [{ channel: channelId, push_enabled: enabled }] }),
-    });
+    const prevPrefs = prefs;
     setPrefs((prev) => {
       const rest = prev.filter((p) => p.channel !== channelId);
       const old = prev.find((p) => p.channel === channelId);
       return [...rest, { channel: channelId, push_enabled: enabled, critical: old?.critical }];
     });
+    try {
+      await apiFetch('/notification-preferences', {
+        token,
+        method: 'PATCH',
+        body: JSON.stringify({ channels: [{ channel: channelId, push_enabled: enabled }] }),
+      });
+    } catch (e) {
+      setPrefs(prevPrefs);
+      toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
+    }
   };
 
   const toggleCritical = async (channelId: string, critical: boolean) => {
     if (!token) return;
     setPreviewChannel(channelId);
-    await apiFetch('/notification-preferences', {
-      token,
-      method: 'PATCH',
-      body: JSON.stringify({ channels: [{ channel: channelId, critical }] }),
-    });
+    const prevPrefs = prefs;
     setPrefs((prev) => {
       const rest = prev.filter((p) => p.channel !== channelId);
       const old = prev.find((p) => p.channel === channelId);
@@ -305,6 +307,16 @@ export function NotificationPushSettings() {
         { channel: channelId, push_enabled: old?.push_enabled !== false, critical },
       ];
     });
+    try {
+      await apiFetch('/notification-preferences', {
+        token,
+        method: 'PATCH',
+        body: JSON.stringify({ channels: [{ channel: channelId, critical }] }),
+      });
+    } catch (e) {
+      setPrefs(prevPrefs);
+      toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
+    }
   };
 
   const enableDevice = async () => {
