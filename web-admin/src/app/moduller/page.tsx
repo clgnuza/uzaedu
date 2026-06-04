@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { LANDING_MODULES_SEO } from '@/lib/landing-modules-seo';
+
+export const revalidate = 3600;
 import {
   moduleAccentForSlug,
   ModulesPublicGridCard,

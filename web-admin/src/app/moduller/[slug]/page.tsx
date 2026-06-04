@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { ModulePublicPage } from '@/components/landing/module-public-page';
+
+export const revalidate = 3600;
 import {
   getLandingModuleBySlug,
   LANDING_MODULES_SEO,

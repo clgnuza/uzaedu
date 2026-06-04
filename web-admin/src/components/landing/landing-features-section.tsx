@@ -109,8 +109,18 @@ function HubNodeIcon({ icon: Icon, size = 'md' }: { icon: LucideIcon; size?: 'md
 function HubMiniRopeFrame({ children, className }: { children: ReactNode; className?: string }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [rect, setRect] = useState<LandingCardFrameRect>(() => landingCardFrame());
+  const [ropeEnabled, setRopeEnabled] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const sync = () => setRopeEnabled(!mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
 
   const measureFrame = useCallback(() => {
+    if (!ropeEnabled) return;
     const wrap = wrapRef.current;
     if (!wrap) return;
     const rings = wrap.querySelector<SVGSVGElement>('.landing-feature-hub-rings');
@@ -138,9 +148,17 @@ function HubMiniRopeFrame({ children, className }: { children: ReactNode; classN
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [measureFrame]);
+  }, [measureFrame, ropeEnabled]);
 
   const rectProps = { ...rect, fill: 'none' as const };
+
+  if (!ropeEnabled) {
+    return (
+      <div className={cn('landing-feature-hub-wrap flex min-h-0 w-full flex-1 flex-col', className)}>
+        <div className="landing-feature-inner flex min-h-0 flex-1 flex-col">{children}</div>
+      </div>
+    );
+  }
 
   return (
     <div

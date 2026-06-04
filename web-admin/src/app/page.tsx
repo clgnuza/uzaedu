@@ -3,6 +3,8 @@ import Script from 'next/script';
 import { LANDING_MODULES_SEO, landingModulesJsonLd, modulePublicPath } from '@/lib/landing-modules-seo';
 import { normalizePublicSiteUrl } from '@/lib/site-url';
 
+export const revalidate = 3600;
+
 const SITE_URL = normalizePublicSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
 
 export const metadata: Metadata = {

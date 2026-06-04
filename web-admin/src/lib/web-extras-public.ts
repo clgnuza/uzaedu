@@ -44,10 +44,10 @@ export type WebExtrasPublic = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000/api';
 
-/** ISR süresi; sunucudaki cache_ttl_web_extras ile uyumlu tutun (varsayılan 30). */
+/** ISR süresi; sunucudaki cache_ttl_web_extras ile uyumlu tutun (varsayılan 300). */
 const WEB_EXTRAS_ISR = Math.min(
   86400,
-  Math.max(10, parseInt(process.env.NEXT_PUBLIC_WEB_EXTRAS_ISR || '30', 10) || 30),
+  Math.max(10, parseInt(process.env.NEXT_PUBLIC_WEB_EXTRAS_ISR || '300', 10) || 300),
 );
 
 export const fetchWebExtrasPublic = cache(async function fetchWebExtrasPublic(): Promise<WebExtrasPublic | null> {

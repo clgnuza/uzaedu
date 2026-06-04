@@ -2,11 +2,10 @@
  * PM2 — canlı: kopyala /opt/uzaedu/scripts/deploy/ecosystem.config.cjs veya doğrudan bu dosyayı kullan.
  *   pm2 startOrReload ecosystem.config.cjs --update-env
  *
- * Cluster (API): PM2_API_EXEC_MODE=cluster PM2_API_INSTANCES=2
- * Varsayılan fork + 1 instance.
+ * Cluster: PM2_API_INSTANCES=2 PM2_WEB_INSTANCES=2 (düşük RAM’de 1 yapın).
  */
-const apiInstances = Math.max(1, parseInt(process.env.PM2_API_INSTANCES || '1', 10) || 1);
-const webInstances = Math.max(1, parseInt(process.env.PM2_WEB_INSTANCES || '1', 10) || 1);
+const apiInstances = Math.max(1, parseInt(process.env.PM2_API_INSTANCES || '2', 10) || 2);
+const webInstances = Math.max(1, parseInt(process.env.PM2_WEB_INSTANCES || '2', 10) || 2);
 const apiExec =
   apiInstances > 1 ? 'cluster' : process.env.PM2_API_EXEC_MODE || 'fork';
 const webExec =

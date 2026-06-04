@@ -1398,7 +1398,7 @@ export class AppConfigService {
     if (dto.cache_ttl_yayin_seo !== undefined) next.cache_ttl_yayin_seo = clampCacheTtl(dto.cache_ttl_yayin_seo, 300);
     if (dto.cache_ttl_web_public !== undefined) next.cache_ttl_web_public = clampCacheTtl(dto.cache_ttl_web_public, 300);
     if (dto.cache_ttl_legal_pages !== undefined) next.cache_ttl_legal_pages = clampCacheTtl(dto.cache_ttl_legal_pages, 120);
-    if (dto.cache_ttl_web_extras !== undefined) next.cache_ttl_web_extras = clampCacheTtl(dto.cache_ttl_web_extras, 30);
+    if (dto.cache_ttl_web_extras !== undefined) next.cache_ttl_web_extras = clampCacheTtl(dto.cache_ttl_web_extras, 300);
     if (dto.global_robots_noindex !== undefined) next.global_robots_noindex = !!dto.global_robots_noindex;
     if (dto.default_og_image_url !== undefined) next.default_og_image_url = dto.default_og_image_url?.trim() || null;
     if (dto.meta_description !== undefined) next.meta_description = dto.meta_description?.trim() || null;

@@ -61,7 +61,7 @@ export const DEFAULT_WEB_EXTRAS = {
   cache_ttl_web_public: 300,
   cache_ttl_legal_pages: 120,
   /** GET /content/web-extras Cache-Control max-age (sn) */
-  cache_ttl_web_extras: 30,
+  cache_ttl_web_extras: 300,
   global_robots_noindex: false,
   /** Site kökü OG; web-admin `public/brand/og-default.png` (göreli yol, metadataBase ile mutlak URL olur) */
   default_og_image_url: '/brand/og-default.png' as string | null,
