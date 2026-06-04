@@ -4,10 +4,10 @@ import { useCallback, useEffect, useState, type ComponentType } from 'react';
 import {
   BellRing,
   Check,
+  ChevronDown,
   Moon,
   ShieldAlert,
   Smartphone,
-  Sparkles,
   Volume2,
   VolumeX,
   Vibrate,
@@ -34,51 +34,52 @@ import { PwaSettingsCard } from '@/components/pwa-settings-card';
 type ChannelDef = { id: string; label: string };
 type Pref = { channel: string; push_enabled: boolean; critical?: boolean };
 
-function SettingSwitch({
+function CompactSwitch({
   label,
-  hint,
   checked,
   disabled,
   onChange,
   icon: Icon,
+  className,
 }: {
   label: string;
-  hint?: string;
   checked: boolean;
   disabled?: boolean;
   onChange: (on: boolean) => void;
   icon: ComponentType<{ className?: string }>;
+  className?: string;
 }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        'flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors',
-        checked ? 'border-border/60 bg-card' : 'border-border/30 bg-muted/15 opacity-90',
+        'inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors',
+        checked
+          ? 'border-primary/40 bg-primary/10 text-foreground'
+          : 'border-border/50 bg-muted/20 text-muted-foreground',
+        className,
       )}
     >
-      <Icon className="size-4 shrink-0 text-primary" aria-hidden />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">{label}</p>
-        {hint ? <p className="text-[10px] text-muted-foreground">{hint}</p> : null}
-      </div>
-      <div
+      <Icon className="size-3 shrink-0" aria-hidden />
+      <span className="truncate">{label}</span>
+      <span
         className={cn(
-          'size-9 shrink-0 rounded-full border-2 transition-colors',
-          checked ? 'border-primary bg-primary' : 'border-muted-foreground/30 bg-muted',
+          'ml-0.5 size-3.5 shrink-0 rounded-full border',
+          checked ? 'border-primary bg-primary' : 'border-muted-foreground/35 bg-muted',
         )}
       >
-        {checked ? <Check className="m-auto size-4 text-primary-foreground" strokeWidth={3} /> : null}
-      </div>
+        {checked ? <Check className="m-auto size-2 text-primary-foreground" strokeWidth={3} /> : null}
+      </span>
     </button>
   );
 }
 
-function ChannelToggle({
+function ChannelRow({
   channelId,
   label,
   enabled,
@@ -99,108 +100,54 @@ function ChannelToggle({
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-2xl border transition-all',
-        enabled ? 'border-border/60 bg-card shadow-sm' : 'border-border/30 bg-muted/20 opacity-75',
-        `ring-1 ${theme.cardRing}`,
+        'flex items-center gap-2 rounded-lg border px-2 py-1.5',
+        enabled ? 'border-border/60 bg-card' : 'border-border/30 bg-muted/15 opacity-80',
       )}
     >
-      <div
-        className={cn(
-          'pointer-events-none absolute inset-0 opacity-[0.07]',
-          `bg-linear-to-br ${theme.previewGradient}`,
-        )}
-      />
+      <NotificationChannelIcon channelId={channelId} size="sm" className="!size-6 shrink-0 !rounded-md sm:!size-6" />
+      <button
+        type="button"
+        className="min-w-0 flex-1 truncate text-left text-xs font-medium leading-tight"
+        disabled={disabled}
+        onClick={() => onChange(!enabled)}
+      >
+        {label}
+      </button>
       <button
         type="button"
         role="switch"
         aria-checked={enabled}
+        aria-label={`${label} push`}
         disabled={disabled}
         onClick={() => onChange(!enabled)}
-        className="group relative flex w-full items-center gap-3 p-3 text-left active:scale-[0.99]"
-      >
-        <NotificationChannelIcon channelId={channelId} size="lg" className="relative z-10" />
-        <div className="relative z-10 min-w-0 flex-1">
-          <p className="text-sm font-semibold leading-tight">{label}</p>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">{theme.shortLabel} · push</p>
-        </div>
-        <div
-          className={cn(
-            'relative z-10 flex size-9 shrink-0 items-center justify-center rounded-full border-2',
-            enabled
-              ? `border-transparent bg-linear-to-br ${theme.previewGradient} text-white shadow-md`
-              : 'border-muted-foreground/25 bg-muted/40',
-          )}
-        >
-          {enabled ? <Check className="size-4" strokeWidth={3} /> : null}
-        </div>
-      </button>
-      {enabled ? (
-        <div className="relative z-10 border-t border-border/40 px-3 py-2">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={critical}
-            disabled={disabled}
-            onClick={() => onCriticalChange(!critical)}
-            className={cn(
-              'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] font-medium transition-colors',
-              critical
-                ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200'
-                : 'text-muted-foreground hover:bg-muted/50',
-            )}
-          >
-            <ShieldAlert className="size-3.5 shrink-0" aria-hidden />
-            <span className="flex-1">Kritik — sessiz saatte de gönder</span>
-            {critical ? <Check className="size-3.5" /> : null}
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function LockScreenPreview({
-  channelId,
-  subscribed,
-  silent,
-}: {
-  channelId: string;
-  subscribed: boolean;
-  silent: boolean;
-}) {
-  const theme = getChannelTheme(channelId);
-  return (
-    <div className="mx-auto w-full max-w-[280px] rounded-[1.75rem] border border-border/80 bg-linear-to-b from-slate-900 to-slate-950 p-3 shadow-xl">
-      <div className="mb-3 flex justify-center">
-        <div className="h-1 w-12 rounded-full bg-white/20" />
-      </div>
-      <p className="mb-2 text-center text-[10px] font-medium tracking-wide text-white/50">Kilit ekranı önizleme</p>
-      <div
         className={cn(
-          'flex gap-2.5 rounded-2xl border border-white/10 bg-white/10 p-2.5 backdrop-blur-md',
-          !subscribed && 'opacity-60',
+          'flex size-7 shrink-0 items-center justify-center rounded-full border-2',
+          enabled
+            ? cn('border-transparent text-white', `bg-linear-to-br ${theme.previewGradient}`)
+            : 'border-muted-foreground/25 bg-muted/40',
         )}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={theme.pushIcon}
-          alt=""
-          width={44}
-          height={44}
-          className="size-11 shrink-0 rounded-xl shadow-lg"
-          onError={(e) => {
-            (e.target as HTMLImageElement).src = '/icon-192.png';
-          }}
-        />
-        <div className="min-w-0 flex-1 text-white">
-          <p className="truncate text-xs font-semibold">Uzaedu · {theme.shortLabel}</p>
-          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-white/75">
-            Örnek: {theme.label} bildirimi
-            {silent ? ' (sessiz)' : ''}
-          </p>
-          <p className="mt-1 text-[9px] text-white/40">şimdi</p>
-        </div>
-      </div>
+        {enabled ? <Check className="size-3" strokeWidth={3} /> : null}
+      </button>
+      {enabled ? (
+        <button
+          type="button"
+          title="Kritik — sessiz saatte de"
+          aria-label="Kritik bildirim"
+          disabled={disabled}
+          onClick={() => onCriticalChange(!critical)}
+          className={cn(
+            'flex size-7 shrink-0 items-center justify-center rounded-md border',
+            critical
+              ? 'border-amber-500/50 bg-amber-500/15 text-amber-800 dark:text-amber-200'
+              : 'border-transparent text-muted-foreground hover:bg-muted/50',
+          )}
+        >
+          <ShieldAlert className="size-3.5" aria-hidden />
+        </button>
+      ) : (
+        <span className="size-7 shrink-0" aria-hidden />
+      )}
     </div>
   );
 }
@@ -213,9 +160,9 @@ export function NotificationPushSettings() {
   const [subscribed, setSubscribed] = useState(false);
   const [pushServer, setPushServer] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [previewChannel, setPreviewChannel] = useState<string>('nobet');
   const [savingSettings, setSavingSettings] = useState(false);
   const [iosHint, setIosHint] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
     setIosHint(isIosSafari());
@@ -238,7 +185,6 @@ export function NotificationPushSettings() {
       setSettings({ ...DEFAULT_PUSH_SETTINGS, ...prefRes.settings });
       setSubscribed(!!statusRes.subscribed);
       setPushServer(!!statusRes.pushEnabled);
-      if (prefRes.channels?.[0]?.id) setPreviewChannel(prefRes.channels[0].id);
     } catch {
       /* ignore */
     } finally {
@@ -276,7 +222,6 @@ export function NotificationPushSettings() {
 
   const toggleChannel = async (channelId: string, enabled: boolean) => {
     if (!token) return;
-    setPreviewChannel(channelId);
     const prevPrefs = prefs;
     setPrefs((prev) => {
       const rest = prev.filter((p) => p.channel !== channelId);
@@ -297,7 +242,6 @@ export function NotificationPushSettings() {
 
   const toggleCritical = async (channelId: string, critical: boolean) => {
     if (!token) return;
-    setPreviewChannel(channelId);
     const prevPrefs = prefs;
     setPrefs((prev) => {
       const rest = prev.filter((p) => p.channel !== channelId);
@@ -344,77 +288,100 @@ export function NotificationPushSettings() {
 
   return (
     <>
-    <PwaSettingsCard className="mb-3" />
-    <section className="mb-4 overflow-hidden rounded-2xl border border-teal-500/20 bg-linear-to-br from-teal-500/8 via-card to-violet-500/5 shadow-sm">
-      <div className="border-b border-border/40 px-4 py-4 sm:px-5">
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="flex size-11 items-center justify-center rounded-2xl bg-linear-to-br from-teal-500 to-cyan-600 text-white shadow-lg shadow-teal-500/25">
-            <Smartphone className="size-5" />
+      <PwaSettingsCard className="mb-2" />
+      <section className="mb-3 overflow-hidden rounded-xl border border-teal-500/20 bg-card/80 shadow-sm">
+        <div className="flex items-center gap-2 px-2.5 py-2 sm:px-3">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-teal-600 to-cyan-600 text-white">
+            <Smartphone className="size-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-bold tracking-tight">Telefon bildirimleri</h2>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <h2 className="text-sm font-semibold leading-none">Telefon bildirimleri</h2>
               <PwaOfflineQueueBadge />
-              {subscribed ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
-                  <span className="size-1.5 rounded-full bg-emerald-500" />
-                  Aktif
-                </span>
-              ) : (
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  Kapalı
-                </span>
-              )}
-            </div>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Kanal, sessiz saat, ses/titreşim ve kritik bildirimleri siz yönetirsiniz.
-            </p>
-            {iosHint ? (
-              <p className="mt-1.5 rounded-lg border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[10px] leading-snug text-amber-900 dark:text-amber-100">
-                iPhone/iPad: push için uygulamayı Safari → Paylaş → Ana Ekrana Ekle ile kurun (iOS 16.4+).
-              </p>
-            ) : null}
-          </div>
-          <div className="flex w-full shrink-0 gap-2 sm:w-auto">
-            {subscribed ? (
-              <Button type="button" variant="outline" size="sm" className="h-9 flex-1 sm:flex-none" onClick={() => void disableDevice()}>
-                Cihazı kapat
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                size="sm"
-                className="h-9 flex-1 bg-linear-to-r from-teal-600 to-cyan-600 sm:flex-none"
-                disabled={!pushServer || loading}
-                onClick={() => void enableDevice()}
+              <span
+                className={cn(
+                  'rounded-full px-1.5 py-px text-[9px] font-semibold',
+                  subscribed
+                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-muted text-muted-foreground',
+                )}
               >
-                <BellRing className="mr-1.5 size-4" />
-                Etkinleştir
-              </Button>
-            )}
+                {subscribed ? 'Aktif' : 'Kapalı'}
+              </span>
+            </div>
           </div>
+          {subscribed ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-[11px]"
+              onClick={() => void disableDevice()}
+            >
+              Kapat
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-[11px] bg-teal-600 hover:bg-teal-700"
+              disabled={!pushServer || loading}
+              onClick={() => void enableDevice()}
+            >
+              <BellRing className="mr-1 size-3" />
+              Aç
+            </Button>
+          )}
+          <button
+            type="button"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60"
+            aria-expanded={expanded}
+            aria-label={expanded ? 'Ayarları gizle' : 'Ayarları göster'}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            <ChevronDown className={cn('size-4 transition-transform', expanded && 'rotate-180')} />
+          </button>
         </div>
-      </div>
 
-      <div className="grid gap-4 p-4 sm:grid-cols-[1fr_minmax(0,300px)] sm:p-5">
-        <div className="space-y-4">
-          <div className="space-y-2 rounded-xl border border-border/50 bg-muted/10 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Kullanıcı kontrolü</p>
-            <SettingSwitch
-              icon={Moon}
-              label="Sessiz saat"
-              hint={`${minutesToTimeInput(settings.quiet_start_minutes)} – ${minutesToTimeInput(settings.quiet_end_minutes)} (TR)`}
-              checked={settings.quiet_hours_enabled}
-              disabled={loading || savingSettings}
-              onChange={(on) => void patchSettings({ quiet_hours_enabled: on })}
-            />
+        {iosHint ? (
+          <p className="border-t border-border/40 px-2.5 py-1.5 text-[10px] leading-snug text-amber-800 dark:text-amber-200">
+            iOS: Ana ekrana ekleyin (Safari → Paylaş), iOS 16.4+.
+          </p>
+        ) : null}
+
+        {expanded ? (
+          <div className="space-y-2 border-t border-border/40 px-2.5 py-2 sm:px-3">
+            <div className="flex flex-wrap gap-1.5">
+              <CompactSwitch
+                icon={Moon}
+                label="Sessiz"
+                checked={settings.quiet_hours_enabled}
+                disabled={loading || savingSettings}
+                onChange={(on) => void patchSettings({ quiet_hours_enabled: on })}
+              />
+              <CompactSwitch
+                icon={settings.sound_enabled ? Volume2 : VolumeX}
+                label="Ses"
+                checked={settings.sound_enabled}
+                disabled={loading || savingSettings}
+                onChange={(on) => void patchSettings({ sound_enabled: on })}
+              />
+              <CompactSwitch
+                icon={Vibrate}
+                label="Titreşim"
+                checked={settings.vibration_enabled}
+                disabled={loading || savingSettings}
+                onChange={(on) => void patchSettings({ vibration_enabled: on })}
+              />
+            </div>
+
             {settings.quiet_hours_enabled ? (
-              <div className="grid grid-cols-2 gap-2 pl-1">
+              <div className="grid grid-cols-2 gap-1.5">
                 <label className="text-[10px] text-muted-foreground">
                   Başlangıç
                   <input
                     type="time"
-                    className="mt-0.5 block w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
+                    className="mt-0.5 block h-8 w-full rounded-md border border-input bg-background px-1.5 text-xs"
                     value={minutesToTimeInput(settings.quiet_start_minutes)}
                     disabled={savingSettings}
                     onChange={(e) =>
@@ -426,7 +393,7 @@ export function NotificationPushSettings() {
                   Bitiş
                   <input
                     type="time"
-                    className="mt-0.5 block w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
+                    className="mt-0.5 block h-8 w-full rounded-md border border-input bg-background px-1.5 text-xs"
                     value={minutesToTimeInput(settings.quiet_end_minutes)}
                     disabled={savingSettings}
                     onChange={(e) =>
@@ -436,60 +403,40 @@ export function NotificationPushSettings() {
                 </label>
               </div>
             ) : null}
-            <SettingSwitch
-              icon={settings.sound_enabled ? Volume2 : VolumeX}
-              label="Bildirim sesi"
-              checked={settings.sound_enabled}
-              disabled={loading || savingSettings}
-              onChange={(on) => void patchSettings({ sound_enabled: on })}
-            />
-            <SettingSwitch
-              icon={Vibrate}
-              label="Titreşim"
-              checked={settings.vibration_enabled}
-              disabled={loading || savingSettings}
-              onChange={(on) => void patchSettings({ vibration_enabled: on })}
-            />
-          </div>
 
-          <div className="space-y-2">
-            <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              <Sparkles className="size-3.5" />
-              Kanallar
+            <div className="space-y-1">
+              <p className="text-[10px] font-medium text-muted-foreground">
+                Kanallar
+                <span className="ml-1 font-normal">(kalkan = kritik)</span>
+              </p>
+              {loading ? (
+                <p className="text-[11px] text-muted-foreground">Yükleniyor…</p>
+              ) : (
+                <div className="max-h-[min(40vh,240px)] space-y-1 overflow-y-auto overscroll-contain pr-0.5">
+                  {channels.map((ch) => {
+                    const p = prefMap.get(ch.id);
+                    return (
+                      <ChannelRow
+                        key={ch.id}
+                        channelId={ch.id}
+                        label={ch.label}
+                        enabled={p?.push ?? true}
+                        critical={p?.critical ?? false}
+                        disabled={loading}
+                        onChange={(on) => void toggleChannel(ch.id, on)}
+                        onCriticalChange={(on) => void toggleCritical(ch.id, on)}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+              {!pushServer && !loading ? (
+                <p className="text-[10px] text-amber-700 dark:text-amber-300">Push sunucuda yapılandırılmamış.</p>
+              ) : null}
             </div>
-            {loading ? (
-              <p className="text-xs text-muted-foreground">Yükleniyor…</p>
-            ) : (
-              <div className="grid gap-2 sm:grid-cols-2">
-                {channels.map((ch) => {
-                  const p = prefMap.get(ch.id);
-                  return (
-                    <ChannelToggle
-                      key={ch.id}
-                      channelId={ch.id}
-                      label={ch.label}
-                      enabled={p?.push ?? true}
-                      critical={p?.critical ?? false}
-                      disabled={loading}
-                      onChange={(on) => void toggleChannel(ch.id, on)}
-                      onCriticalChange={(on) => void toggleCritical(ch.id, on)}
-                    />
-                  );
-                })}
-              </div>
-            )}
-            {!pushServer && !loading ? (
-              <p className="text-[11px] text-amber-700 dark:text-amber-300">Sunucuda VAPID anahtarları tanımlı değil.</p>
-            ) : null}
           </div>
-        </div>
-        <LockScreenPreview
-          channelId={previewChannel}
-          subscribed={subscribed}
-          silent={!settings.sound_enabled}
-        />
-      </div>
-    </section>
+        ) : null}
+      </section>
     </>
   );
 }

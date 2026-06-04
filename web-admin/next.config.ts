@@ -18,8 +18,14 @@ const withSerwist = withSerwistInit({
   additionalPrecacheEntries: [
     { url: "/offline", revision: serwistRevision() },
     { url: "/icon-192.png", revision: serwistRevision() },
+    { url: "/icon-512.png", revision: serwistRevision() },
+    { url: "/pwa/uzaedu-app-icon.svg", revision: serwistRevision() },
     { url: "/pwa/icon-maskable-512.png", revision: serwistRevision() },
+    { url: "/pwa/screenshot-narrow.png", revision: serwistRevision() },
+    { url: "/pwa/screenshot-wide.png", revision: serwistRevision() },
     { url: "/pwa/splash-android-portrait.png", revision: serwistRevision() },
+    { url: "/pwa/splash-iphone-14.png", revision: serwistRevision() },
+    { url: "/pwa/splash-iphone-15-pro-max.png", revision: serwistRevision() },
   ],
   disable: process.env.NODE_ENV === "development",
 });

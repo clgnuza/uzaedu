@@ -10,6 +10,7 @@ import { PwaStandaloneEnhance } from '@/components/pwa-standalone-enhance';
 import { PwaOnboarding } from '@/components/pwa-onboarding';
 import { PwaAppBadgeSync } from '@/components/pwa-app-badge-sync';
 import { PwaOfflineSync } from '@/components/pwa-offline-sync';
+import { PwaInstallThanksListener } from '@/components/pwa-install-thanks-listener';
 
 const PWA_DEV = process.env.NODE_ENV === 'development';
 
@@ -30,6 +31,7 @@ export function PwaShell() {
 
   const chrome = (
     <>
+      <PwaInstallThanksListener />
       <PwaStandaloneEnhance />
       <PwaSplashScreen />
       <PwaAppBadgeSync />

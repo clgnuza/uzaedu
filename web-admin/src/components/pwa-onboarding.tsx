@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { BellRing, Check, Fingerprint, Smartphone, X } from 'lucide-react';
+import { BellRing, Check, Fingerprint, PartyPopper, X } from 'lucide-react';
+import { UzaeduAppIcon } from '@/components/brand/uzaedu-app-icon';
 import { useAuthOptional } from '@/providers/auth-provider';
 import { Button } from '@/components/ui/button';
 import { isPwaDisplayMode } from '@/lib/pwa-display';
@@ -71,6 +72,10 @@ export function PwaOnboarding() {
     }
     trackPwaEvent('pwa_onboarding_complete', { push: pushOk, passkey: passkeyOk });
     hapticSuccess();
+    toast.success('Hazırsınız', {
+      description: 'İyi çalışmalar — bildirimleri istediğiniz zaman değiştirebilirsiniz.',
+      duration: 4000,
+    });
     setOpen(false);
   }, [pushOk, passkeyOk]);
 
@@ -110,104 +115,147 @@ export function PwaOnboarding() {
   if (!open || !token) return null;
   if (HIDE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return null;
 
-  const meta: Record<StepId, { title: string; body: string; icon: typeof Smartphone }> = {
+  const meta: Record<
+    StepId,
+    { title: string; body: string; icon: typeof BellRing; accent?: string }
+  > = {
     welcome: {
-      title: 'Hoş geldiniz',
-      body: 'Uzaedu ana ekranınızda. Bildirim ve hızlı girişi bir kez ayarlayın.',
-      icon: Smartphone,
+      title: 'Teşekkürler!',
+      body: 'Uygulama ana ekranınıza eklendi. Bir dakikada bildirim ve hızlı girişi ayarlayalım.',
+      icon: PartyPopper,
+      accent: 'teal',
     },
     push: {
       title: 'Bildirimler',
       body: 'Nöbet, program ve mesajlar kilit ekranında görünsün.',
       icon: BellRing,
+      accent: 'sky',
     },
     passkey: {
       title: 'Biyometrik giriş',
       body: 'Parmak izi veya yüz ile hızlı oturum (isteğe bağlı).',
       icon: Fingerprint,
+      accent: 'violet',
     },
     done: {
-      title: 'Hazırsınız',
-      body: 'Ayarları Bildirimler ve Profil güvenlikten değiştirebilirsiniz.',
+      title: 'Tamamdır',
+      body: 'Ayarları Bildirimler ve profil güvenlikten dilediğiniz zaman güncelleyebilirsiniz.',
       icon: Check,
+      accent: 'emerald',
     },
   };
 
-  const { title, body, icon: Icon } = meta[step];
+  const { title, body, icon: Icon, accent = 'teal' } = meta[step];
+  const accentRing =
+    accent === 'teal'
+      ? 'ring-teal-500/30'
+      : accent === 'sky'
+        ? 'ring-sky-500/30'
+        : accent === 'violet'
+          ? 'ring-violet-500/30'
+          : 'ring-emerald-500/30';
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/50 p-4 sm:items-center">
+    <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/55 p-4 backdrop-blur-[2px] sm:items-center">
       <div
-        className="w-full max-w-md rounded-2xl border border-border/80 bg-card p-5 shadow-2xl"
+        className={cn(
+          'w-full max-w-md overflow-hidden rounded-2xl border border-white/10 shadow-2xl',
+          'bg-linear-to-b from-zinc-900 via-card to-card',
+        )}
         style={{ marginBottom: 'max(0px, env(safe-area-inset-bottom))' }}
         role="dialog"
         aria-labelledby="pwa-onboard-title"
       >
-        <div className="mb-4 flex items-start justify-between gap-2">
-          <div className="flex size-11 items-center justify-center rounded-xl bg-teal-500/15 text-teal-600">
-            <Icon className="size-5" aria-hidden />
+        {step === 'welcome' ? (
+          <div className="flex flex-col items-center border-b border-white/8 bg-linear-to-br from-teal-600/15 via-transparent to-transparent px-5 pb-4 pt-6 text-center">
+            <div className="relative">
+              <div className="absolute -inset-3 rounded-full bg-teal-400/20 blur-2xl" aria-hidden />
+              <UzaeduAppIcon size={72} className="relative" />
+            </div>
+            <p className="mt-3 text-[10px] font-bold uppercase tracking-widest text-teal-400/90">
+              Kurulum tamam
+            </p>
           </div>
-          <button
-            type="button"
-            className="rounded-lg p-1 text-muted-foreground hover:bg-muted"
-            aria-label="Kapat"
-            onClick={finish}
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-        <h2 id="pwa-onboard-title" className="text-lg font-bold">
-          {title}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">{body}</p>
+        ) : null}
 
-        <div className="mt-4 flex gap-1">
-          {steps.map((s, i) => (
-            <div
-              key={s}
-              className={cn('h-1 flex-1 rounded-full', i <= idx ? 'bg-teal-500' : 'bg-muted')}
-            />
-          ))}
-        </div>
-
-        <div className="mt-5 flex flex-wrap gap-2">
-          {step === 'welcome' ? (
-            <Button type="button" className="flex-1" onClick={next}>
-              Başla
-            </Button>
-          ) : null}
-          {step === 'push' ? (
-            <>
-              <Button type="button" className="flex-1" disabled={busy} onClick={() => void enablePush()}>
-                Bildirimleri aç
-              </Button>
-              <Button type="button" variant="outline" onClick={next}>
-                Sonra
-              </Button>
-            </>
-          ) : null}
-          {step === 'passkey' ? (
-            <>
-              <Button type="button" className="flex-1" disabled={busy} onClick={() => void enablePasskey()}>
-                Biyometrik ekle
-              </Button>
-              <Button type="button" variant="outline" onClick={next}>
-                Atla
-              </Button>
-            </>
-          ) : null}
-          {step === 'done' ? (
-            <Button
+        <div className="p-5">
+          <div className="mb-4 flex items-start justify-between gap-2">
+            {step !== 'welcome' ? (
+              <div
+                className={cn(
+                  'flex size-11 items-center justify-center rounded-xl bg-muted/50 ring-2',
+                  accentRing,
+                )}
+              >
+                <Icon className="size-5 text-foreground" aria-hidden />
+              </div>
+            ) : (
+              <div className="flex size-11 items-center justify-center rounded-xl bg-teal-500/15 text-teal-500 ring-2 ring-teal-500/25">
+                <Icon className="size-5" aria-hidden />
+              </div>
+            )}
+            <button
               type="button"
-              className="flex-1"
-              onClick={() => {
-                finish();
-                router.push('/bildirimler');
-              }}
+              className="rounded-lg p-1 text-muted-foreground hover:bg-muted"
+              aria-label="Kapat"
+              onClick={finish}
             >
-              Tamam
-            </Button>
-          ) : null}
+              <X className="size-4" />
+            </button>
+          </div>
+          <h2 id="pwa-onboard-title" className="text-lg font-bold tracking-tight">
+            {title}
+          </h2>
+          <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{body}</p>
+
+          <div className="mt-4 flex gap-1">
+            {steps.map((s, i) => (
+              <div
+                key={s}
+                className={cn('h-1 flex-1 rounded-full transition-colors', i <= idx ? 'bg-teal-500' : 'bg-muted')}
+              />
+            ))}
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            {step === 'welcome' ? (
+              <Button type="button" className="flex-1 bg-teal-600 hover:bg-teal-500" onClick={next}>
+                Devam et
+              </Button>
+            ) : null}
+            {step === 'push' ? (
+              <>
+                <Button type="button" className="flex-1" disabled={busy} onClick={() => void enablePush()}>
+                  Bildirimleri aç
+                </Button>
+                <Button type="button" variant="outline" onClick={next}>
+                  Sonra
+                </Button>
+              </>
+            ) : null}
+            {step === 'passkey' ? (
+              <>
+                <Button type="button" className="flex-1" disabled={busy} onClick={() => void enablePasskey()}>
+                  Biyometrik ekle
+                </Button>
+                <Button type="button" variant="outline" onClick={next}>
+                  Atla
+                </Button>
+              </>
+            ) : null}
+            {step === 'done' ? (
+              <Button
+                type="button"
+                className="flex-1 bg-teal-600 hover:bg-teal-500"
+                onClick={() => {
+                  finish();
+                  router.push('/bildirimler');
+                }}
+              >
+                Bitir
+              </Button>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

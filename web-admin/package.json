@@ -13,7 +13,7 @@
     "test:optik-golden": "npx --yes tsx src/lib/optik-omr-golden.test.ts",
     "generate:optik-golden-ppm": "npx --yes tsx scripts/generate-optik-golden-ppm.ts",
     "optik:golden:ppm": "npx --yes tsx scripts/generate-optik-golden-ppm.ts",
-    "pwa:assets": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/generate-pwa-assets.ps1",
+    "pwa:assets": "node scripts/generate-pwa-brand-assets.mjs",
     "pwa:lighthouse": "npx --yes lighthouse http://127.0.0.1:3000/dashboard --only-categories=pwa --output=html --output-path=./lighthouse-pwa.html --chrome-flags=\"--headless=new\""
   },
   "dependencies": {
@@ -57,6 +57,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "serwist": "^9.5.11",
+    "sharp": "^0.34.5",
     "typescript": "^5"
   }
 }

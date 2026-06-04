@@ -11,7 +11,7 @@ import { fetchWebExtrasPublic } from '@/lib/web-extras-public';
 import { normalizePublicSiteUrl } from '@/lib/site-url';
 import './globals.css';
 import { PwaHeadLinks } from '@/components/pwa-head-links';
-import { PWA_MASKABLE_ICON, PWA_SPLASH_LINKS } from '@/lib/pwa-assets';
+import { PWA_APPLE_ICON, PWA_ICON_192, PWA_SPLASH_LINKS } from '@/lib/pwa-assets';
 
 const inter = localFont({
   src: [
@@ -96,8 +96,14 @@ export async function generateMetadata(): Promise<Metadata> {
     formatDetection: { telephone: false },
     manifest: '/manifest.webmanifest',
     icons:       extras?.favicon_url
-      ? { icon: extras.favicon_url, apple: PWA_MASKABLE_ICON }
-      : { icon: '/favicon.ico', apple: PWA_MASKABLE_ICON },
+      ? { icon: extras.favicon_url, apple: PWA_APPLE_ICON }
+      : {
+          icon: [
+            { url: PWA_APPLE_ICON, sizes: '512x512', type: 'image/png' },
+            { url: PWA_ICON_192, sizes: '192x192', type: 'image/png' },
+          ],
+          apple: PWA_APPLE_ICON,
+        },
     ...(extras?.google_site_verification?.trim()
       ? { verification: { google: extras.google_site_verification.trim() } }
       : {}),
@@ -254,9 +260,9 @@ export default async function RootLayout({
             <AuthProvider>
               <QueryProvider>
                 <div className="min-h-full min-h-dvh w-full">{children}</div>
+                <ClientShellWidgets />
               </QueryProvider>
             </AuthProvider>
-            <ClientShellWidgets />
           </SafeThemeProvider>
         </StorageGuard>
       </body>

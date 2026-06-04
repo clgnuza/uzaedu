@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { UzaeduAppIcon } from '@/components/brand/uzaedu-app-icon';
 import { isPwaDisplayMode } from '@/lib/pwa-display';
 import { cn } from '@/lib/utils';
 
@@ -46,7 +47,8 @@ export function PwaSplashScreen() {
       role="presentation"
       aria-hidden
       className={cn(
-        'fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-[#0f172a] transition-opacity duration-300',
+        'fixed inset-0 z-[10000] flex flex-col items-center justify-center transition-opacity duration-300',
+        'bg-linear-to-b from-[#042f2e] via-[#0f172a] to-[#020617]',
         phase === 'out' ? 'pointer-events-none opacity-0' : 'opacity-100',
       )}
       style={{
@@ -54,21 +56,15 @@ export function PwaSplashScreen() {
         paddingBottom: 'env(safe-area-inset-bottom)',
       }}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/pwa/icon-maskable-512.png"
-        alt=""
-        width={120}
-        height={120}
-        className="size-[7.5rem] rounded-[1.35rem] shadow-2xl shadow-teal-500/20"
-        onError={(e) => {
-          (e.target as HTMLImageElement).src = '/icon-512.png';
-        }}
-      />
-      <p className="mt-5 text-lg font-semibold tracking-tight text-white">Uzaedu</p>
-      <p className="mt-1 text-sm text-white/55">Öğretmen</p>
-      <div className="mt-8 h-1 w-24 overflow-hidden rounded-full bg-white/10">
-        <div className="h-full w-1/2 animate-pulse rounded-full bg-teal-400/80" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_45%_at_50%_28%,rgba(20,184,166,0.28),transparent)]" />
+      <div className="relative">
+        <div className="absolute -inset-6 rounded-full bg-teal-400/20 blur-3xl" aria-hidden />
+        <UzaeduAppIcon size={112} className="relative" />
+      </div>
+      <p className="relative mt-6 text-xl font-bold tracking-tight text-white">Uzaedu</p>
+      <p className="relative mt-1 text-sm font-medium text-slate-400">Öğretmen</p>
+      <div className="relative mt-10 h-1 w-28 overflow-hidden rounded-full bg-white/10">
+        <div className="h-full w-2/5 animate-pulse rounded-full bg-linear-to-r from-teal-400 to-cyan-300" />
       </div>
     </div>
   );

@@ -1,13 +1,19 @@
 import type { MetadataRoute } from 'next';
 import { fetchWebExtrasPublic } from '@/lib/web-extras-public';
-import { PWA_MASKABLE_ICON, PWA_SCREENSHOTS } from '@/lib/pwa-assets';
+import {
+  PWA_ICON_192,
+  PWA_ICON_512,
+  PWA_MASKABLE_ICON,
+  PWA_SCREENSHOTS,
+  UZAEDU_APP_ICON_SVG,
+} from '@/lib/pwa-assets';
 import { PWA_FILE_HANDLERS, PWA_LAUNCH_HANDLER, PWA_SHARE_TARGET } from '@/lib/pwa-manifest-extras';
 
 const ICONS: MetadataRoute.Manifest['icons'] = [
-  { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-  { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+  { src: PWA_ICON_512, sizes: '512x512', type: 'image/png', purpose: 'any' },
+  { src: PWA_ICON_192, sizes: '192x192', type: 'image/png', purpose: 'any' },
+  { src: UZAEDU_APP_ICON_SVG, sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
   { src: PWA_MASKABLE_ICON, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-  { src: '/brand/og-default.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
 ];
 
 export default async function manifest(): Promise<MetadataRoute.Manifest> {
@@ -25,7 +31,7 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     display: 'standalone',
     display_override: ['fullscreen', 'standalone', 'minimal-ui', 'browser'],
     prefer_related_applications: false,
-    background_color: '#0f172a',
+    background_color: '#042f2e',
     theme_color: theme,
     lang: 'tr',
     orientation: 'any',

@@ -1,49 +1,39 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuthOptional } from '@/providers/auth-provider';
+import { usePwaDeferredInstall } from '@/hooks/use-pwa-deferred-install';
 import { Button } from '@/components/ui/button';
-import { Download, Smartphone, X } from 'lucide-react';
+import { UzaeduAppIcon } from '@/components/brand/uzaedu-app-icon';
+import { Download, X } from 'lucide-react';
 import { isIosSafari, isPwaDisplayMode } from '@/lib/pwa-display';
 import { markPwaOnboardingPending } from '@/components/pwa-onboarding';
 import { trackPwaEvent } from '@/lib/pwa-analytics';
+import { isFirefoxBrowser } from '@/lib/pwa-install-platform';
 
-const HIDE_PREFIXES = ['/tv', '/bakim', '/login', '/register'];
+const HIDE_PREFIXES = ['/tv', '/bakim', '/login', '/register', '/uygulama'];
 
 export function PwaInstallHint() {
   const pathname = usePathname();
   const token = useAuthOptional()?.token ?? null;
+  const { canInstall, promptInstall } = usePwaDeferredInstall();
   const [dismissed, setDismissed] = useState(false);
-  const [deferred, setDeferred] = useState<{ prompt: () => Promise<void> } | null>(null);
   const [ios, setIos] = useState(false);
+  const [firefox, setFirefox] = useState(false);
   const [installed, setInstalled] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     setInstalled(isPwaDisplayMode());
+    setFirefox(isFirefoxBrowser());
     try {
       if (localStorage.getItem('pwa-hint-dismissed') === '1') setDismissed(true);
     } catch {
       /* ignore */
     }
     setIos(isIosSafari());
-
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setDeferred({ prompt: () => (e as BeforeInstallPromptEvent).prompt() });
-    };
-    const onInstalled = () => {
-      setInstalled(true);
-      markPwaOnboardingPending();
-      trackPwaEvent('pwa_app_installed');
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    window.addEventListener('appinstalled', onInstalled);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handler);
-      window.removeEventListener('appinstalled', onInstalled);
-    };
   }, []);
 
   if (!token || dismissed || installed) return null;
@@ -58,44 +48,58 @@ export function PwaInstallHint() {
     }
   };
 
+  const hint = ios
+    ? 'Safari → Paylaş → Ana Ekrana Ekle'
+    : firefox
+      ? 'Firefox: kurulum rehberi (Windows)'
+      : canInstall
+        ? 'Tek tıkla yükle — bildirim ve tam ekran'
+        : 'Chrome veya Edge ile en iyi deneyim';
+
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[9998] flex justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-      <div className="pointer-events-auto flex max-w-md items-start gap-2 rounded-xl border border-sky-500/25 bg-background/95 px-3 py-2.5 shadow-lg backdrop-blur-sm">
-        <Smartphone className="mt-0.5 size-4 shrink-0 text-sky-600" />
+      <div className="pointer-events-auto flex w-full max-w-md items-center gap-2.5 overflow-hidden rounded-2xl border border-teal-500/35 bg-linear-to-br from-teal-950/95 via-zinc-900/98 to-zinc-950 px-3 py-2.5 shadow-xl shadow-teal-950/30 backdrop-blur-md">
+        <UzaeduAppIcon size={40} className="shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium leading-snug">Uygulama gibi kullanın</p>
-          <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">
-            {ios
-              ? 'Safari → Paylaş → Ana Ekrana Ekle. Tam ekran, splash ve bildirimler.'
-              : deferred
-                ? 'Ana ekrana ekleyin — tam ekran, splash, push bildirimleri.'
-                : 'Menü → Ana ekrana ekle veya Uygulamayı yükle (Chrome/Edge).'}
-          </p>
-          {deferred ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="mt-1.5 h-7 gap-1 text-[10px]"
-              onClick={() => {
-                void deferred.prompt().then(() => markPwaOnboardingPending());
-                trackPwaEvent('pwa_install_prompt');
-                dismiss();
-              }}
-            >
-              <Download className="size-3" aria-hidden />
-              Ana ekrana ekle
-            </Button>
-          ) : null}
+          <p className="text-xs font-semibold text-white">Uygulamayı yükle</p>
+          <p className="mt-0.5 text-[10px] leading-snug text-teal-100/75">{hint}</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {canInstall ? (
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 gap-1 bg-teal-600 px-2.5 text-[10px] font-semibold hover:bg-teal-500"
+                onClick={() => {
+                  void promptInstall().then(() => markPwaOnboardingPending());
+                  trackPwaEvent('pwa_install_prompt');
+                  dismiss();
+                }}
+              >
+                <Download className="size-3" aria-hidden />
+                Yükle
+              </Button>
+            ) : (
+              <Link
+                href="/uygulama"
+                className="inline-flex h-7 items-center gap-1 rounded-md bg-teal-600 px-2.5 text-[10px] font-semibold text-white hover:bg-teal-500"
+                onClick={() => trackPwaEvent('pwa_install_hint_rehber')}
+              >
+                Kurulum rehberi
+              </Link>
+            )}
+          </div>
         </div>
-        <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0" onClick={dismiss} aria-label="Kapat">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7 shrink-0 text-zinc-400 hover:bg-white/10 hover:text-white"
+          onClick={dismiss}
+          aria-label="Kapat"
+        >
           <X className="size-3.5" />
         </Button>
       </div>
     </div>
   );
-}
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
 }
