@@ -8,6 +8,7 @@ alwaysApply: true
 - **PowerShell:** `&&` kullanma; `Set-Location <path>; <komut>` veya ayrı satırlar.
 - **Backend (Nest):** `Set-Location c:\UzaMobil\ogretmenpro\backend; npm run start:dev` — varsayılan **http://localhost:4000/api** (prefix `api`). Sağlık: **http://localhost:4000/api/health**. Port: `APP_PORT` / `.env` (yoksa 4000). SQLite yerel deneme: `npm run start:dev:sqlite`.
 - **Web admin (Next):** `Set-Location c:\UzaMobil\ogretmenpro\web-admin; npm run dev` — **http://localhost:3000/** (0.0.0.0:3000).
+- **Flutter (mobile):** `pub.dev` socket (exit 69) → `Set-Location c:\UzaMobil\ogretmenpro\mobile; .\scripts\pub-get.ps1` (`PUB_HOSTED_URL=https://pub.flutter-io.cn`). Sonra `flutter test` / `flutter run`.
 - **PostgreSQL:** Repo kökü `docker compose up -d` (`docker-compose.yml`); `.env` ile `127.0.0.1:5432`.
 - **Arka plan:** Uzun süren komutlar `block_until_ms: 0`; hazır olunca `AwaitShell` veya terminal çıktısında `Nest application successfully started` / Next `Local:`.
 - **Tarayıcı (Windows):** `cmd /c start "" "http://..."` — `Start-Process` yerine bunu tercih et.

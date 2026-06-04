@@ -22,6 +22,16 @@ class BubbleRegion:
 
 
 @dataclass
+class IdDigitBubble:
+    digit_index: int
+    value: int
+    label: str
+    x: float
+    y: float
+    r: float
+
+
+@dataclass
 class AnchorRegion:
     x: float
     y: float
@@ -46,6 +56,8 @@ class OmrResult:
     per_question: List[Dict[str, Any]]
     warp_engine: str
     processing_time_ms: float
+    student_code: Optional[str] = None
+    student_code_confidence: float = 0.0
 
 
 def decode_base64_image(b64_data: str) -> np.ndarray:
@@ -250,14 +262,84 @@ def sample_bubble_advanced(
     return final_mark
 
 
+def decode_student_id_digits(
+    enhanced: np.ndarray,
+    decode_w: int,
+    decode_h: int,
+    id_bubbles: List[IdDigitBubble],
+    decode_params: Dict[str, float],
+) -> Tuple[str, float]:
+    """5 haneli öğrenci no. (H1–H5)"""
+    if not id_bubbles:
+        return "", 0.0
+
+    per_digit: Dict[int, List[Dict[str, Any]]] = {}
+    for b in id_bubbles:
+        if b.digit_index not in per_digit:
+            per_digit[b.digit_index] = []
+        cx = int(b.x * decode_w)
+        cy = int(b.y * decode_h)
+        r_px = max(6, int(b.r * decode_w * 1.1))
+        mark = sample_bubble_advanced(enhanced, decode_w, decode_h, cx, cy, r_px)
+        per_digit[b.digit_index].append({"value": b.value, "mark": mark, "label": b.label})
+
+    blank_min = decode_params["blank_min"]
+    margin_min = decode_params["margin_min"]
+    ratio_min = decode_params["ratio_min"]
+
+    digits: List[str] = []
+    ok_count = 0
+    for idx in sorted(per_digit.keys()):
+        marks = per_digit[idx]
+        if not marks:
+            digits.append("")
+            continue
+        mark_vals = [m["mark"] for m in marks]
+        min_m = min(mark_vals)
+        max_m = max(mark_vals)
+        span = max_m - min_m
+        normalized = [(m["mark"] - min_m) / span for m in marks] if span > 0.02 else mark_vals
+        sorted_i = sorted(range(len(normalized)), key=lambda i: normalized[i], reverse=True)
+        best_i = sorted_i[0]
+        second_i = sorted_i[1] if len(sorted_i) > 1 else None
+        best_m = normalized[best_i]
+        second_m = normalized[second_i] if second_i is not None else 0.0
+        margin = best_m - second_m
+        ratio = best_m / max(0.03, second_m)
+        ambiguous = best_m < blank_min or margin < margin_min or ratio < ratio_min
+        if ambiguous:
+            digits.append("")
+        else:
+            digits.append(marks[best_i]["label"])
+            ok_count += 1
+
+    code = "".join(digits)
+    conf = ok_count / max(1, len(per_digit))
+    return code, conf
+
+
+def _params_dict(raw: Optional[Dict[str, Any]]) -> Dict[str, float]:
+    d = raw or {}
+    return {
+        "blank_min": float(d.get("blank_min", 0.35)),
+        "margin_min": float(d.get("margin_min", 0.22)),
+        "ratio_min": float(d.get("ratio_min", 2.0)),
+        "needs_rescan_confidence": float(d.get("needs_rescan_confidence", 0.75)),
+        "needs_rescan_anchor": float(d.get("needs_rescan_anchor", 0.8)),
+    }
+
+
 def decode_omr_advanced(
     img: np.ndarray,
     layout: OmrLayout,
-    max_question: Optional[int] = None
+    max_question: Optional[int] = None,
+    decode_params: Optional[Dict[str, Any]] = None,
+    id_digit_bubbles: Optional[List[IdDigitBubble]] = None,
 ) -> OmrResult:
     """Native OpenCV ile tam OMR decode"""
     import time
     start_time = time.time()
+    p = _params_dict(decode_params)
     
     if len(img.shape) == 3:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -333,9 +415,9 @@ def decode_omr_advanced(
         margin = best_mark - second_mark
         ratio = best_mark / max(0.03, second_mark)
         
-        blank_min = 0.35
-        margin_min = 0.22
-        ratio_min = 2.0
+        blank_min = p["blank_min"]
+        margin_min = p["margin_min"]
+        ratio_min = p["ratio_min"]
         
         row_max = max_mark
         row_quiet = row_max < 0.12
@@ -366,8 +448,18 @@ def decode_omr_advanced(
     total_questions = len(per_q_results)
     confidence = valid_answers / max(1, total_questions)
     
-    needs_rescan = confidence < 0.75 or anchor_score < 0.8
+    needs_rescan = (
+        confidence < p["needs_rescan_confidence"]
+        or anchor_score < p["needs_rescan_anchor"]
+    )
     
+    student_code = ""
+    student_code_confidence = 0.0
+    if id_digit_bubbles:
+        student_code, student_code_confidence = decode_student_id_digits(
+            enhanced, decode_w, decode_h, id_digit_bubbles, p
+        )
+
     processing_time = (time.time() - start_time) * 1000
     
     return OmrResult(
@@ -377,7 +469,9 @@ def decode_omr_advanced(
         anchor_score=anchor_score,
         per_question=per_q_results,
         warp_engine=warp_engine,
-        processing_time_ms=processing_time
+        processing_time_ms=processing_time,
+        student_code=student_code or None,
+        student_code_confidence=student_code_confidence,
     )
 
 
@@ -401,7 +495,20 @@ def main():
         img = decode_base64_image(input_data['image'])
         max_question = input_data.get('maxQuestion')
         
-        result = decode_omr_advanced(img, layout, max_question)
+        decode_params = layout_data.get("decode_params")
+        id_raw = layout_data.get("id_digit_bubbles") or []
+        id_bubbles = [
+            IdDigitBubble(
+                digit_index=int(b["digit_index"]),
+                value=int(b["value"]),
+                label=str(b.get("label", b["value"])),
+                x=float(b["x"]),
+                y=float(b["y"]),
+                r=float(b["r"]),
+            )
+            for b in id_raw
+        ]
+        result = decode_omr_advanced(img, layout, max_question, decode_params, id_bubbles)
         
         output = {
             'success': True,

@@ -16,6 +16,8 @@ export interface OmrAdvancedResult {
   }>;
   warp_engine: string;
   processing_time_ms: number;
+  student_code?: string | null;
+  student_code_confidence?: number;
 }
 
 @Injectable()
@@ -61,6 +63,8 @@ export class OptikOmrAdvancedService {
         question_count: layout.question_count,
         width: layout.page_width,
         height: layout.page_height,
+        decode_params: layout.decode_params,
+        id_digit_bubbles: layout.id_digit_bubbles ?? [],
       },
       maxQuestion,
     };

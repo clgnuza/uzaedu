@@ -18,6 +18,8 @@ import { OptikReportsService } from './optik-reports.service';
 import { OptikSessionsService } from './optik-sessions.service';
 import { OptikReportPdfService } from './optik-report-pdf.service';
 import { OptikOmrAdvancedService } from './optik-omr-advanced.service';
+import { OptikFeedbackService } from './optik-feedback.service';
+import { OptikOmrFeedback } from './entities/optik-omr-feedback.entity';
 import { School } from '../schools/entities/school.entity';
 import { User } from '../users/entities/user.entity';
 
@@ -32,6 +34,7 @@ import { User } from '../users/entities/user.entity';
       OptikUsageLog,
       OptikScanResult,
       OptikExamSession,
+      OptikOmrFeedback,
       School,
       User,
     ]),
@@ -45,6 +48,7 @@ import { User } from '../users/entities/user.entity';
     OptikSessionsService,
     OptikReportPdfService,
     OptikOmrAdvancedService,
+    OptikFeedbackService,
     RequireSchoolModuleGuard,
   ],
   exports: [OptikService],

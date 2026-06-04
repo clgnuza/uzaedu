@@ -1,0 +1,22 @@
+---
+description: Optik okuma — PWA yönetim, Flutter native tarama
+globs:
+  - web-admin/**/optik*/**
+  - web-admin/src/lib/optik*.ts
+  - web-admin/src/components/optik/**
+  - mobile/**
+  - backend/src/optik/**
+---
+
+# Optik mimari
+
+- **PWA kurulumu devam eder** (`manifest.ts`, `sw.js`) — öğretmen paneli, push, offline; yalnızca optik **kamera taraması** varsayılan olarak Flutter’a yönlendirilir.
+- **Tarama (kamera, OMR, ML Kit OCR):** `mobile/` (Flutter). PWA’da `OptikCameraCapture` varsayılan kapalı; `OptikNativeScanPanel` / deep link. Geliştirici: `optik_scan_surface_pwa` veya `NEXT_PUBLIC_OPTIK_SCAN_SURFACE=pwa`.
+- **Yönetim:** `web-admin` — oturumlar, raporlar, anahtar, export, ayarlar.
+- **OMR doğruluk (P0):** sunucu OpenCV + `layout.decode_params`; mobil kalite kapısı + canlı rehber + 5 kare oylama + belirsiz onay. Golden: `npm run test:optik-golden`.
+- **P1:** offline kuyruk, Firebase giriş, `batch=1` toplu tarama — `mobile/README.md`.
+- **P2:** öğrenci no., feedback API, `omr_frame_enhance`.
+- **P2b:** golden dosya PPM; `opencv_dart` isteğe bağlı (`OMR_OPENCV_ENHANCE`).
+- **API:** Ortak Nest `optik` controller; mobil ve PWA aynı JWT.
+- Deep link: `uzaedu://optik/scan?...` — `optik-native-deeplink.ts`.
+- Detay: `docs/OPTIK_ARCHITECTURE.md`.

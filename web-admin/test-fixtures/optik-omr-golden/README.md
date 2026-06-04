@@ -24,4 +24,6 @@
 
 3. Aynı `id` ile `okul-2025-01.ppm` dosyasını bu klasöre koyun.
 
-PPM üretmek: `npx tsx scripts/generate-optik-golden-ppm.ts`
+PPM üretmek: `npm run generate:optik-golden-ppm -- file-25x4-abcd`
+
+CI’da `file-25x4-abcd.ppm` + `manifest.json` ile dosya altın testi çalışır.

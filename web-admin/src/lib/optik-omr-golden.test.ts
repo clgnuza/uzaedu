@@ -18,6 +18,7 @@ function runCase(c: GoldenCase) {
   const { gray, w, h } = synthOmrV4AlignedGray(layout, c.marks, {
     noise: c.noise,
     doubleMarks: c.doubleMarks,
+    idDigitMarks: c.idDigitMarks,
   });
   const decoded = decodeOmrFromGray(gray, w, h, layout, {
     maxQuestion: c.maxQuestion ?? layout.question_count,
@@ -36,6 +37,14 @@ function runCase(c: GoldenCase) {
   for (const q of Object.keys(decoded.answers).map(Number)) {
     if (c.expected[q] != null) continue;
     assert.fail(`${c.id}: false positive Q${q}=${decoded.answers[q]}`);
+  }
+
+  if (c.expectedStudentCode != null) {
+    assert.equal(
+      decoded.student_code,
+      c.expectedStudentCode,
+      `${c.id}: student_code expected ${c.expectedStudentCode}, got ${decoded.student_code ?? '(yok)'}`,
+    );
   }
 
   const maxFp = c.maxFalsePositives ?? 0;

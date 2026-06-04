@@ -15,6 +15,8 @@ export type OmrDecodeResult = {
   confidence: number;
   needs_rescan: boolean;
   anchor_score?: number;
+  student_code?: string;
+  student_code_confidence?: number;
   /** opencv | legacy | none */
   warp_engine?: 'opencv' | 'legacy' | 'none';
 };
@@ -166,6 +168,74 @@ function filterLayoutBubbles(layout: OmrScanLayout, opts?: OmrDecodeOptions) {
 export type BubbleMarkRow = { choice: number; label: string; mark: number };
 
 /** Satır içi normalize + boş/çoklu işaret kuralları */
+function pickIdDigitFromMarks(
+  opts: BubbleMarkRow[],
+  thresholds: { blank_min: number; margin_min: number; ratio_min: number },
+): { label: string; ambiguous: boolean; fill: number } {
+  if (opts.length === 0) return { label: '', ambiguous: true, fill: 0 };
+  const minM = Math.min(...opts.map((o) => o.mark));
+  const maxM = Math.max(...opts.map((o) => o.mark));
+  const span = maxM - minM;
+  const norm = opts.map((o) => ({
+    ...o,
+    mark: span > 0.02 ? (o.mark - minM) / span : o.mark,
+  }));
+  const sorted = [...norm].sort((a, b) => b.mark - a.mark);
+  const best = sorted[0]!;
+  const second = sorted[1]?.mark ?? 0;
+  const margin = best.mark - second;
+  const ratio = best.mark / (second + 0.03);
+  const ambiguous =
+    best.mark < thresholds.blank_min ||
+    margin < thresholds.margin_min ||
+    ratio < thresholds.ratio_min;
+  return { label: ambiguous ? '' : best.label, ambiguous, fill: best.mark };
+}
+
+/** 5 haneli öğrenci no. (H1–H5) — layout.id_digit_bubbles */
+export function decodeStudentIdFromGray(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  layout: OmrScanLayout,
+): { student_code: string; student_code_confidence: number } {
+  const idBubbles = layout.id_digit_bubbles ?? [];
+  if (idBubbles.length === 0) return { student_code: '', student_code_confidence: 0 };
+
+  const d = layout.decode_params ?? {};
+  const thresholds = {
+    blank_min: d.blank_min ?? 0.35,
+    margin_min: d.margin_min ?? 0.22,
+    ratio_min: d.ratio_min ?? 2.0,
+  };
+
+  const perDigit = new Map<number, BubbleMarkRow[]>();
+  for (const b of idBubbles) {
+    const cx = b.x * width;
+    const cy = b.y * height;
+    const rPx = Math.max(6, b.r * width * 1.1);
+    const mark = sampleBubbleMark(gray, width, height, cx, cy, rPx);
+    const row = perDigit.get(b.digit_index) ?? [];
+    row.push({ choice: b.value, label: b.label, mark });
+    perDigit.set(b.digit_index, row);
+  }
+
+  const digits: string[] = [];
+  let ok = 0;
+  for (const idx of [...perDigit.keys()].sort((a, b) => a - b)) {
+    const picked = pickIdDigitFromMarks(perDigit.get(idx) ?? [], thresholds);
+    if (!picked.ambiguous && picked.label) {
+      digits.push(picked.label);
+      ok += 1;
+    } else {
+      digits.push('');
+    }
+  }
+
+  const code = digits.join('');
+  return { student_code: code, student_code_confidence: ok / Math.max(1, perDigit.size) };
+}
+
 export function pickAnswerFromMarks(
   opts: BubbleMarkRow[],
   mode: OmrDecodeMode = 'student',
@@ -580,11 +650,15 @@ export function decodeOmrFromGray(
     ambiguousCount > Math.max(3, Math.floor(n * 0.15)) ||
     (answered < expectedFill && ambiguousCount > Math.floor(n * 0.08));
 
+  const id = decodeStudentIdFromGray(gray, width, height, layout);
+
   return {
     answers,
     perQuestion,
     confidence,
     needs_rescan,
+    student_code: id.student_code || undefined,
+    student_code_confidence: id.student_code_confidence,
   };
 }
 

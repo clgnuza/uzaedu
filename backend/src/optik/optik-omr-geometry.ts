@@ -16,6 +16,17 @@ export const OMR_ROW_HEIGHT_MIN = 10;
 export const OMR_ROW_HEIGHT_MAX = 14;
 
 export const OMR_ID_BUBBLE_SIZE = 4.5;
+export const OMR_ID_LABEL_COL_W = 20;
+export const OMR_ID_DIGIT_ROWS = 5;
+
+export type IdDigitBubble = {
+  digit_index: number;
+  value: number;
+  label: string;
+  x: number;
+  y: number;
+  r: number;
+};
 export const OMR_NUMBER_COL_W = 20;
 export const OMR_INNER_PAD = 8;
 export const OMR_COL_GAP = 8;
@@ -45,6 +56,50 @@ export function computeAnswerBubbleSize(rowHeight: number): number {
 export function resolveAnswerColumnCount(questionCount: number): number {
   let numCols = questionCount >= 100 ? 5 : questionCount >= 70 ? 4 : questionCount >= 35 ? 3 : 2;
   return numCols;
+}
+
+/** PDF drawStudentNoGrid ile aynı — 5 hane × 0-9 */
+export function computeStudentIdDigitBubbles(opts: {
+  pageWidth: number;
+  topBlockY: number;
+  cardHeaderH: number;
+  cardInnerX: number;
+  cardInnerW: number;
+  pdfYToNorm: (py: number) => number;
+  normX: (px: number) => number;
+}): IdDigitBubble[] {
+  const idRowHeight = 11;
+  const idBubbleSize = OMR_ID_BUBBLE_SIZE;
+  const idMinChoiceSpacing = 2 * idBubbleSize + 3.5;
+  const idOptionHeaderH = 10;
+  const idLabelColW = OMR_ID_LABEL_COL_W;
+  const idColGap = 12;
+  const idColW = (opts.cardInnerW - idColGap) / 2;
+  const colDivX = opts.cardInnerX + idColW + idColGap / 2;
+  const rightColX = colDivX + idColGap / 2;
+  const digitChoiceSpacing = Math.max(idMinChoiceSpacing, (idColW - idLabelColW - 12) / 10);
+  const digitBlockTop = opts.topBlockY - opts.cardHeaderH - 8;
+  const yTop = digitBlockTop - 6;
+  const xGrid = rightColX + idLabelColW;
+  const rowsTop = yTop - idOptionHeaderH;
+  const r = idBubbleSize / opts.pageWidth;
+  const out: IdDigitBubble[] = [];
+
+  for (let digitIndex = 0; digitIndex < OMR_ID_DIGIT_ROWS; digitIndex++) {
+    const rowCenterY = rowsTop - digitIndex * idRowHeight - idRowHeight / 2;
+    for (let value = 0; value <= 9; value++) {
+      const cx = xGrid + value * digitChoiceSpacing + digitChoiceSpacing / 2;
+      out.push({
+        digit_index: digitIndex,
+        value,
+        label: String(value),
+        x: opts.normX(cx),
+        y: opts.pdfYToNorm(rowCenterY),
+        r,
+      });
+    }
+  }
+  return out;
 }
 
 export function fitAnswerColumnCount(

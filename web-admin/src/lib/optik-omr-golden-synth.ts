@@ -9,6 +9,8 @@ export type GoldenSynthOpts = {
   noise?: number;
   /** İkinci şık (çift işaret) */
   doubleMarks?: Record<number, string>;
+  /** H1–H5: digit_index → 0-9 */
+  idDigitMarks?: Record<number, number>;
 };
 
 function fillDisk(gray: Uint8Array, w: number, h: number, cx: number, cy: number, r: number, v: number) {
@@ -53,6 +55,15 @@ export function synthOmrV4AlignedGray(
   }
 
   const doubles = opts?.doubleMarks ?? {};
+  const idMarks = opts?.idDigitMarks ?? {};
+  for (const b of layout.id_digit_bubbles ?? []) {
+    const cx = Math.round(b.x * w);
+    const cy = Math.round(b.y * h);
+    const r = Math.max(6, Math.round(b.r * w * 1.1));
+    const filled = idMarks[b.digit_index] === b.value;
+    fillDisk(gray, w, h, cx, cy, r, filled ? 32 : 248);
+  }
+
   for (const b of layout.bubbles) {
     const cx = Math.round(b.x * w);
     const cy = Math.round(b.y * h);

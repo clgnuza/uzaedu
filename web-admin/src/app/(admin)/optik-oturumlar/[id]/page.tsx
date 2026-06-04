@@ -18,6 +18,10 @@ import { OptikCameraCapture } from '@/app/(admin)/optik-okuma/components/OptikCa
 import { OptikMcScanReviewDialog } from '@/app/(admin)/optik-okuma/components/OptikMcScanReviewDialog';
 import { OptikCameraSettingsPanel } from '@/app/(admin)/optik-okuma/components/OptikCameraSettingsPanel';
 import { OptikMcPanel } from '@/app/(admin)/optik-okuma/components/OptikMcPanel';
+import { OptikNativeScanPanel } from '@/components/optik/OptikNativeScanPanel';
+import { OptikPwaInstallHint } from '@/components/optik/OptikPwaInstallHint';
+import { openOptikNativeScan } from '@/lib/optik-native-deeplink';
+import { useOptikScanSurface } from '@/hooks/use-optik-scan-surface';
 import { McAnswerKeyPanel } from './components/McAnswerKeyPanel';
 import { OpenAnswerKeysEditor } from './components/OpenAnswerKeysEditor';
 import { OpenGradePanel } from './components/OpenGradePanel';
@@ -48,7 +52,22 @@ import {
 
 export default function OptikOturumDetayPage() {
   const d = useSessionDetail();
+  const { isNative, isPwa, enablePwaCamera } = useOptikScanSurface();
   const [pdfKind, setPdfKind] = useState<OptikSessionPdfType>('class_list');
+  const currentStudent = d.students.find((s) => s.id === d.currentStudentId);
+  const nativeBase = d.session
+    ? {
+        templateId: d.session.templateId,
+        templateName: d.session.templateName,
+        sessionId: d.sessionId,
+        classId: d.session.classId ?? undefined,
+        className: d.session.className ?? undefined,
+        subjectId: d.session.subjectId ?? undefined,
+        subjectName: d.session.subjectName ?? undefined,
+        studentId: d.currentStudentId || undefined,
+        studentLabel: currentStudent?.name,
+      }
+    : null;
 
   if (d.loading && !d.session) {
     return (
@@ -163,6 +182,7 @@ export default function OptikOturumDetayPage() {
       ) : null}
 
       <OptikStatusBanner status={d.status} />
+      <OptikPwaInstallHint />
       <OptikTeacherGuide activeStep={guideStep} />
 
       <div className="flex gap-1 overflow-x-auto rounded-xl bg-muted/50 p-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -201,6 +221,17 @@ export default function OptikOturumDetayPage() {
                 En az {Math.min(5, d.session.questionCount)} soru
               </p>
             ) : null}
+            {isNative && nativeBase ? (
+              <OptikNativeScanPanel
+                ready={!!d.status?.ready}
+                base={nativeBase}
+                onEnablePwaCamera={enablePwaCamera}
+                actions={[
+                  { mode: 'mc_key', label: 'Optik formdan anahtar oku' },
+                  { mode: 'open_key', label: 'Anahtar kağıdı OCR' },
+                ]}
+              />
+            ) : null}
             <McAnswerKeyPanel
               questionCount={d.session.questionCount}
               choiceCount={d.session.choiceCount}
@@ -211,6 +242,7 @@ export default function OptikOturumDetayPage() {
               saving={d.savingKey}
               busy={d.busy}
               ready={!!d.status?.ready}
+              hideCameraModes={isNative}
               onScanOmr={() => d.openMcKeyScan()}
               onScanOcr={() => d.openMcKeyOcr()}
             />
@@ -231,7 +263,7 @@ export default function OptikOturumDetayPage() {
 
       {d.tab === 'scan' ? (
         <div className="space-y-3">
-          <OptikCameraSettingsPanel />
+          {isPwa ? <OptikCameraSettingsPanel /> : null}
           {!keyFilled ? (
             <Alert variant="warning" className="rounded-xl px-2.5 py-2 text-[11px]">
               <KeyRound className="mr-1 inline size-3.5" />
@@ -287,19 +319,34 @@ export default function OptikOturumDetayPage() {
             </div>
           ) : null}
 
-          <OptikMcPanel
-            ready={!!d.status?.ready && keyFilled}
-            busy={d.busy}
-            answers={d.mcAnswers}
-            ambiguous={d.mcAmbiguous}
-            confidence={null}
-            anchorScore={null}
-            choiceCount={d.session.choiceCount}
-            onScan={() => d.openMcScan()}
-            onCopy={() => {}}
-            onReset={() => {}}
-            onSetAnswer={d.setMcAnswer}
-          />
+          {isNative && nativeBase ? (
+            <OptikNativeScanPanel
+              ready={!!d.status?.ready && keyFilled}
+              base={nativeBase}
+              onEnablePwaCamera={enablePwaCamera}
+              actions={[
+                {
+                  mode: 'mc_student',
+                  label: 'Öğrenci optik formu tara',
+                  disabled: !d.currentStudentId && d.students.length > 0,
+                },
+              ]}
+            />
+          ) : (
+            <OptikMcPanel
+              ready={!!d.status?.ready && keyFilled}
+              busy={d.busy}
+              answers={d.mcAnswers}
+              ambiguous={d.mcAmbiguous}
+              confidence={null}
+              anchorScore={null}
+              choiceCount={d.session.choiceCount}
+              onScan={() => d.openMcScan()}
+              onCopy={() => {}}
+              onReset={() => {}}
+              onSetAnswer={d.setMcAnswer}
+            />
+          )}
 
           {d.lastScore ? (
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-center text-sm font-semibold text-emerald-800 dark:text-emerald-200">
@@ -307,15 +354,17 @@ export default function OptikOturumDetayPage() {
             </div>
           ) : null}
 
-          <Button
-            className="h-12 w-full gap-2 rounded-xl"
-            variant="outline"
-            disabled={!d.mcAnswers || Object.keys(d.mcAnswers).length === 0 || d.busy}
-            onClick={() => d.openMcScan()}
-          >
-            <Camera className="size-5" />
-            Yeniden tara
-          </Button>
+          {isPwa ? (
+            <Button
+              className="h-12 w-full gap-2 rounded-xl"
+              variant="outline"
+              disabled={!d.mcAnswers || Object.keys(d.mcAnswers).length === 0 || d.busy}
+              onClick={() => d.openMcScan()}
+            >
+              <Camera className="size-5" />
+              Yeniden tara
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
@@ -336,6 +385,17 @@ export default function OptikOturumDetayPage() {
                 </SelectContent>
               </Select>
             </div>
+          ) : null}
+          {isNative && nativeBase ? (
+            <OptikNativeScanPanel
+              ready={!!d.status?.ready}
+              base={nativeBase}
+              onEnablePwaCamera={enablePwaCamera}
+              actions={[
+                { mode: 'open_student', label: 'Öğrenci cevabı tara (OCR)' },
+                { mode: 'open_key', label: 'Rubrik / anahtar tara' },
+              ]}
+            />
           ) : null}
           <section className="rounded-2xl border border-cyan-500/20 bg-card p-3">
             <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">
@@ -442,7 +502,19 @@ export default function OptikOturumDetayPage() {
                   size="sm"
                   variant="outline"
                   className="h-7 rounded-lg text-[10px]"
-                  onClick={() => d.startBatchMissing()}
+                  onClick={() => {
+                    if (isNative && nativeBase && d.nextStudent) {
+                      openOptikNativeScan({
+                        ...nativeBase,
+                        mode: 'mc_student',
+                        batch: true,
+                        studentId: d.nextStudent.id,
+                        studentLabel: d.nextStudent.name,
+                      });
+                    } else {
+                      d.startBatchMissing();
+                    }
+                  }}
                 >
                   Eksikleri tara
                 </Button>
@@ -455,7 +527,19 @@ export default function OptikOturumDetayPage() {
                       <button
                         type="button"
                         className="text-left font-medium hover:underline"
-                        onClick={() => d.goToMcScan(s.id, { batch: true })}
+                        onClick={() => {
+                          if (isNative && nativeBase) {
+                            openOptikNativeScan({
+                              ...nativeBase,
+                              mode: 'mc_student',
+                              batch: true,
+                              studentId: s.id,
+                              studentLabel: s.name,
+                            });
+                          } else {
+                            d.goToMcScan(s.id, { batch: true });
+                          }
+                        }}
                       >
                         {s.name} → MC tara
                       </button>
@@ -480,37 +564,41 @@ export default function OptikOturumDetayPage() {
         </div>
       ) : null}
 
-      <OptikCameraCapture
-        open={d.cameraOpen}
-        onClose={() => d.setCameraOpen(false)}
-        busy={d.busy}
-        burstFrames={
-          d.cameraPurpose === 'mc_student' || d.cameraPurpose === 'mc_key' ? undefined : 1
-        }
-        mode={
-          d.cameraPurpose === 'mc_student' || d.cameraPurpose === 'mc_key'
-            ? 'mc'
-            : 'student'
-        }
-        omrOverlay={d.omrCameraOverlay}
-        onCapture={async (b64) => {
-          if (d.cameraPurpose === 'mc_student') await d.runMcDecode(b64);
-          else if (d.cameraPurpose === 'mc_key') await d.runMcKeyScan(b64);
-          else if (d.cameraPurpose === 'mc_key_ocr') await d.runMcKeyOcr(b64);
-          else if (d.cameraPurpose === 'open_key') await d.runOpenKeyOcrCapture(b64);
-          else await d.runOpenOcr(b64);
-        }}
-      />
-      <OptikMcScanReviewDialog
-        open={!!d.mcReview}
-        review={d.mcReview}
-        onClose={() => d.setMcReview(null)}
-        onRetry={d.retryMcScan}
-        onConfirm={(r) => {
-          if (d.mcReviewPurpose === 'key') d.commitMcKeyReview(r);
-          else void d.commitMcStudentReview(r);
-        }}
-      />
+      {isPwa ? (
+        <>
+          <OptikCameraCapture
+            open={d.cameraOpen}
+            onClose={() => d.setCameraOpen(false)}
+            busy={d.busy}
+            burstFrames={
+              d.cameraPurpose === 'mc_student' || d.cameraPurpose === 'mc_key' ? undefined : 1
+            }
+            mode={
+              d.cameraPurpose === 'mc_student' || d.cameraPurpose === 'mc_key'
+                ? 'mc'
+                : 'student'
+            }
+            omrOverlay={d.omrCameraOverlay}
+            onCapture={async (b64) => {
+              if (d.cameraPurpose === 'mc_student') await d.runMcDecode(b64);
+              else if (d.cameraPurpose === 'mc_key') await d.runMcKeyScan(b64);
+              else if (d.cameraPurpose === 'mc_key_ocr') await d.runMcKeyOcr(b64);
+              else if (d.cameraPurpose === 'open_key') await d.runOpenKeyOcrCapture(b64);
+              else await d.runOpenOcr(b64);
+            }}
+          />
+          <OptikMcScanReviewDialog
+            open={!!d.mcReview}
+            review={d.mcReview}
+            onClose={() => d.setMcReview(null)}
+            onRetry={d.retryMcScan}
+            onConfirm={(r) => {
+              if (d.mcReviewPurpose === 'key') d.commitMcKeyReview(r);
+              else void d.commitMcStudentReview(r);
+            }}
+          />
+        </>
+      ) : null}
     </OptikPageShell>
   );
 }

@@ -39,6 +39,8 @@ import { GradeSessionOpenDto, ManualOpenScoresDto } from './dto/grade-session-op
 import { UpdateQuestionOutcomesDto, UpdateSessionLinksDto } from './dto/update-session-links.dto';
 import { DecodeOmrAdvancedDto } from './dto/decode-omr-advanced.dto';
 import { OptikOmrAdvancedService } from './optik-omr-advanced.service';
+import { OptikFeedbackService } from './optik-feedback.service';
+import { SubmitOmrFeedbackDto } from './dto/omr-feedback.dto';
 
 function pdfAttachmentDisposition(filename: string): string {
   const safe = filename.replace(/["\r\n]/g, '_');
@@ -61,9 +63,10 @@ export class OptikController {
     private readonly reports: OptikReportsService,
     private readonly sessions: OptikSessionsService,
     private readonly omrAdvanced: OptikOmrAdvancedService,
+    private readonly omrFeedback: OptikFeedbackService,
   ) {}
 
-  /** Modül durumu – PWA / web istemci */
+  /** Modül durumu – PWA yönetim + Flutter optik istemci */
   @Get('status')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
@@ -90,7 +93,7 @@ export class OptikController {
     return this.optik.getScanLayout(id, payload.userId, payload.schoolId, payload.role);
   }
 
-  /** Server-side native OpenCV ile OMR decode (fallback + yüksek doğruluk) */
+  /** OpenCV OMR decode — Flutter birincil; PWA yedek */
   @Post('decode-omr-advanced')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin)
@@ -566,5 +569,16 @@ export class OptikController {
       schoolId: payload.schoolId,
       role: payload.role,
     });
+  }
+
+  /** Öğretmen düzeltmeleri — eşik kalibrasyonu için */
+  @Post('feedback/omr-corrections')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.teacher, UserRole.school_admin)
+  async submitOmrCorrections(
+    @Body() dto: SubmitOmrFeedbackDto,
+    @CurrentUser() payload: CurrentUserPayload,
+  ) {
+    return this.omrFeedback.submitFeedback(payload.userId, dto);
   }
 }

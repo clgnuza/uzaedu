@@ -55,6 +55,23 @@ export type OmrScanBubble = {
   r: number;
 };
 
+export type OmrDecodeParams = {
+  blank_min: number;
+  margin_min: number;
+  ratio_min: number;
+  needs_rescan_confidence: number;
+  needs_rescan_anchor: number;
+};
+
+export type OmrIdDigitBubble = {
+  digit_index: number;
+  value: number;
+  label: string;
+  x: number;
+  y: number;
+  r: number;
+};
+
 export type OmrScanLayout = {
   version: string;
   page_width: number;
@@ -64,6 +81,8 @@ export type OmrScanLayout = {
   question_count: number;
   blocks: Array<{ label: string; questionCount: number; choiceCount: number }>;
   answers_region?: { y_min: number; y_max: number };
+  decode_params?: OmrDecodeParams;
+  id_digit_bubbles?: OmrIdDigitBubble[];
 };
 
 export function fetchOptikStatus(token: string) {

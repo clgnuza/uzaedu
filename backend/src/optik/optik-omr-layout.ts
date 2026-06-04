@@ -1,5 +1,6 @@
 /** PWA/kamera OMR — PDF (omr-v4) ile aynı balon geometrisi */
 
+import { resolveOmrDecodeParams, type OmrDecodeParams } from './omr-decode-params';
 import {
   OMR_ANCHOR_INSET,
   OMR_ANCHOR_SIZE,
@@ -12,8 +13,10 @@ import {
   computeAnswerBubbleSize,
   computeAnswerRowHeight,
   computeMinChoiceSpacing,
+  computeStudentIdDigitBubbles,
   fitAnswerColumnCount,
   resolveAnswerColumnCount,
+  type IdDigitBubble,
 } from './optik-omr-geometry';
 
 export { OMR_LAYOUT_VERSION, OMR_PAGE_WIDTH, OMR_PAGE_HEIGHT };
@@ -109,6 +112,10 @@ export type OmrScanLayout = {
   question_count: number;
   blocks: TestBlock[];
   answers_region: { y_min: number; y_max: number };
+  /** Şablon bazlı OMR eşikleri (sunucu OpenCV) */
+  decode_params: OmrDecodeParams;
+  /** Öğrenci no. (H1–H5) balonları — 0-9 */
+  id_digit_bubbles: IdDigitBubble[];
 };
 
 export function computeOmrScanLayout(template: {
@@ -116,6 +123,7 @@ export function computeOmrScanLayout(template: {
   choiceCount?: number;
   gradeLevel?: string | null;
   slug?: string;
+  examType?: string | null;
   roiConfig?: { test_blocks?: TestBlock[] } | null;
 }): OmrScanLayout {
   const blocks = resolveTestBlocks(template);
@@ -153,6 +161,17 @@ export function computeOmrScanLayout(template: {
   const rightColBodyH = idOptionHeaderH + idDigitRows * idRowHeight + 14;
   const cardBodyH = Math.max(leftColBodyH, rightColBodyH) + 8;
   const topBlockH = cardHeaderH + cardBodyH;
+  const topBlockY = y;
+  const cardInnerX = contentX + cardPad;
+  const idDigitBubbles = computeStudentIdDigitBubbles({
+    pageWidth,
+    topBlockY,
+    cardHeaderH,
+    cardInnerX,
+    cardInnerW,
+    pdfYToNorm,
+    normX,
+  });
   y = y - topBlockH - 12;
 
   const cevaplarX = contentX;
@@ -229,5 +248,7 @@ export function computeOmrScanLayout(template: {
     question_count: questionCount,
     blocks,
     answers_region: { y_min: Math.max(0, answersYMin - 0.035), y_max: 1 },
+    decode_params: resolveOmrDecodeParams(template),
+    id_digit_bubbles: idDigitBubbles,
   };
 }

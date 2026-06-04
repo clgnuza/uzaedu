@@ -16,6 +16,9 @@ export type GoldenCase = {
   maxQuestion?: number;
   /** En fazla kaç yanlış pozitif kabul edilir */
   maxFalsePositives?: number;
+  /** H1–H5: digit_index → 0-9 */
+  idDigitMarks?: Record<number, number>;
+  expectedStudentCode?: string;
 };
 
 export const OPTIK_OMR_GOLDEN_CASES: GoldenCase[] = [
@@ -93,6 +96,15 @@ export const OPTIK_OMR_GOLDEN_CASES: GoldenCase[] = [
     marks: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [i + 1, 'D'])),
     expected: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [i + 1, 'D'])),
     maxQuestion: 20,
+  },
+  {
+    id: 'id-digit-12345',
+    template: { questionCount: 10, choiceCount: 4 },
+    marks: { 1: 'A', 2: 'B' },
+    idDigitMarks: { 0: 1, 1: 2, 2: 3, 3: 4, 4: 5 },
+    expected: { 1: 'A', 2: 'B' },
+    expectedStudentCode: '12345',
+    maxQuestion: 10,
   },
   {
     id: 'heavy-60x5-partial',

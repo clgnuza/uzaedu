@@ -25,6 +25,7 @@ export function McAnswerKeyPanel({
   ready,
   onScanOmr,
   onScanOcr,
+  hideCameraModes,
 }: {
   questionCount: number;
   choiceCount: number;
@@ -37,6 +38,8 @@ export function McAnswerKeyPanel({
   ready: boolean;
   onScanOmr: () => void;
   onScanOcr: () => void;
+  /** Mobil native tarama — omr/ocr sekmeleri gizlenir */
+  hideCameraModes?: boolean;
 }) {
   const [mode, setMode] = useState<KeyMode>('grid');
   const [paste, setPaste] = useState(() => formatAnswerKeyForPaste(answerKey, questionCount));
@@ -54,9 +57,13 @@ export function McAnswerKeyPanel({
 
   const modes: { id: KeyMode; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'grid', label: 'Elle', icon: FileKey2 },
-    { id: 'omr', label: 'Optik tara', icon: ScanLine },
+    ...(hideCameraModes
+      ? []
+      : [
+          { id: 'omr' as const, label: 'Optik tara', icon: ScanLine },
+          { id: 'ocr' as const, label: 'Anahtar OCR', icon: Sparkles },
+        ]),
     { id: 'paste', label: 'Yapıştır', icon: ClipboardPaste },
-    { id: 'ocr', label: 'Anahtar OCR', icon: Sparkles },
   ];
 
   return (
