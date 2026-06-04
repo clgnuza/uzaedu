@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { useAuth } from '@/hooks/use-auth';
+import { useAuthOptional } from '@/providers/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Download, Smartphone, X } from 'lucide-react';
 import { isIosSafari, isPwaDisplayMode } from '@/lib/pwa-display';
@@ -13,7 +13,7 @@ const HIDE_PREFIXES = ['/tv', '/bakim', '/login', '/register'];
 
 export function PwaInstallHint() {
   const pathname = usePathname();
-  const { token } = useAuth();
+  const token = useAuthOptional()?.token ?? null;
   const [dismissed, setDismissed] = useState(false);
   const [deferred, setDeferred] = useState<{ prompt: () => Promise<void> } | null>(null);
   const [ios, setIos] = useState(false);

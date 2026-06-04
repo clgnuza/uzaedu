@@ -60,7 +60,9 @@ export async function loginWithPasskey(
     method: 'POST',
     body: JSON.stringify({ email: email.trim(), portal }),
   });
-  const assertion = await startAuthentication({ optionsJSON: options });
+  const assertion = await startAuthentication({
+    optionsJSON: options as Parameters<typeof startAuthentication>[0]['optionsJSON'],
+  });
   return apiFetch('/auth/webauthn/login/verify', {
     method: 'POST',
     body: JSON.stringify({
@@ -77,7 +79,9 @@ export async function registerPasskey(token: string, name?: string): Promise<voi
     method: 'POST',
     token,
   });
-  const attestation = await startRegistration({ optionsJSON: options });
+  const attestation = await startRegistration({
+    optionsJSON: options as Parameters<typeof startRegistration>[0]['optionsJSON'],
+  });
   await apiFetch('/auth/webauthn/register/verify', {
     method: 'POST',
     token,

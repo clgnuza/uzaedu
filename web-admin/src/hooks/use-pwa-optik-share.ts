@@ -49,7 +49,7 @@ export function usePwaOptikShare(runMcDecode: (input: string | string[]) => Prom
       setPending(false);
       setFileCount(0);
     } catch (e) {
-      optikToast.error(e, 'share');
+      optikToast.error(e, 'scan');
     }
   }, [hasTemplate, runMcDecode]);
 

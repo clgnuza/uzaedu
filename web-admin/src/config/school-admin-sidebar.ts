@@ -203,18 +203,19 @@ export const SCHOOL_ADMIN_CORE_MENU: MenuItem[] = [
 
 /** Her okul modülü = bir menü grubu (SCHOOL_MODULE_KEYS sırası) */
 export function buildSchoolAdminModuleMenuItems(): MenuItem[] {
-  return SCHOOL_MODULE_KEYS.map((key, index) => {
+  return SCHOOL_MODULE_KEYS.flatMap((key, index) => {
     const children = MODULE_CHILDREN[key] ?? [];
-    if (children.length === 0) return null;
-    return {
+    if (children.length === 0) return [];
+    const item: MenuItem = {
       title: SCHOOL_MODULE_LABELS[key],
       icon: MODULE_ICONS[key],
       allowedRoles: [...SA],
       requiredSchoolModule: key,
       menuGroup: MODULE_MENU_GROUPS[index % MODULE_MENU_GROUPS.length],
       children,
-    } satisfies MenuItem;
-  }).filter((item): item is MenuItem => item !== null);
+    };
+    return [item];
+  });
 }
 
 /** Modül dışı: haber, market, destek */

@@ -361,3 +361,8 @@ export function useAuthContext(): AuthContextValue {
   }
   return ctx;
 }
+
+/** İstemci kabuğu — SSG sırasında bağlam yoksa null */
+export function useAuthOptional(): AuthContextValue | null {
+  return useContext(AuthContext);
+}

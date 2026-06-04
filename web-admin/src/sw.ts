@@ -94,8 +94,8 @@ self.addEventListener('push', (event) => {
   const body = data.body?.trim() || '';
   const icon = pushIconForChannel(channel);
   const silent = data.silent === true;
-  const vibrate =
-    data.vibrate === false ? undefined : ([120, 60, 120] as [number, number, number]);
+  const vibrate: number[] | undefined =
+    data.vibrate === false ? undefined : [120, 60, 120];
   event.waitUntil(
     self.registration.showNotification(channelLabel ? `Uzaedu · ${channelLabel}` : title, {
       body: body || title,
@@ -105,9 +105,9 @@ self.addEventListener('push', (event) => {
       data: { url: data.url || '/bildirimler', notificationId: data.id, channel },
       requireInteraction: data.requireInteraction === true,
       silent,
-      vibrate,
+      ...(vibrate ? { vibrate } : {}),
       actions: [{ action: 'open', title: 'Aç' }],
-    }),
+    } as NotificationOptions),
   );
 });
 

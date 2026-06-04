@@ -62,7 +62,7 @@ function mergedFocus(items: ScoreDeduction[]): ScoreDeductionFocus | undefined {
   if (first.type === 'assignment') {
     return {
       type: 'assignment',
-      subject: first.subject ?? subjectFromTitle(items[0]!.title),
+      subject: first.subject ?? subjectFromTitle(items[0]!.title) ?? undefined,
       rule_key: first.rule_key,
     };
   }

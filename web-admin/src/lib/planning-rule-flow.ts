@@ -174,6 +174,7 @@ const FLOWS: Record<string, PlanningRuleFlowConfig> = {
   'advanced:adv_max_consecutive': flow('adv_max_consecutive', 'advanced', {
     intro: 'Günde art arda en fazla belirtilen ders saati.',
     subjectTitle: 'Ders / kart',
+    subjectHint: 'Ardışık blok sınırı uygulanacak dersleri seçin.',
     paramKind: 'max_run',
     paramTitle: 'Max ardışık saat',
     paramDefault: 4,
@@ -206,6 +207,7 @@ const FLOWS: Record<string, PlanningRuleFlowConfig> = {
   'advanced:adv_max_per_day': flow('adv_max_per_day', 'advanced', {
     intro: 'Günde en fazla belirtilen saat sayısı.',
     subjectTitle: 'Ders kartı',
+    subjectHint: 'Günlük üst sınır uygulanacak dersleri işaretleyin.',
     paramKind: 'max',
     paramTitle: 'Günde max saat',
     paramDefault: 2,
@@ -215,6 +217,7 @@ const FLOWS: Record<string, PlanningRuleFlowConfig> = {
   'advanced:adv_max_same_period': flow('adv_max_same_period', 'advanced', {
     intro: 'Aynı ders sırası (ör. hep 2. saat) haftada sınırlı tekrar.',
     subjectTitle: 'Ders',
+    subjectHint: 'Aynı saat diliminde tekrar sınırlanacak ders.',
     paramKind: 'max',
     paramTitle: 'Aynı saatte max gün',
     paramHint: 'Örn. 2 — 2. saatte haftada en fazla 2 gün.',
@@ -255,6 +258,7 @@ const FLOWS: Record<string, PlanningRuleFlowConfig> = {
   'advanced:adv_no_end_hour': flow('adv_no_end_hour', 'advanced', {
     intro: 'İşaretlenen dilimlerde ders bloğu bitemez.',
     subjectTitle: 'Kapsanan dersler',
+    subjectHint: 'Bitiş yasağı olan dilimlere denk gelen dersler.',
     paramKind: 'lesson_nums',
     paramTitle: 'Bitiş yasak dilimler',
     paramHint: 'Kapanış öncesi dilimleri işaretleyin.',

@@ -64,7 +64,7 @@ function adjustUnplaced(
   );
   if (idx < 0) return unplaced;
   const row = unplaced[idx]!;
-  const placed_hours = row.placed_hours + placedDelta;
+  const placed_hours = (row.placed_hours ?? 0) + placedDelta;
   const remaining_hours = row.remaining_hours - placedDelta;
   if (remaining_hours <= 0) return unplaced.filter((_, i) => i !== idx);
   const next = [...unplaced];

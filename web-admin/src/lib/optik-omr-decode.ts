@@ -202,11 +202,11 @@ export function decodeStudentIdFromGray(
   const idBubbles = layout.id_digit_bubbles ?? [];
   if (idBubbles.length === 0) return { student_code: '', student_code_confidence: 0 };
 
-  const d = layout.decode_params ?? {};
+  const d = layout.decode_params;
   const thresholds = {
-    blank_min: d.blank_min ?? 0.35,
-    margin_min: d.margin_min ?? 0.22,
-    ratio_min: d.ratio_min ?? 2.0,
+    blank_min: d?.blank_min ?? 0.35,
+    margin_min: d?.margin_min ?? 0.22,
+    ratio_min: d?.ratio_min ?? 2.0,
   };
 
   const perDigit = new Map<number, BubbleMarkRow[]>();

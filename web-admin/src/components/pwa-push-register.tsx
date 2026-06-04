@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useAuth } from '@/hooks/use-auth';
+import { useAuthOptional } from '@/providers/auth-provider';
 import { pushSupported, subscribeWebPush } from '@/lib/web-push';
 
 const STORAGE_KEY = 'pwa-push-auto-requested';
 
 /** Giriş sonrası bir kez push izni dener (PWA / mobil kilit ekranı). */
 export function PwaPushRegister() {
-  const { token } = useAuth();
+  const token = useAuthOptional()?.token ?? null;
   const tried = useRef(false);
 
   useEffect(() => {

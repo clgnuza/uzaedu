@@ -5,6 +5,9 @@ import { TimetableGrid } from './TimetableGrid';
 import type { MatrixAxis } from './TimetableMatrixGrid';
 import type { EditorEntry } from '@/lib/ders-dagit-timetable-api';
 
+/** Salt okunur ızgara — `id` yoksa bileşen üretir */
+export type TimetableReadonlyEntry = Omit<EditorEntry, 'id'> & { id?: string };
+
 export function TimetableReadonly({
   entries,
   classSection,
@@ -16,7 +19,7 @@ export function TimetableReadonly({
   focusEntryIds,
   gridRef,
 }: {
-  entries: EditorEntry[];
+  entries: TimetableReadonlyEntry[];
   classSection?: string;
   teacherId?: string;
   workDays?: number[];

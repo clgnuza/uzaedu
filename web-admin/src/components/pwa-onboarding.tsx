@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { BellRing, Check, Fingerprint, Smartphone, X } from 'lucide-react';
-import { useAuth } from '@/hooks/use-auth';
+import { useAuthOptional } from '@/providers/auth-provider';
 import { Button } from '@/components/ui/button';
 import { isPwaDisplayMode } from '@/lib/pwa-display';
 import { pushSupported, subscribeWebPush } from '@/lib/web-push';
@@ -31,7 +31,7 @@ type StepId = 'welcome' | 'push' | 'passkey' | 'done';
 export function PwaOnboarding() {
   const pathname = usePathname();
   const router = useRouter();
-  const { token } = useAuth();
+  const token = useAuthOptional()?.token ?? null;
   const [open, setOpen] = useState(false);
   const [passkeyAvail, setPasskeyAvail] = useState(false);
   const [idx, setIdx] = useState(0);

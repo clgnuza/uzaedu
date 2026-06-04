@@ -77,17 +77,23 @@ export function PlanningRelationEditorDialog({
   const flow = getPlanningRuleFlow(row.rule_id, row.kind);
 
   function applyRuleChange(ruleId: string) {
-    setRow(applyPlanningRuleChange(row, ruleId, simpleCatalog, advancedCatalog));
+    setRow((prev) =>
+      prev ? applyPlanningRuleChange(prev, ruleId, simpleCatalog, advancedCatalog) : prev,
+    );
   }
 
   function handleSave() {
-    const v = validatePlanningRelationRow(row, allSections, simpleCatalog, advancedCatalog);
-    if (!v.ok) {
-      toast.error(v.message);
-      return;
-    }
-    onSave(row);
-    onOpenChange(false);
+    setRow((prev) => {
+      if (!prev) return prev;
+      const v = validatePlanningRelationRow(prev, allSections, simpleCatalog, advancedCatalog);
+      if (!v.ok) {
+        toast.error(v.message);
+        return prev;
+      }
+      onSave(prev);
+      onOpenChange(false);
+      return prev;
+    });
   }
 
   const stepsReady = validatePlanningRelationRow(
