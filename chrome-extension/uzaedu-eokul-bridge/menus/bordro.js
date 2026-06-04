@@ -1,15 +1,19 @@
 const BORDRO_SOURCE_HINTS = {
   mebbis_puantaj: [
-    UZA_BRAND.personelNet + ' → Ek Ders → Raporlar → Ek Ders Listesi (puantaj)',
-    '«Excele Aktar» → Son indirilen Excel’i kullan',
-    UZA_BRAND.maliNet + ' puantaj şablonu: TC, Veri Tip, Gün1…',
+    'mebbis.meb.gov.tr/EKD/ekd04002.aspx',
+    'Filtreler → «Rapor Görüntüle» (btnRaporGoruntule)',
+    '«Açık sekmeden çek» (rapor yoksa otomatik tetikler) veya Excele Aktar',
   ],
   ek_ders_bordro: [
-    UZA_BRAND.maliNet + ' Ek Ders → Bordro Hesapla çıktısı',
-    UZA_BRAND.personelNet + ' Ek Ders Listesi — saat kontrolü',
-    'İki aşama: puantaj çek / bordro çek',
+    'https://www.kbs.gov.tr/yeniakademik/p_yenirapor.htm',
+    'Rapor oluştur → Excel indir',
+    '«Son indirilen Excel» veya «KBS’de indir (yakala)»',
   ],
-  maas_bordro: [UZA_BRAND.maliNet + ' Personel → maaş bordro Excel (brüt/kesinti/net)'],
+  maas_bordro: [
+    'https://www.kbs.gov.tr/maasRapor/maasRapor.htm',
+    'Dönem seç → rapor oluştur → Excel indir',
+    '«Son indirilen Excel» veya «KBS’de indir (yakala)»',
+  ],
 };
 
 const BORDRO_PAGE_META = {
@@ -91,6 +95,9 @@ if (btnOpenTab) {
 if (document.getElementById('btnMebbisReport')) {
   document.getElementById('btnMebbisReport').hidden = bordroType !== 'mebbis_puantaj';
 }
+if (document.getElementById('btnMebbisViewReport')) {
+  document.getElementById('btnMebbisViewReport').hidden = bordroType !== 'mebbis_puantaj';
+}
 if (document.getElementById('btnSnapshotMebbis')) {
   document.getElementById('btnSnapshotMebbis').hidden = bordroType === 'maas_bordro';
 }
@@ -106,8 +113,41 @@ if (document.getElementById('btnScrapePuantaj')) {
 if (document.getElementById('btnScrapeBordro')) {
   document.getElementById('btnScrapeBordro').hidden = bordroType !== 'ek_ders_bordro';
 }
+const btnKbsExport = document.getElementById('btnMaasExport');
+const btnLastExcel = document.getElementById('btnLastExcel');
+const btnScrape = document.getElementById('btnScrape');
+const scrapeSection = document.getElementById('scrapeSection');
+const scrapeSectionTitle = document.getElementById('scrapeSectionTitle');
+const kbsDownloadFlow = bordroType === 'maas_bordro' || bordroType === 'ek_ders_bordro';
+if (kbsDownloadFlow) {
+  if (btnKbsExport) btnKbsExport.hidden = false;
+  if (btnLastExcel) {
+    btnLastExcel.classList.remove('secondary');
+    btnLastExcel.classList.add('primary');
+  }
+  if (btnScrape) btnScrape.hidden = true;
+  if (document.getElementById('btnScrapeBordro')) {
+    document.getElementById('btnScrapeBordro').hidden = true;
+  }
+  if (scrapeSectionTitle) {
+    scrapeSectionTitle.textContent =
+      bordroType === 'maas_bordro' ? 'KBS maaş raporu' : 'KBS ek ders raporu';
+  }
+  if (scrapeSection) scrapeSection.classList.add('kbs-download-mode');
+}
 
-pageTitle.textContent = meta.label;
+function uzaSetPageTitle(text) {
+  if (pageTitle) pageTitle.textContent = text;
+  var th = document.querySelector('.uza-toolbar-text h1');
+  if (th) th.textContent = text;
+}
+uzaSetPageTitle(meta.label);
+var uzaToolbar = document.querySelector('.uza-toolbar');
+if (uzaToolbar) {
+  var plat = bordroType === 'mebbis_puantaj' ? 'mebbis' : 'kbs';
+  uzaToolbar.classList.remove('platform-eokul', 'platform-mebbis', 'platform-kbs');
+  uzaToolbar.classList.add('platform-' + plat);
+}
 privacyNote.textContent = meta.privacy || '';
 privacyNote.hidden = !meta.privacy;
 privacyNote.classList.add('bordro-alert', 'privacy');
@@ -143,6 +183,11 @@ function requireDonem() {
 }
 
 function setStatus(msg, tone) {
+  if (!status) return;
+  if (typeof UZA_NOTIFY !== 'undefined' && status.uzaNotify) {
+    status.uzaNotify(msg || '', tone);
+    return;
+  }
   status.textContent = msg || '';
   status.classList.remove('error', 'success');
   if (tone) status.classList.add(tone);
@@ -237,11 +282,21 @@ document.getElementById('fileInput')?.addEventListener('change', async (ev) => {
 
 document.getElementById('btnMebbisReport')?.addEventListener('click', async () => {
   const r = await chrome.runtime.sendMessage({ type: UZA_MSG_BORDRO_OPEN_MEBBIS_REPORT });
-  setStatus(
-    r?.hint ||
-      UZA_BRAND.personelNet + ' açıldı — Ek Ders Listesi (puantaj) raporunu listeleyin.',
-    'success',
-  );
+  setStatus(r?.hint || 'ekd04002 açıldı — filtreleri doldurup «Rapor Görüntüle».', 'success');
+});
+
+document.getElementById('btnMebbisViewReport')?.addEventListener('click', async () => {
+  if (!requireDonem()) return;
+  setStatus('Rapor görüntüleniyor…');
+  const r = await chrome.runtime.sendMessage({
+    type: UZA_MSG_BORDRO_MEBBIS_VIEW_REPORT,
+    ...formCommon(),
+  });
+  if (!r?.ok) {
+    setStatus(r?.error || 'Rapor açılamadı.', 'error');
+    return;
+  }
+  applyParseResult({ ...r, fromScrape: true });
 });
 
 document.getElementById('btnOpenTab')?.addEventListener('click', async () => {
@@ -249,8 +304,12 @@ document.getElementById('btnOpenTab')?.addEventListener('click', async () => {
   setStatus(
     bordroType === 'mebbis_puantaj'
       ? UZA_BRAND.personelNet +
-        ': Raporlar → Ek Ders Listesi → Listele → Excele Aktar veya «Açık sekmeden çek».'
-      : UZA_BRAND.maliNet + ': personel/bordro listesini açın.',
+        ': ekd04002 → Rapor Görüntüle → çek veya Excele Aktar.'
+      : bordroType === 'maas_bordro'
+        ? 'maasRapor.htm açıldı. Dönem seçin → indirin → «Son indirilen Excel».'
+        : bordroType === 'ek_ders_bordro'
+          ? 'p_yenirapor.htm açıldı. Rapor oluşturun → indirin → «Son indirilen Excel».'
+          : UZA_BRAND.maliNet + ': personel/bordro listesini açın.',
     'success',
   );
 });
@@ -270,9 +329,40 @@ async function runScrapeParse(scrapeMode) {
   applyParseResult({ ...res, fromScrape: true });
 }
 
-document.getElementById('btnScrape')?.addEventListener('click', () => runScrapeParse(''));
+document.getElementById('btnScrape')?.addEventListener('click', () =>
+  runScrapeParse(bordroType === 'maas_bordro' ? 'bordro' : ''),
+);
 document.getElementById('btnScrapePuantaj')?.addEventListener('click', () => runScrapeParse('puantaj'));
 document.getElementById('btnScrapeBordro')?.addEventListener('click', () => runScrapeParse('bordro'));
+
+document.getElementById('btnMaasExport')?.addEventListener('click', async () => {
+  if (!requireDonem()) return;
+  setStatus('KBS indirme tetikleniyor…');
+  const r = await chrome.runtime.sendMessage({
+    type: UZA_MSG_BORDRO_KBS_CLICK_EXPORT,
+    bordroType,
+  });
+  if (!r?.ok) {
+    setStatus(r?.error || 'İndirme yakalanamadı.', 'error');
+    return;
+  }
+  setStatus(`Excel yakalandı: ${r.filename || 'bordro.xlsx'} — ayrıştırılıyor…`, 'success');
+  const res = await chrome.runtime.sendMessage({
+    type: UZA_MSG_BORDRO_LAST_EXCEL_PARSE,
+    ...formCommon(),
+  });
+  if (!res?.ok) {
+    setStatus(res?.error || 'Ayrıştırma başarısız.', 'error');
+    return;
+  }
+  applyParseResult({ ...res, fromStoredExcel: true });
+});
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type === 'UZA_BORDRO_EXCEL_STORED' && msg.notify) {
+    setStatus(`Excel hazır: ${msg.label || 'bordro.xlsx'} — «Son indirilen Excel» ile devam edin.`, 'success');
+  }
+});
 
 document.getElementById('btnLastExcel')?.addEventListener('click', async () => {
   if (!requireDonem()) return;
@@ -430,7 +520,7 @@ document.getElementById('btnCampaign')?.addEventListener('click', async () => {
 (async () => {
   const data = await chrome.storage.session.get(UZA_SESSION_GATE_KEY);
   if (!data[UZA_SESSION_GATE_KEY]) {
-    window.location.replace(chrome.runtime.getURL('gate/gate.html'));
+    window.location.replace(typeof uzaExtUrl==='function'?uzaExtUrl('gate/gate.html'):chrome.runtime.getURL('gate/gate.html'));
     return;
   }
   gatePayload = data[UZA_SESSION_GATE_KEY];

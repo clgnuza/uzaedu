@@ -1,20 +1,17 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="tr">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#070b14" />
+    <meta name="theme-color" content="#2563eb" />
     <title>Toplu faaliyet — Uzaedu Okul Köprüsü</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="../gate/gate.css" />
     <link rel="stylesheet" href="kelebek.css" />
+    <link rel="stylesheet" href="../shared/embed.css" />
   </head>
-  <body class="uza-body">
+  <body class="uza-body" data-uza-platform="eokul" data-uza-icon="activity" data-uza-title="Toplu faaliyet" data-uza-lead="Toplu faaliyet girişi.">
     <main class="card uza-page">
       <header>
-        <a href="../app/app.html" class="back-link">← Modüller</a>
+        <a href="../app/app.html" class="back-link">‹ Modüller</a>
         <h1>Toplu faaliyet</h1>
         <p class="gate-sub">IOG02013 — nedeni Faaliyet (F).</p>
       </header>
@@ -37,8 +34,12 @@
       <button type="button" id="btnRun" class="btn-primary">Kaydet</button>
       <p id="status" class="gate-message" role="status"></p>
     </main>
-    <script src="../shared/brand-names.js"></script>
-    <script src="../shared/messaging.js"></script>
+  <script src="../shared/brand-names.js"></script>
+  <script src="../shared/embed.js"></script>
+  <script src="../shared/icons.js"></script>
+  <script src="../shared/notify.js"></script>
+  <script src="../shared/menu-chrome.js"></script>
+<script src="../shared/messaging.js"></script>
     <script src="faaliyet.js"></script>
   </body>
 </html>

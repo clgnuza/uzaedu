@@ -3,6 +3,10 @@ var UZA_MSG_GATE_RUN = 'UZA_GATE_RUN';
 var UZA_MSG_GATE_STATUS = 'UZA_GATE_STATUS';
 var UZA_MSG_GATE_VERSION = 'UZA_GATE_VERSION';
 var UZA_MSG_GATE_FEATURE = 'UZA_GATE_FEATURE';
+var UZA_MSG_GATE_SCHOOL_ACCESS = 'UZA_GATE_SCHOOL_ACCESS';
+var UZA_MSG_GATE_VERIFY_CODE = 'UZA_GATE_VERIFY_CODE';
+var UZA_MSG_GATE_DIAGNOSTIC = 'UZA_GATE_DIAGNOSTIC';
+var UZA_BRIDGE_CODE_VERIFIED_KEY = 'uzaBridgeCodeVerified';
 var UZA_MSG_GET_BOOTSTRAP = 'UZA_GET_BOOTSTRAP';
 var UZA_MSG_GET_EXTENSION_UI = 'UZA_GET_EXTENSION_UI';
 var UZA_MSG_KELEBEK_LIST = 'UZA_KELEBEK_LIST';
@@ -45,15 +49,47 @@ var UZA_MSG_BORDRO_SCRAPE_PARSE = 'UZA_BORDRO_SCRAPE_PARSE';
 var UZA_MSG_BORDRO_SCRAPE_CAMPAIGN = 'UZA_BORDRO_SCRAPE_CAMPAIGN';
 var UZA_MSG_BORDRO_OPEN_TAB = 'UZA_BORDRO_OPEN_TAB';
 var UZA_MSG_BORDRO_LAST_EXCEL_PARSE = 'UZA_BORDRO_LAST_EXCEL_PARSE';
+var UZA_MSG_BORDRO_CAPTURE_URL = 'UZA_BORDRO_CAPTURE_URL';
 var UZA_MSG_BORDRO_SNAPSHOT_MEBBIS = 'UZA_BORDRO_SNAPSHOT_MEBBIS';
 var UZA_MSG_BORDRO_SNAPSHOT_KBS = 'UZA_BORDRO_SNAPSHOT_KBS';
 var UZA_MSG_BORDRO_COMPARE = 'UZA_BORDRO_COMPARE';
 var UZA_MSG_BORDRO_TC_AUDIT = 'UZA_BORDRO_TC_AUDIT';
 var UZA_MSG_BORDRO_OPEN_MEBBIS_REPORT = 'UZA_BORDRO_OPEN_MEBBIS_REPORT';
+var UZA_MSG_BORDRO_MEBBIS_VIEW_REPORT = 'UZA_BORDRO_MEBBIS_VIEW_REPORT';
+var UZA_MSG_BORDRO_SCRAPE_DIAG = 'UZA_BORDRO_SCRAPE_DIAG';
+var UZA_MSG_BORDRO_KBS_CLICK_EXPORT = 'UZA_BORDRO_KBS_CLICK_EXPORT';
+/** @deprecated */ var UZA_MSG_BORDRO_MAAS_CLICK_EXPORT = UZA_MSG_BORDRO_KBS_CLICK_EXPORT;
 var UZA_MSG_MEBBIS_OTURUM_SET = 'UZA_MEBBIS_OTURUM_SET';
 var UZA_MEBBIS_OTURUM_ENABLED_KEY = 'uzaMebbisPingEnabled';
 var UZA_MEBBIS_OTURUM_ALARM = 'uzaMebbisOturumPing';
 var UZA_MSG_OTURUM_SET = 'UZA_OTURUM_SET';
 var UZA_OTURUM_ALARM = 'uzaEokulOturumPing';
 var UZA_OTURUM_ENABLED_KEY = 'uzaOturumPingEnabled';
+var UZA_MSG_KBS_OTURUM_SET = 'UZA_KBS_OTURUM_SET';
+var UZA_KBS_OTURUM_ENABLED_KEY = 'uzaKbsPingEnabled';
+var UZA_KBS_OTURUM_ALARM = 'uzaKbsOturumPing';
 var UZA_SESSION_GATE_KEY = 'uzaGatePayload';
+var UZA_MSG_FLOAT_STORAGE_GET = 'UZA_FLOAT_STORAGE_GET';
+var UZA_MSG_FLOAT_STORAGE_SET = 'UZA_FLOAT_STORAGE_SET';
+var UZA_MSG_FLOAT_SESSION_GET = 'UZA_FLOAT_SESSION_GET';
+var UZA_FLOAT_FAB_POS_KEY = 'uzaFloatFabPos';
+
+/** Teknik hata metinlerini kullanıcıya anlaşılır Türkçe’ye çevirir. */
+function uzaHumanError(raw) {
+  var s = String(raw || '').trim();
+  if (!s) return 'İşlem tamamlanamadı.';
+  if (/is not defined/i.test(s)) {
+    return 'Eklenti sürümü eski veya yeniden yüklenmeli: chrome://extensions → Uzaedu Okul Köprüsü → Yenile, sonra panel sekmesinde F5.';
+  }
+  if (/panel sekmesi|Panele giriş|panel sekmesinde/i.test(s)) return s;
+  if (/ReferenceError|UZA_[A-Z0-9_]+/i.test(s)) {
+    return 'Eklenti yapılandırma hatası. Köprüyü yeniden yükleyip (0.6+) tekrar deneyin.';
+  }
+  if (/Could not establish connection|Receiving end does not exist/i.test(s)) {
+    return 'Sayfa henüz hazır değil. İlgili MEB sekmesini yenileyip tekrar deneyin.';
+  }
+  if (/Failed to fetch|NetworkError/i.test(s)) {
+    return 'Sunucuya ulaşılamadı. Backend ve internet bağlantınızı kontrol edin.';
+  }
+  return s;
+}

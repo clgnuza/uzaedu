@@ -9,7 +9,7 @@ function setStatus(text) {
 async function ensureGate() {
   const data = await chrome.storage.session.get(UZA_SESSION_GATE_KEY);
   if (!data[UZA_SESSION_GATE_KEY]) {
-    window.location.replace(chrome.runtime.getURL('gate/gate.html'));
+    window.location.replace(typeof uzaExtUrl==='function'?uzaExtUrl('gate/gate.html'):chrome.runtime.getURL('gate/gate.html'));
     return false;
   }
   return true;
@@ -17,7 +17,7 @@ async function ensureGate() {
 
 async function runExport(sinifValues) {
   btnKbAll.disabled = true;
-  setStatus('OkulNet’ten okunuyor…');
+  setStatus('e-Okul’ten okunuyor…');
   try {
     const res = await chrome.runtime.sendMessage({
       type: UZA_MSG_KELEBEK_EXPORT,
@@ -52,7 +52,7 @@ btnKbAll?.addEventListener('click', () => void runExport(null));
       kurumKey: await uzaMenuKurumKey(),
     });
     if (!res?.ok || !res.options?.length) {
-      setStatus(res?.error || 'Sınıf listesi alınamadı. OkulNet oturumunu kontrol edin.');
+      setStatus(res?.error || 'Sınıf listesi alınamadı. e-Okul oturumunu kontrol edin.');
       return;
     }
     kbClassList.hidden = false;

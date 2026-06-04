@@ -19,7 +19,7 @@ async function runWrite() {
       return;
     }
     const p = payloadRes.payload;
-    status.textContent = 'OkulNet\'a yazılıyor…';
+    status.textContent = 'e-Okul\'a yazılıyor…';
     const res = await chrome.runtime.sendMessage({
       type: UZA_MSG_DEVAMSIZLIK_WRITE,
       siniflar: p.siniflar,
@@ -41,7 +41,7 @@ async function runWrite() {
 (async () => {
   const data = await chrome.storage.session.get(UZA_SESSION_GATE_KEY);
   if (!data[UZA_SESSION_GATE_KEY]) {
-    window.location.replace(chrome.runtime.getURL('gate/gate.html'));
+    window.location.replace(typeof uzaExtUrl==='function'?uzaExtUrl('gate/gate.html'):chrome.runtime.getURL('gate/gate.html'));
     return;
   }
   status.textContent = 'Kampanyalar…';
@@ -56,7 +56,7 @@ async function runWrite() {
     for (const c of list) {
       const opt = document.createElement('option');
       opt.value = c.id;
-      const tag = c.type === 'ders_devamsizlik' ? 'Sınıf Yoklama' : 'günlük';
+      const tag = c.type === 'ders_devamsizlik' ? 'e-yoklama' : 'günlük';
       opt.textContent = `${c.title} [${tag}] (${c.tarih_iso || '?'})`;
       campSelect.appendChild(opt);
     }

@@ -8,7 +8,7 @@ async function uzaRunMektupExport(opts) {
   uzaMektupExportLock = true;
   try {
     const html = await uzaWarmOkl08002(profile);
-    const built = uzaBuildMektup08002ListeleBody(html, opts.uyariDilimi, uzaTodayDdMmYyyy());
+    const built = await uzaBuildMektup08002ListeleBody(html, opts.uyariDilimi, uzaTodayDdMmYyyy());
     if (!built.ok) return { ok: false, error: 'Liste gövdesi oluşturulamadı.' };
     const res = await uzaHtmlSessionFetch(profile.okl08002, {
       method: 'POST',
@@ -17,8 +17,8 @@ async function uzaRunMektupExport(opts) {
       refUrl: profile.okl08002,
     });
     const listHtml = await res.text();
-    if (uzaLooksLikeLoginPage(listHtml)) return { ok: false, error: 'OkulNet oturumu gerekli.' };
-    const scrape = uzaScrapeMektup08002Grid(listHtml, !!opts.includeSent);
+    if (uzaLooksLikeLoginPage(listHtml)) return { ok: false, error: 'e-Okul oturumu gerekli.' };
+    const scrape = await uzaScrapeMektup08002Grid(listHtml, !!opts.includeSent);
     if (!scrape.ok || !scrape.rows?.length) return { ok: false, error: 'Kayıt bulunamadı.' };
     const ogrenciler = scrape.rows.map((r) => ({
       ogrenci_no: r.ogrenciNo,

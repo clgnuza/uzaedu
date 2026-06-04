@@ -10,6 +10,7 @@ import { School } from '../schools/entities/school.entity';
 import { Student } from '../students/entities/student.entity';
 import { SchoolClass } from '../classes-subjects/entities/school-class.entity';
 import { EokulBridgeOgrenciDosyaImportService } from './eokul-bridge-ogrenci-dosya-import.service';
+import { EokulBridgeSchoolAccessService } from './eokul-bridge-school-access.service';
 
 @Module({
   imports: [
@@ -19,7 +20,12 @@ import { EokulBridgeOgrenciDosyaImportService } from './eokul-bridge-ogrenci-dos
     DersDagitModule,
   ],
   controllers: [EokulBridgeController],
-  providers: [EokulBridgeService, EokulBridgeVeliIzinPdfService, EokulBridgeOgrenciDosyaImportService],
-  exports: [EokulBridgeService],
+  providers: [
+    EokulBridgeService,
+    EokulBridgeVeliIzinPdfService,
+    EokulBridgeOgrenciDosyaImportService,
+    EokulBridgeSchoolAccessService,
+  ],
+  exports: [EokulBridgeService, EokulBridgeSchoolAccessService],
 })
 export class EokulBridgeModule {}

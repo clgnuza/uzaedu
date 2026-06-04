@@ -60,7 +60,7 @@ async function runUploadMeb() {
     return;
   }
   btnDdUploadMeb.disabled = true;
-  status.textContent = 'OkulNet sayfasına yükleniyor…';
+  status.textContent = 'e-Okul sayfasına yükleniyor…';
   try {
     const res = await chrome.runtime.sendMessage({
       type: UZA_MSG_DD_EOKUL_UPLOAD_TO_MEB,
@@ -68,7 +68,7 @@ async function runUploadMeb() {
       filename: ddFile?.files?.[0]?.name || 'ders_programi.xlsx',
     });
     status.textContent = res?.ok
-      ? 'Dosya OkulNet sayfasına verildi (kaydı kontrol edin).'
+      ? 'Dosya e-Okul sayfasına verildi (kaydı kontrol edin).'
       : res?.error || 'Yükleme başarısız.';
   } catch (e) {
     status.textContent = e?.message || String(e);
@@ -178,7 +178,7 @@ async function runImport() {
 (async () => {
   const data = await chrome.storage.session.get(UZA_SESSION_GATE_KEY);
   if (!data[UZA_SESSION_GATE_KEY]) {
-    window.location.replace(chrome.runtime.getURL('gate/gate.html'));
+    window.location.replace(typeof uzaExtUrl==='function'?uzaExtUrl('gate/gate.html'):chrome.runtime.getURL('gate/gate.html'));
     return;
   }
   gatePayload = data[UZA_SESSION_GATE_KEY];

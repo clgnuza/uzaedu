@@ -36,7 +36,7 @@ async function uzaRunKelebekExport(opts) {
     if (!turSync.ok) return turSync;
     const jd = await uzaOkl08001ResolveInitialData(profile, kurumKey);
     if (!jd.ok || !jd.options?.length) {
-      if (jd.error === 'login') return { ok: false, error: 'OkulNet oturumu gerekli.' };
+      if (jd.error === 'login') return { ok: false, error: 'e-Okul oturumu gerekli.' };
       return { ok: false, error: 'Sınıf listesi alınamadı.' };
     }
     const meta = {
@@ -57,7 +57,7 @@ async function uzaRunKelebekExport(opts) {
     for (const opt of options) {
       const lr = await uzaOkl08001FetchClassStudentRows(profile, kurumKey, meta, opt, meta.gununTarihi);
       if (!lr.ok) {
-        if (lr.error === 'login') return { ok: false, error: 'OkulNet oturumu sona erdi.' };
+        if (lr.error === 'login') return { ok: false, error: 'e-Okul oturumu sona erdi.' };
         continue;
       }
       const rows = lr.rows || [];
@@ -98,7 +98,7 @@ async function uzaListKelebekSinifOptions(kurumKey) {
   await uzaWarmOkl08001(profile);
   const jd = await uzaOkl08001ResolveInitialData(profile, key);
   if (!jd.ok) {
-    if (jd.error === 'login') return { ok: false, error: 'OkulNet oturumu gerekli.' };
+    if (jd.error === 'login') return { ok: false, error: 'e-Okul oturumu gerekli.' };
     return { ok: false, error: 'Liste alınamadı.' };
   }
   return { ok: true, options: jd.options };

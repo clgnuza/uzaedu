@@ -34,6 +34,12 @@ Thumbs.db
 tmp/
 temp/
 .cache/
+.tmp-*-ext/
+chrome-extension/_obs-ref-unpack/
+chrome-extension/_edupanel-ref-unpack/
+chrome-extension/_edupanel-ref.crx
+backend/tools/debug-*.cjs
+!backend/tools/debug-generate.cjs
 
 # Backend (Node/Nest/TS)
 backend/node_modules/

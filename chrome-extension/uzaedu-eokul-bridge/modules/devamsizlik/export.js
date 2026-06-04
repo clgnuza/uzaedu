@@ -58,7 +58,7 @@ async function uzaRunDevamsizlikExport(opts) {
     if (!turSync.ok) return turSync;
     const jd = await uzaOkl08001ResolveInitialData(profile, kurumKey);
     if (!jd.ok || !jd.options?.length) {
-      if (jd.error === 'login') return { ok: false, error: 'OkulNet oturumu gerekli.' };
+      if (jd.error === 'login') return { ok: false, error: 'e-Okul oturumu gerekli.' };
       return { ok: false, error: 'Sınıf listesi alınamadı.' };
     }
     const meta = {
@@ -86,7 +86,7 @@ async function uzaRunDevamsizlikExport(opts) {
           kurumKoduFrontend: meta.kurumKodu,
         });
         if (lr.ok) rows = uzaOkl08001ListeleJsonToDevamsizlikRows(lr.liste, scrapeMode);
-        else if (lr.error === 'login') return { ok: false, error: 'OkulNet oturumu sona erdi.' };
+        else if (lr.error === 'login') return { ok: false, error: 'e-Okul oturumu sona erdi.' };
       }
       if (!rows.length) {
         const h = await uzaOkl08001PostListeleHtml(
@@ -97,10 +97,10 @@ async function uzaRunDevamsizlikExport(opts) {
           listeleTarih,
         );
         if (h.ok) {
-          const scraped = uzaScrapeGunlukDevamsizlikFromHtml(h.html, scrapeMode, kurumKey);
+          const scraped = await uzaScrapeGunlukDevamsizlikFromHtml(h.html, scrapeMode, kurumKey);
           rows = uzaGunlukScrapeToApiRows(scraped, scrapeMode);
         } else if (h.error === 'login') {
-          return { ok: false, error: 'OkulNet oturumu sona erdi.' };
+          return { ok: false, error: 'e-Okul oturumu sona erdi.' };
         }
       }
       if (rows.length) {

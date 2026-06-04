@@ -165,7 +165,7 @@ async function uzaFetchOgrDosyaGroupValues(profile, ogrNo, state, groupId, field
     if (!nav.ok) return nav;
     const values = {};
     for (const f of fieldDefs) {
-      values[f.id] = uzaScrapeValueByLabel(nav.html, f.labelMatch || f.label);
+      values[f.id] = await uzaScrapeValueByLabel(nav.html, f.labelMatch || f.label);
     }
     return { ok: true, values };
   }
@@ -175,7 +175,7 @@ async function uzaFetchOgrDosyaGroupValues(profile, ogrNo, state, groupId, field
     if (!nav.ok) return nav;
     const values = {};
     for (const f of fieldDefs) {
-      values[f.id] = uzaScrapeValueByLabel(nav.html, f.labelMatch || f.label);
+      values[f.id] = await uzaScrapeValueByLabel(nav.html, f.labelMatch || f.label);
     }
     return { ok: true, values };
   }

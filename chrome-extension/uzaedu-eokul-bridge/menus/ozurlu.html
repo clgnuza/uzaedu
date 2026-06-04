@@ -1,32 +1,34 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="tr">
   <head>
-    <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="utf-8" />
     <title>Toplu özürlü</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="../gate/gate.css" />
     <link rel="stylesheet" href="kelebek.css" />
+    <link rel="stylesheet" href="../shared/embed.css" />
   </head>
-  <body class="uza-body">
+  <body class="uza-body" data-uza-platform="eokul" data-uza-icon="activity" data-uza-title="Toplu özürlü" data-uza-lead="Toplu özürlü devamsızlık girişi.">
     <main class="card uza-page">
-      <a href="../app/app.html" class="back-link">← Modüller</a>
+      <a href="../app/app.html" class="back-link">‹ Modüller</a>
       <h1>Toplu özürlü giriş</h1>
       <p class="gate-sub">IOG02013 — her öğrenci için tarih|tür satırları kaydedilir.</p>
       <label class="gate-sub" for="ozNedeni">Özür nedeni (ddl değeri)</label>
-      <input id="ozNedeni" class="btn-primary" style="width: 100%; margin-bottom: 0.5rem" placeholder="örn. 1" />
+      <input id="ozNedeni" class="uza-input uza-w-full uza-mb-05" placeholder="örn. 1" />
       <label class="gate-sub" for="ozAciklama">Açıklama (max 29)</label>
-      <input id="ozAciklama" class="btn-primary" style="width: 100%; margin-bottom: 0.75rem" />
+      <input id="ozAciklama" class="uza-input uza-w-full uza-mb-075" />
       <label class="gate-sub" for="ozRows">Tarih | tür (satır başına)</label>
-      <textarea id="ozRows" rows="3" placeholder="03.06.2026|Tam Gün" style="width: 100%; margin-bottom: 0.5rem"></textarea>
+      <textarea id="ozRows" rows="3" placeholder="03.06.2026|Tam Gün" class="uza-input uza-w-full uza-mb-05"></textarea>
       <label class="gate-sub" for="ozNos">Okul numaraları</label>
-      <textarea id="ozNos" rows="4" style="width: 100%; margin-bottom: 0.75rem"></textarea>
-      <button type="button" id="btnOz" class="btn-primary" style="width: 100%">OkulNet&apos;e yaz</button>
+      <textarea id="ozNos" rows="4" class="uza-input uza-w-full uza-mb-075"></textarea>
+      <button type="button" id="btnOz" class="btn-primary uza-w-full">e-Okul&apos;e yaz</button>
       <p id="status" class="gate-message"></p>
     </main>
-    <script src="../shared/brand-names.js"></script>
-    <script src="../shared/messaging.js"></script>
+  <script src="../shared/brand-names.js"></script>
+  <script src="../shared/embed.js"></script>
+  <script src="../shared/icons.js"></script>
+  <script src="../shared/notify.js"></script>
+  <script src="../shared/menu-chrome.js"></script>
+<script src="../shared/messaging.js"></script>
     <script src="ozurlu.js"></script>
   </body>
 </html>

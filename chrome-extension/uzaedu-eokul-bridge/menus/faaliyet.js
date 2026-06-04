@@ -31,7 +31,7 @@ btnRun?.addEventListener('click', async () => {
 (async () => {
   const data = await chrome.storage.session.get(UZA_SESSION_GATE_KEY);
   if (!data[UZA_SESSION_GATE_KEY]) {
-    window.location.replace(chrome.runtime.getURL('gate/gate.html'));
+    window.location.replace(typeof uzaExtUrl==='function'?uzaExtUrl('gate/gate.html'):chrome.runtime.getURL('gate/gate.html'));
     return;
   }
   const t = document.getElementById('tarih');

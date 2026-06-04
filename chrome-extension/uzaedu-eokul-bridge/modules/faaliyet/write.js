@@ -8,8 +8,8 @@ function uzaIsoToTrDate(iso) {
   return s;
 }
 
-function uzaBuildFaaliyetBody(html, tarihTr, sure, aciklama, pageMode) {
-  const built = uzaBuild02013SaveBody(
+async function uzaBuildFaaliyetBody(html, tarihTr, sure, aciklama, pageMode) {
+  const built = await uzaBuild02013SaveBody(
     html,
     { tarih: tarihTr, tur: 'tam' },
     'F',
@@ -29,7 +29,7 @@ async function uzaPostFaaliyetKayit(profile, detailUrl, tarihTr, sure, aciklama)
   let html = await getRes.text();
   if (uzaLooksLikeLoginPage(html)) return { ok: false, error: 'login' };
 
-  const built1 = uzaBuildFaaliyetBody(html, tarihTr, sure, aciklama, UZA_02013_PAGE_YENI);
+  const built1 = await uzaBuildFaaliyetBody(html, tarihTr, sure, aciklama, UZA_02013_PAGE_YENI);
   if (!built1.ok) return built1;
   const post1 = await uzaHtmlSessionFetch(pageUrl, {
     method: 'POST',
@@ -40,7 +40,7 @@ async function uzaPostFaaliyetKayit(profile, detailUrl, tarihTr, sure, aciklama)
   html = await post1.text();
   if (uzaLooksLikeLoginPage(html)) return { ok: false, error: 'login' };
 
-  const built2 = uzaBuildFaaliyetBody(html, tarihTr, sure, aciklama, UZA_02013_PAGE_DEVAM);
+  const built2 = await uzaBuildFaaliyetBody(html, tarihTr, sure, aciklama, UZA_02013_PAGE_DEVAM);
   if (!built2.ok) return built2;
   const post2 = await uzaHtmlSessionFetch(pageUrl, {
     method: 'POST',
@@ -80,7 +80,7 @@ async function uzaRunTopluFaaliyetWrite(opts) {
       }
       const r = await uzaPostFaaliyetKayit(profile, nav.detailUrl, tarihTr, sure, aciklama);
       if (!r.ok) {
-        if (r.error === 'login') return { ok: false, error: 'OkulNet oturumu sona erdi.' };
+        if (r.error === 'login') return { ok: false, error: 'e-Okul oturumu sona erdi.' };
         invalid.push(ogrNo);
       } else {
         saved += 1;

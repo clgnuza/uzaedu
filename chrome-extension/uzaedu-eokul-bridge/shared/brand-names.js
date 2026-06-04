@@ -1,22 +1,18 @@
 /**
- * Kullanıcıya görünen özgün sistem adları (telif/marka riski taşıyan resmî adlar yerine).
+ * Kullanıcıya görünen sistem adları (MEB / resmî kısaltmalar).
  * Teknik URL, API anahtarı ve kod tanımlayıcıları değiştirilmez.
  */
 var UZA_BRAND = {
   product: 'Uzaedu Okul Köprüsü',
   productShort: 'Okul Köprüsü',
-  /** E-Okul yerine */
-  okulNet: 'OkulNet',
-  /** MEBBİS yerine */
-  personelNet: 'PersonelNet',
-  /** KBS yerine */
-  maliNet: 'MaliNet',
-  /** e-yoklama yerine */
-  sinifYoklama: 'Sınıf Yoklama',
-  platformLabel: { eokul: 'OkulNet', mebbis: 'PersonelNet', kbs: 'MaliNet' },
-  platformIcon: { eokul: 'ON', mebbis: 'PN', kbs: 'MN' },
+  okulNet: 'e-Okul',
+  personelNet: 'MEBBİS',
+  maliNet: 'KBS',
+  sinifYoklama: 'e-yoklama',
+  platformLabel: { eokul: 'e-Okul', mebbis: 'MEBBİS', kbs: 'KBS' },
+  platformIcon: { eokul: 'eO', mebbis: 'M', kbs: 'K' },
   dirPull: 'Panele al',
-  dirPush: "OkulNet'e yaz",
+  dirPush: "e-Okul'a yaz",
   dirBoth: 'Çift yön',
 };
 
@@ -27,7 +23,7 @@ var UZA_ERR = {
   okulNetTabNotFound: function () {
     return (
       UZA_BRAND.okulNet +
-      ' sekmesi bulunamadı. Resmî okul bilgi sistemi adresinde oturum açın.'
+      ' sekmesi gerekli. e-okul.meb.gov.tr adresinde oturum açın (MEBBİS/KBS işlemleri için zorunlu değil).'
     );
   },
   okulNetSessionRequired: function () {

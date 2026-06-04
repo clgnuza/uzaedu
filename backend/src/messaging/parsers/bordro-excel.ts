@@ -99,9 +99,9 @@ function findHeaderRow(aoa: unknown[][]): { rowIndex: number; headers: string[] 
     const row = aoa[i];
     if (!Array.isArray(row)) continue;
     const norms = row.map(normHeader);
-    const hasTc = norms.some((s) => /t\.?\s*c\.?|tc\s*kimlik|kimlik\s*no/.test(s));
+    const hasTc = norms.some((s) => /t\.?\s*c\.?|tc\s*kimlik|kimlik\s*no|kimlik\s*numara/.test(s));
     const hasName = norms.some((s) =>
-      /ad.*soyad|personel\s*ad|adı\s*soyadı|soyad.*ad/.test(s),
+      /ad.*soyad|personel.*ad|personelin\s*ad|adı\s*soyadı|soyad.*ad/.test(s),
     );
     const hasVeriTip = norms.some((s) => /veri\s*tip/.test(s));
     const hasAd = norms.some((s) => /^adı?$|^ad\s/.test(s) || s === 'ad');
@@ -140,10 +140,10 @@ export function detectBordroFormat(headers: string[], prefer: 'puantaj' | 'ek_bo
   const hasToplamSaat = !!findCol(headers, /toplam\s*saat|net\s*saat|fiili\s*saat|hesaplanan\s*saat|saat\s*toplam/i);
   const hasNetPay = !!findCol(
     headers,
-    /net\s*ödenecek|ödenecek\s*tutar|net\s*tutar|net\s*ücret|net\s*maaş|net\s*maas/i,
+    /net\s*ödenecek|net\s*ödenen|ödenecek\s*tutar|ödenen\s*tutar|net\s*tutar|net\s*ücret|net\s*maaş|net\s*maas/i,
   );
-  const hasBrut = !!findCol(headers, /brüt|brut|brüt\s*ücret|brüt\s*maaş/i);
-  const hasKesinti = !!findCol(headers, /kesinti|toplam\s*kesinti/i);
+  const hasBrut = !!findCol(headers, /brüt|brut|brüt\s*ücret|brüt\s*maaş|brüt\s*tutar/i);
+  const hasKesinti = !!findCol(headers, /kesinti|toplam\s*kesinti|kesintiler\s*toplam/i);
 
   if (prefer === 'maas' && (hasNetPay || hasBrut)) return 'kbs_maas_bordro';
   if (prefer === 'ek_bordro' && hasNetPay && (hasBrut || hasKesinti)) return 'kbs_ek_ders_bordro';
@@ -158,7 +158,7 @@ export function detectBordroFormat(headers: string[], prefer: 'puantaj' | 'ek_bo
 export function resolveColumns(headers: string[]): BordroColumns {
   const nameCol = findCol(
     headers,
-    /adı\s*soyadı|ad\s*soyad|personel\s*ad|öğretmen\s*ad|ad\s*ve\s*soyad/i,
+    /adı\s*soyadı|ad\s*soyad|personelin\s*ad|personel.*soyad|personel\s*ad|öğretmen\s*ad|ad\s*ve\s*soyad/i,
   );
   const adCol = findCol(headers, /^adı?$|^ad\s*$/i);
   const soyadCol = findCol(headers, /soyad/i);
@@ -168,15 +168,21 @@ export function resolveColumns(headers: string[]): BordroColumns {
     name: nameCol ?? undefined,
     ad: adCol && !nameCol ? adCol : undefined,
     soyad: soyadCol && !nameCol ? soyadCol : undefined,
-    tc: findCol(headers, /t\.?\s*c\.?\s*kimlik|tc\s*kimlik|kimlik\s*no|^tc$/i) ?? undefined,
+    tc:
+      findCol(headers, /t\.?\s*c\.?\s*kimlik|tc\s*kimlik|kimlik\s*no|kimlik\s*numara|^tc$/i) ??
+      undefined,
     phone: findCol(headers, /telefon|gsm|whatsapp|cep|phone/i) ?? undefined,
     unvan: findCol(headers, /ünvan|unvan|görev|personel\s*tür/i) ?? undefined,
     brans: findCol(headers, /branş|brans|atama\s*alan|ders\s*alan/i) ?? undefined,
     veriTip: findCol(headers, /veri\s*tip|veri\s*tipi|ödeme\s*tip/i) ?? undefined,
     toplamSaat: findCol(headers, /toplam\s*saat|net\s*saat|fiili\s*saat|hesaplanan\s*saat|saat\s*toplam|^saat$/i) ?? undefined,
-    brut: findCol(headers, /brüt\s*ücret|brüt\s*maaş|brüt|brut/i) ?? undefined,
-    kesinti: findCol(headers, /toplam\s*kesinti|^kesinti$/i) ?? undefined,
-    net: findCol(headers, /net\s*ödenecek|ödenecek\s*tutar|net\s*tutar|net\s*ücret|net\s*maaş|net\s*maas|^net$/i) ?? undefined,
+    brut: findCol(headers, /brüt\s*ücret|brüt\s*maaş|brüt\s*tutar|brüt|brut/i) ?? undefined,
+    kesinti: findCol(headers, /toplam\s*kesinti|kesintiler\s*toplam|^kesinti$/i) ?? undefined,
+    net:
+      findCol(
+        headers,
+        /net\s*ödenecek|net\s*ödenen|ödenecek\s*tutar|ödenen\s*tutar|net\s*tutar|net\s*ücret|net\s*maaş|net\s*maas|^net$/i,
+      ) ?? undefined,
     dayCols,
   };
 }

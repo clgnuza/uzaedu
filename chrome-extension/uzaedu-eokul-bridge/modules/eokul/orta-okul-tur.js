@@ -113,7 +113,8 @@ async function uzaFetchOrtaOkulTurPage(profile) {
   if (!res.ok) return { ok: false, error: String(res.status) };
   const html = await res.text();
   if (uzaLooksLikeLoginPage(html)) return { ok: false, error: 'login' };
-  return { ok: true, html, ...uzaScrapeOkulAltTurFromHtml(html) };
+  const scraped = await uzaScrapeOkulAltTurFromHtml(html);
+  return { ok: true, html, ...scraped };
 }
 
 async function uzaFetchAndStoreOrtaOkulTurOptions(profile, preferLabel) {
@@ -140,7 +141,7 @@ async function uzaPostOrtaOkulAltTurChange(profile, okulAltTurValue) {
   if (!g.ok) return { ok: false, error: String(g.status) };
   let html = await g.text();
   if (uzaLooksLikeLoginPage(html)) return { ok: false, error: 'login' };
-  const built = uzaBuildOkulAltTurChangeBody(html, okulAltTurValue, profile);
+  const built = await uzaBuildOkulAltTurChangeBody(html, okulAltTurValue, profile);
   if (!built.ok) return { ok: false, error: built.error || 'body' };
   const post = await uzaHtmlSessionFetch(url, {
     method: 'POST',

@@ -36,7 +36,7 @@ async function uzaRunTopluOzursuzWriteHtml(profile, kurumKey, opts, listeleTarih
     return { ok: false, error: 'En az bir okul numarası girin.' };
   }
   const jd = await uzaOkl08001FetchInitialDataHtml(profile, kurumKey);
-  if (!jd.ok) return { ok: false, error: 'OkulNet oturumu gerekli.' };
+  if (!jd.ok) return { ok: false, error: 'e-Okul oturumu gerekli.' };
   let baseHtml = jd._baseHtml;
   let savedClasses = 0;
   let matchedTotal = 0;
@@ -48,7 +48,7 @@ async function uzaRunTopluOzursuzWriteHtml(profile, kurumKey, opts, listeleTarih
       if (lr.error === 'login') return { ok: false, error: 'Oturum sona erdi.' };
       continue;
     }
-    const scraped = uzaScrapeOzursuzEditableRows(lr.html, kurumKey);
+    const scraped = await uzaScrapeOzursuzEditableRows(lr.html, kurumKey);
     if (!scraped.ok) {
       if (scraped.code === 'gunlukTableMissing') continue;
       return { ok: false, error: 'Sınıf tablosu okunamadı.' };
@@ -103,7 +103,7 @@ async function uzaRunTopluOzursuzWrite(opts) {
     const turSync = await uzaEnsureOrtaOkulTurSync(profile, kurumKey, opts.okulAltTurValue);
     if (!turSync.ok) return turSync;
     const jd = await uzaOkl08001FetchInitialDataJson(profile);
-    if (!jd.ok) return { ok: false, error: 'OkulNet oturumu gerekli.' };
+    if (!jd.ok) return { ok: false, error: 'e-Okul oturumu gerekli.' };
     const meta = {
       donemKodu: String(jd.donemKodu || '').trim(),
       kurumKodu: String(jd.kurumKodu || '').trim(),

@@ -12,6 +12,7 @@ require('ts-node').register({
 const {
   parseMebbisPuantaj,
   parseEkDersBordro,
+  parseMaasBordro,
 } = require(path.join(__dirname, '../src/messaging/parsers/bordro-parsers.ts'));
 
 function sheetBuf(rows) {
@@ -56,5 +57,18 @@ const bordroBuf = sheetBuf([
 const ek = parseEkDersBordro(bordroBuf, 'Eylül 2025');
 assert(ek.excelFormat === 'kbs_ek_ders_bordro', 'ek bordro format');
 assert(ek.teachers[0].messageText.includes('25.000'), 'net tutar');
+
+// KBS yeni rapor benzeri sütun adları (p_yenirapor / maasRapor export)
+const kbsRaporBuf = sheetBuf([
+  ['T.C. Kimlik Numarası', 'Personelin Adı Soyadı', 'Brüt Tutar', 'Kesintiler Toplamı', 'Net Ödenen Tutar'],
+  ['33333333333', 'ALI VELI', '10000', '1000', '9000'],
+]);
+const ek2 = parseEkDersBordro(kbsRaporBuf, '2025');
+assert(ek2.excelFormat === 'kbs_ek_ders_bordro', 'kbs rapor sütunları');
+assert(ek2.teachers[0].messageText.includes('9.000'), 'net ödenen');
+
+const maas = parseMaasBordro(kbsRaporBuf, '2025');
+assert(maas.excelFormat === 'kbs_maas_bordro', 'maas format from kbs cols');
+assert(maas.teachers[0].messageText.includes('9.000'), 'maas net');
 
 console.log('bordro-parsers.test.cjs OK');

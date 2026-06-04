@@ -13,7 +13,7 @@ import {
 import { EOKUL_BRIDGE_DOM_RUNTIME } from './eokul-bridge.dom-runtime';
 import { EOKUL_BRIDGE_OGR_DOSYA_GROUPS } from './eokul-bridge-ogr-dosya-groups';
 
-export const EOKUL_BRIDGE_MIN_EXTENSION_VERSION = '0.4.0';
+export const EOKUL_BRIDGE_MIN_EXTENSION_VERSION = '0.6.0';
 
 export const EOKUL_BRIDGE_KURUM_ILK = ['okulOncesi', 'ilkOgretim'] as const;
 export const EOKUL_BRIDGE_KURUM_BOTH = ['ilkOgretim', 'ortaOgretim'] as const;
@@ -32,7 +32,7 @@ export const EOKUL_BRIDGE_MENUS: EokulBridgeMenuDef[] = [
   {
     id: 'kelebekSinavOgrenciAktar',
     label: 'Kelebek sınıf/öğrenci',
-    description: 'OkulNet sınıf/öğrenci listesini kelebek modülüne aktarır.',
+    description: 'e-Okul sınıf/öğrenci listesini kelebek modülüne aktarır.',
     phase: 1,
     direction: 'pull',
     panelPath: '/kelebek-sinav/sinif-ogrenci',
@@ -41,7 +41,7 @@ export const EOKUL_BRIDGE_MENUS: EokulBridgeMenuDef[] = [
   {
     id: 'gunlukDevamsizlikAktar',
     label: 'Günlük devamsızlık',
-    description: 'OkulNet günlük devamsızlığı mesaj merkezi kampanyasına aktarır.',
+    description: 'e-Okul günlük devamsızlığı mesaj merkezi kampanyasına aktarır.',
     phase: 2,
     direction: 'pull',
     panelPath: '/mesaj-merkezi/devamsizlik',
@@ -50,7 +50,7 @@ export const EOKUL_BRIDGE_MENUS: EokulBridgeMenuDef[] = [
   {
     id: 'eyoklamaDersDevamsizlikAktar',
     label: 'Sınıf yoklama (ders)',
-    description: 'Sınıf Yoklama (ders bazlı) listesini mesaj merkezine aktarır.',
+    description: 'e-yoklama (ders bazlı) listesini mesaj merkezine aktarır.',
     phase: 2,
     direction: 'pull',
     panelPath: '/mesaj-merkezi/ders-devamsizlik',
@@ -86,7 +86,7 @@ export const EOKUL_BRIDGE_MENUS: EokulBridgeMenuDef[] = [
   {
     id: 'ogrenciRehberEokul',
     label: 'Öğrenci rehber',
-    description: 'OkulNet anne/baba cep telefonunu veli rehberine aktarır.',
+    description: 'e-Okul anne/baba cep telefonunu veli rehberine aktarır.',
     phase: 4,
     direction: 'pull',
     panelPath: '/mesaj-merkezi/veli-rehber',
@@ -95,7 +95,7 @@ export const EOKUL_BRIDGE_MENUS: EokulBridgeMenuDef[] = [
   {
     id: 'veliBilgiGuncelle',
     label: 'Veli bilgisi güncelle',
-    description: 'Veli rehberindeki cep telefonunu OkulNet veli kaydına yazar (API + DOM yedeği).',
+    description: 'Veli rehberindeki cep telefonunu e-Okul veli kaydına yazar (API + DOM yedeği).',
     phase: 4,
     direction: 'push',
     panelPath: '/mesaj-merkezi/veli-rehber',
@@ -128,7 +128,7 @@ export const EOKUL_BRIDGE_MENUS: EokulBridgeMenuDef[] = [
   {
     id: 'gunlukDevamsizlikYaz',
     label: 'Günlük devamsızlık yaz',
-    description: 'Mesaj merkezi kampanyasını OkulNet günlük listesine yazar.',
+    description: 'Mesaj merkezi kampanyasını e-Okul günlük listesine yazar.',
     phase: 6,
     direction: 'push',
     enabled: true,
@@ -144,7 +144,7 @@ export const EOKUL_BRIDGE_MENUS: EokulBridgeMenuDef[] = [
   {
     id: 'dersProgramiEokul',
     label: 'Ders programı',
-    description: 'Ders dağıtım ↔ OkulNet dosyası (içe/dışa aktarma).',
+    description: 'Ders dağıtım ↔ e-Okul dosyası (içe/dışa aktarma).',
     phase: 8,
     direction: 'both',
     panelPath: '/ders-dagit/studyo/atamalar',
@@ -161,8 +161,8 @@ export const EOKUL_BRIDGE_MENUS: EokulBridgeMenuDef[] = [
   },
   {
     id: 'mebbisPuantajBordro',
-    label: 'PersonelNet puantaj bordro',
-    description: 'PersonelNet Excel → mesaj merkezi puantaj kampanyası.',
+    label: 'MEBBİS puantaj bordro',
+    description: 'MEBBİS Excel → mesaj merkezi puantaj kampanyası.',
     phase: 10,
     direction: 'pull',
     panelPath: '/mesaj-merkezi/mebbis-puantaj',
@@ -170,8 +170,8 @@ export const EOKUL_BRIDGE_MENUS: EokulBridgeMenuDef[] = [
   },
   {
     id: 'kbsEkDersBordro',
-    label: 'MaliNet ek ders bordro',
-    description: 'MaliNet ek ders Excel → mesaj merkezi kampanyası.',
+    label: 'KBS ek ders bordro',
+    description: 'KBS ek ders Excel → mesaj merkezi kampanyası.',
     phase: 10,
     direction: 'pull',
     panelPath: '/mesaj-merkezi/kbs-ek-ders',
@@ -179,8 +179,8 @@ export const EOKUL_BRIDGE_MENUS: EokulBridgeMenuDef[] = [
   },
   {
     id: 'kbsMaasBordro',
-    label: 'MaliNet maaş bordro',
-    description: 'MaliNet maaş Excel → mesaj merkezi kampanyası (gizli).',
+    label: 'KBS maaş bordro',
+    description: 'KBS maaş Excel → mesaj merkezi kampanyası (gizli).',
     phase: 10,
     direction: 'pull',
     panelPath: '/mesaj-merkezi/kbs-maas',
@@ -189,16 +189,39 @@ export const EOKUL_BRIDGE_MENUS: EokulBridgeMenuDef[] = [
   {
     id: 'oturumAcik',
     label: 'Oturum açık tut',
-    description: 'OkulNet sekmesi açıkken periyodik oturum yenileme (Faz 12).',
+    description:
+      'MEBBİS, e-Okul, EBYS, K12, TEFBİS ve e-Kurs sekmelerinde oturumu canlı tutar (~10 dk).',
     phase: 12,
     direction: 'push',
     enabled: true,
   },
 ];
 
+function resolvePanelBrowserApiBase(portalSiteOrigin: string, apiRoot: string): string {
+  try {
+    const u = new URL(portalSiteOrigin);
+    const h = u.hostname.toLowerCase();
+    const devHost =
+      h === 'localhost' ||
+      h === '127.0.0.1' ||
+      h === '0.0.0.0' ||
+      h === '10.0.2.2' ||
+      /^192\.168\.\d{1,3}\.\d{1,3}$/.test(h) ||
+      /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(h);
+    if (devHost && (u.port === '3000' || u.port === '')) {
+      return `${u.origin}/be-api`;
+    }
+  } catch {
+    /* ignore */
+  }
+  return apiRoot;
+}
+
 export function buildEokulBridgeBootstrap(portalSiteOrigin: string, apiBase: string) {
   const origin = portalSiteOrigin.replace(/\/+$/, '');
   const apiRoot = apiBase.replace(/\/+$/, '');
+  const panelBrowserApiBase = resolvePanelBrowserApiBase(origin, apiRoot);
 
   return {
     version: 1,
@@ -208,6 +231,7 @@ export function buildEokulBridgeBootstrap(portalSiteOrigin: string, apiBase: str
       portalApi: {
         portalSiteOrigin: origin,
         apiBase: apiRoot,
+        panelBrowserApiBase,
         authMePath: '/me',
         bootstrapPath: '/eokul-bridge/v1/bootstrap',
       },
@@ -220,15 +244,25 @@ export function buildEokulBridgeBootstrap(portalSiteOrigin: string, apiBase: str
           'https://mebbisyd.meb.gov.tr/*',
           'https://www.mebbisyd.meb.gov.tr/*',
         ],
-        kbsTabPatterns: ['https://kbs.muhasebat.gov.tr/*', 'https://www.kbs.muhasebat.gov.tr/*'],
+        kbsTabPatterns: [
+          'https://kbs.muhasebat.gov.tr/*',
+          'https://www.kbs.muhasebat.gov.tr/*',
+          'https://kbs.gov.tr/*',
+          'https://www.kbs.gov.tr/*',
+          'https://giris.hmb.gov.tr/*',
+        ],
+        kbsLoginUrl: 'https://www.kbs.gov.tr/gen/login.htm',
+        kbsMaasRaporUrl: 'https://www.kbs.gov.tr/maasRapor/maasRapor.htm',
+        kbsEkDersRaporUrl: 'https://www.kbs.gov.tr/yeniakademik/p_yenirapor.htm',
+        kbsEkDersEntryUrl: 'https://www.kbs.gov.tr/yeniakademik/p_yenirapor.htm',
       },
       app: {
         gate: {
           title: 'Uzaedu Okul Köprüsü',
-          subtitle: 'Uzaedu paneli ile OkulNet arasında güvenli bağlantı',
+          subtitle: 'Uzaedu paneli ile e-Okul arasında güvenli bağlantı',
           runButton: 'Bağlantıyı doğrula ve devam et',
           portalBadge: 'Panel oturumu',
-          eokulBadge: 'OkulNet sekmesi',
+          eokulBadge: 'e-Okul sekmesi',
         },
         shell: {
           title: 'Uzaedu Okul Köprüsü',
@@ -356,7 +390,7 @@ export function buildEokulBridgeBootstrap(portalSiteOrigin: string, apiBase: str
               : {}),
             ...(m.id === 'oturumAcik'
               ? {
-                  pingIntervalMinutes: 20,
+                  pingIntervalMinutes: 10,
                 }
               : {}),
           },
@@ -455,10 +489,13 @@ export function buildEokulBridgeBootstrap(portalSiteOrigin: string, apiBase: str
         supportedKurumKeys: [...EOKUL_BRIDGE_KURUM_ALL],
       },
       oturumAcik: {
-        pingIntervalMinutes: 20,
+        pingIntervalMinutes: 10,
       },
       mebbisOturumAcik: {
-        pingIntervalMinutes: 20,
+        pingIntervalMinutes: 10,
+      },
+      kbsOturumAcik: {
+        pingIntervalMinutes: 10,
       },
     },
   };

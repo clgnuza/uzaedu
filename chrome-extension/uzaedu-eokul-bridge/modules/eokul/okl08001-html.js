@@ -1,3 +1,33 @@
+function uzaKurumUsesIok08001(kurumKey) {
+  return kurumKey === 'ilkOgretim' || kurumKey === 'okulOncesi';
+}
+
+function uzaFindIokClassSelect(doc) {
+  try {
+    const ddl = doc.querySelector('#ddlSinifiSube');
+    if (ddl) return ddl;
+  } catch {
+    /* ignore */
+  }
+  const appSel = String(uzaDomPick('exportPage.classSelectAppFormControl') || '#app select.form-control');
+  let candidates = [];
+  try {
+    candidates = doc.querySelectorAll(appSel);
+  } catch {
+    candidates = [];
+  }
+  for (const el of candidates) {
+    const opt0 = el.options?.[0];
+    if (!opt0) continue;
+    const v = String(opt0.value || '').trim();
+    const t = String(opt0.textContent || opt0.text || '')
+      .trim()
+      .toLowerCase();
+    if (v === '-1' || t.includes('seçiniz')) return el;
+  }
+  return candidates[0] || null;
+}
+
 function uzaDomQueryFirst(doc, path) {
   const sels = uzaDomPick(path);
   if (!Array.isArray(sels)) {
@@ -44,12 +74,15 @@ function uzaFindListeleControl(doc) {
 function uzaParseOkl08001Page(html, kurumKey) {
   const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
   let sel = null;
-  if (kurumKey === 'ilkOgretim') {
+  if (kurumKey === 'ortaOgretim') {
     try {
-      sel = doc.querySelector('#ddlSinifiSube');
+      sel = doc.querySelector('#Us_SinifSube1_ddlSinifSube');
     } catch {
       sel = null;
     }
+  }
+  if (uzaKurumUsesIok08001(kurumKey)) {
+    sel = uzaFindIokClassSelect(doc);
   }
   if (!sel) sel = uzaDomQueryFirst(doc, 'exportPage.classSelectSelectors');
   const form =
@@ -187,10 +220,9 @@ async function uzaOkl08001PostListeleHtml(profile, kurumKey, baseHtml, subeValue
   const built = uzaBuildListeleBody(parsed, subeValue, html);
   if (!built.ok) return { ok: false, error: built.error || 'listele' };
   if (tarihTr) {
-    const fn =
-      kurumKey === 'ilkOgretim'
-        ? 'txtTarih'
-        : String(uzaDomPick('gunlukDevamsizlik.listeleDateFieldName') || 'Us_tarih1$txtTarihGiris');
+    const fn = uzaKurumUsesIok08001(kurumKey)
+      ? String(uzaDomPick('gunlukDevamsizlik.listeleDateFieldNameIok') || 'txtTarih')
+      : String(uzaDomPick('gunlukDevamsizlik.listeleDateFieldName') || 'Us_tarih1$txtTarihGiris');
     built.params.set(fn, tarihTr);
   }
   const post = await uzaHtmlSessionFetch(profile.okl08001, {
@@ -208,7 +240,7 @@ async function uzaOkl08001PostListeleHtml(profile, kurumKey, baseHtml, subeValue
 async function uzaOkl08001ResolveInitialData(profile, kurumKey) {
   const j = await uzaOkl08001FetchInitialDataJson(profile);
   if (j.ok) return j;
-  if (kurumKey === 'ilkOgretim') return j;
+  if (uzaKurumUsesIok08001(kurumKey)) return j;
   return uzaOkl08001FetchInitialDataHtml(profile, kurumKey);
 }
 
@@ -232,21 +264,73 @@ function uzaRowHasEnabledCheckbox(tr) {
 }
 
 function uzaResolveGunlukGridTable(doc, kurumKey) {
-  const primary = String(uzaDomPick('gunlukDevamsizlik.gridTableId') || '#dgListem').trim();
-  try {
-    const t = doc.querySelector(primary);
-    if (t) return t;
-  } catch {
-    /* ignore */
+  const ids = [];
+  const byKurum = uzaDomPick('gunlukDevamsizlik.gridTableIds');
+  if (byKurum && typeof byKurum === 'object' && byKurum[kurumKey]) {
+    ids.push(String(byKurum[kurumKey]));
   }
-  if (kurumKey === 'ilkOgretim') {
+  ids.push(String(uzaDomPick('gunlukDevamsizlik.gridTableId') || '#dgListem'));
+  if (uzaKurumUsesIok08001(kurumKey)) {
+    ids.push('#tbPageDataTable', '#dgListe');
+  } else {
+    ids.push('#dgListem', '#dgListe');
+  }
+  const seen = new Set();
+  for (const sel of ids) {
+    const s = String(sel || '').trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
     try {
-      return doc.querySelector('#dgListe');
+      const t = doc.querySelector(s);
+      if (t) return t;
     } catch {
-      return null;
+      /* ignore */
     }
   }
   return null;
+}
+
+function uzaGunlukCheckboxColIndex(key) {
+  const cols = uzaDomPick('gunlukDevamsizlik.checkboxColIndex');
+  if (cols && typeof cols === 'object' && cols[key] != null) {
+    return Number(cols[key]);
+  }
+  const d = { tamGun: 5, yarimGun: 6, gec: 7 };
+  return d[key] ?? 5;
+}
+
+function uzaRowCheckboxInColumn(tr, colIndex) {
+  const tds = tr.querySelectorAll('td');
+  const el = tds[colIndex]?.querySelector('input[type="checkbox"]');
+  if (!el || el.disabled || el.closest('.aspNetDisabled')) return false;
+  return !!el.checked;
+}
+
+function uzaReadGunlukRowFlags(tr, kurumKey) {
+  if (uzaKurumUsesIok08001(kurumKey)) {
+    const tamGun = uzaRowCheckboxInColumn(tr, uzaGunlukCheckboxColIndex('tamGun'));
+    const yarimGun = uzaRowCheckboxInColumn(tr, uzaGunlukCheckboxColIndex('yarimGun'));
+    const gec = uzaRowCheckboxInColumn(tr, uzaGunlukCheckboxColIndex('gec'));
+    return {
+      tamGun,
+      yarimSabah: yarimGun,
+      yarimOglen: false,
+      nobet: false,
+      gec,
+    };
+  }
+  let yarimSabah = uzaRowCheckboxChecked(tr, 'chkyarimgunsabah');
+  let yarimOglen = uzaRowCheckboxChecked(tr, 'chkyarimgunoglen');
+  if (uzaRowCheckboxChecked(tr, 'chkyarimgun') && !yarimSabah && !yarimOglen) {
+    yarimSabah = true;
+  }
+  return {
+    tamGun: uzaRowCheckboxChecked(tr, 'chktamgun'),
+    yarimSabah,
+    yarimOglen,
+    nobet: uzaRowCheckboxChecked(tr, 'chknobet'),
+    gec: uzaRowCheckboxChecked(tr, 'chkgec'),
+  };
 }
 
 function uzaScrapeGunlukDevamsizlikFromHtml(html, scrapeMode, kurumKey) {
@@ -259,21 +343,18 @@ function uzaScrapeGunlukDevamsizlikFromHtml(html, scrapeMode, kurumKey) {
   const cT = Number(uzaDomPick('tableScrape.colTc')) || 2;
   const cO = Number(uzaDomPick('tableScrape.colOgrNo')) || 3;
   const cA = Number(uzaDomPick('tableScrape.colAdSoyad')) || 4;
-  const ilk = kurumKey === 'ilkOgretim';
   const trs = table.querySelector('tbody') ? table.querySelectorAll('tbody > tr') : table.querySelectorAll('tr');
   const out = [];
   for (const tr of trs) {
     const tds = tr.querySelectorAll('td');
     if (tds.length < minTd) continue;
     if (!uzaRowHasEnabledCheckbox(tr)) continue;
-    const tamGun = uzaRowCheckboxChecked(tr, 'chktamgun');
-    let yarimSabah = uzaRowCheckboxChecked(tr, 'chkyarimgunsabah');
-    let yarimOglen = uzaRowCheckboxChecked(tr, 'chkyarimgunoglen');
-    if (ilk && uzaRowCheckboxChecked(tr, 'chkyarimgun') && !yarimSabah && !yarimOglen) {
-      yarimSabah = true;
-    }
-    const nobet = uzaRowCheckboxChecked(tr, 'chknobet');
-    const gec = uzaRowCheckboxChecked(tr, 'chkgec');
+    const flags = uzaReadGunlukRowFlags(tr, kurumKey);
+    const tamGun = flags.tamGun;
+    const yarimSabah = flags.yarimSabah;
+    const yarimOglen = flags.yarimOglen;
+    const nobet = flags.nobet;
+    const gec = flags.gec;
     const dersYoklama =
       mode === 'ders_yoklama'
         ? String(tds[tds.length - 1]?.textContent || '')
@@ -324,7 +405,7 @@ function uzaTopluOzursuzActiveTypes(kurumKey) {
 }
 
 function uzaGetOkl08001FormPrefix(kurumKey) {
-  return kurumKey === 'ilkOgretim' ? 'IOK08001' : 'OOK08001';
+  return uzaKurumUsesIok08001(kurumKey) ? 'IOK08001' : 'OOK08001';
 }
 
 function uzaGetMainForm08001(doc, kurumKey) {
@@ -488,7 +569,6 @@ function uzaScrapeGunlukGridEditableRows(html, kurumKey, mode) {
   const minTd = Number(uzaDomPick('tableScrape.minTdCount')) || 5;
   const cO = Number(uzaDomPick('tableScrape.colOgrNo')) || 3;
   const cA = Number(uzaDomPick('tableScrape.colAdSoyad')) || 4;
-  const ilk = kurumKey === 'ilkOgretim';
   const trs = table.querySelector('tbody') ? table.querySelectorAll('tbody > tr') : table.querySelectorAll('tr');
   const rows = [];
   for (const tr of trs) {
@@ -503,14 +583,21 @@ function uzaScrapeGunlukGridEditableRows(html, kurumKey, mode) {
       .replace(/\s+/g, ' ')
       .trim();
     if (!ogrNo && !adSoyad) continue;
-    const cbT = uzaRowCheckboxMeta(tr, 'chktamgun');
-    const cbG = uzaRowCheckboxMeta(tr, 'chkgec');
-    const cbN = uzaRowCheckboxMeta(tr, 'chknobet');
-    const cbS = uzaRowCheckboxMeta(tr, 'chkyarimgunsabah');
-    const cbO = uzaRowCheckboxMeta(tr, 'chkyarimgunoglen');
-    let cbY = null;
-    if (ilk) {
-      cbY = uzaRowCheckboxMeta(tr, 'chkyarimgun', ['chkyarimgunsabah', 'chkyarimgunoglen']);
+    let cbT = uzaRowCheckboxMeta(tr, 'chktamgun');
+    let cbG = uzaRowCheckboxMeta(tr, 'chkgec');
+    let cbN = uzaRowCheckboxMeta(tr, 'chknobet');
+    let cbS = uzaRowCheckboxMeta(tr, 'chkyarimgunsabah');
+    let cbO = uzaRowCheckboxMeta(tr, 'chkyarimgunoglen');
+    let cbY = uzaRowCheckboxMeta(tr, 'chkyarimgun', ['chkyarimgunsabah', 'chkyarimgunoglen']);
+    if (uzaKurumUsesIok08001(kurumKey)) {
+      const flags = uzaReadGunlukRowFlags(tr, kurumKey);
+      const mk = (checked) => ({ name: '', checked: !!checked, enabled: true });
+      cbT = mk(flags.tamGun);
+      cbY = mk(flags.yarimSabah);
+      cbG = mk(flags.gec);
+      cbS = { name: '', checked: false, enabled: false };
+      cbO = { name: '', checked: false, enabled: false };
+      cbN = { name: '', checked: false, enabled: false };
     }
     const row = {
       ogrNo,
@@ -650,7 +737,7 @@ async function uzaOkl08001FetchClassStudentRows(profile, kurumKey, meta, opt, li
     if (lr.ok && lr.liste?.length) {
       return { ok: true, rows: uzaOkl08001ListeleJsonToStudentRows(lr.liste), mode: 'json' };
     }
-    if (kurumKey === 'ilkOgretim') return { ok: false, error: lr.error || lr.mesaj || 'listele' };
+    if (uzaKurumUsesIok08001(kurumKey)) return { ok: false, error: lr.error || lr.mesaj || 'listele' };
   }
   const h = await uzaOkl08001PostListeleHtml(
     profile,

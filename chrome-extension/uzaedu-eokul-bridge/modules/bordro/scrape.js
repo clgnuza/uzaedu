@@ -5,10 +5,7 @@ const UZA_MEBBIS_TAB_PATTERNS = [
   'https://www.mebbisyd.meb.gov.tr/*',
 ];
 
-const UZA_KBS_TAB_PATTERNS = [
-  'https://kbs.muhasebat.gov.tr/*',
-  'https://www.kbs.muhasebat.gov.tr/*',
-];
+/* UZA_KBS_TAB_PATTERNS, uzaKbsOpenUrl — shared/kbs-urls.js (service worker importScripts) */
 
 function uzaBordroTabPatterns(bordroType) {
   const ui = globalThis.UZA_EXTENSION_UI?.chromeTabQueries;
@@ -52,6 +49,32 @@ async function uzaEnsureBordroScrapeScript(tabId) {
   }
 }
 
+async function uzaEnsureBordroExportHook(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'UZA_BORDRO_PING' });
+    return true;
+  } catch {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content/bordro-export-hook.js'],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+async function uzaMebbisViewReportOnTab(tabId) {
+  await uzaEnsureBordroExportHook(tabId);
+  try {
+    return await chrome.tabs.sendMessage(tabId, { type: 'UZA_BORDRO_MEBBIS_VIEW_REPORT' });
+  } catch (e) {
+    return { ok: false, error: e?.message || 'Rapor tetiklenemedi' };
+  }
+}
+
 const UZA_BORDRO_SNAPSHOT_MEBBIS = 'uzaBordroSnapshotMebbis';
 const UZA_BORDRO_SNAPSHOT_KBS = 'uzaBordroSnapshotKbs';
 
@@ -66,14 +89,42 @@ async function uzaGetBordroSnapshots() {
   return { mebbis: st[UZA_BORDRO_SNAPSHOT_MEBBIS] || null, kbs: st[UZA_BORDRO_SNAPSHOT_KBS] || null };
 }
 
+function uzaPickBordroTab(tabs, bordroType) {
+  if (!tabs.length) return null;
+  const u = (t) => String(t.url || '').toLowerCase();
+  if (bordroType === 'mebbis_puantaj') {
+    const ekd = tabs.find((t) => uzaMebbisPuantajPage(t.url));
+    if (ekd) return tabs.find((t) => t.active) || ekd;
+    const ek = tabs.find((t) => uzaMebbisEkdPath(t.url));
+    if (ek) return tabs.find((t) => t.active) || ek;
+  }
+  if (bordroType === 'maas_bordro') {
+    const maas = tabs.find((t) => uzaKbsUrlLooksLikeMaas(u(t)));
+    if (maas) return tabs.find((t) => t.active) || maas;
+  }
+  if (bordroType === 'ek_ders_bordro') {
+    const rapor = tabs.find((t) => uzaKbsUrlLooksLikeEkDersRapor(u(t)));
+    if (rapor) return tabs.find((t) => t.active) || rapor;
+    const ek = tabs.find((t) => uzaKbsUrlLooksLikeEkDersBordro(u(t)));
+    if (ek) return tabs.find((t) => t.active) || ek;
+  }
+  return tabs.find((t) => t.active) || tabs[0];
+}
+
 async function uzaScrapeBordroActiveTab(bordroType, scrapeMode) {
   const patterns = uzaBordroTabPatterns(bordroType);
   const tabs = await uzaCollectTabsByPatterns(patterns);
   if (!tabs.length) {
-    const site = bordroType === 'mebbis_puantaj' ? 'mebbis.meb.gov.tr' : 'kbs.muhasebat.gov.tr';
-    return { ok: false, error: `${site} sekmesi bulunamadı. Oturum açıp ilgili raporu ekranda açın.` };
+    const site =
+      bordroType === 'mebbis_puantaj'
+        ? 'mebbis.meb.gov.tr'
+        : 'kbs.gov.tr (KPHYS)';
+    return {
+      ok: false,
+      error: `${site} sekmesi bulunamadı. ${typeof uzaKbsScrapeHint === 'function' ? uzaKbsScrapeHint(bordroType) : 'Oturum açıp listeyi ekranda gösterin.'}`,
+    };
   }
-  const tab = tabs.find((t) => t.active) || tabs[0];
+  const tab = uzaPickBordroTab(tabs, bordroType);
   const injected = await uzaEnsureBordroScrapeScript(tab.id);
   if (!injected) {
     return { ok: false, error: 'Sekmeye köprü betiği enjekte edilemedi. Sayfayı yenileyin.' };
@@ -88,11 +139,43 @@ async function uzaScrapeBordroActiveTab(bordroType, scrapeMode) {
   } catch (e) {
     return { ok: false, error: e?.message || 'Sekme verisi okunamadı' };
   }
+  if (
+    (!scraped?.ok || !scraped.table?.rows?.length) &&
+    bordroType === 'mebbis_puantaj' &&
+    uzaMebbisPuantajPage(tab.url)
+  ) {
+    const view = await uzaMebbisViewReportOnTab(tab.id);
+    if (view?.ok) {
+      await new Promise((r) => setTimeout(r, 3500));
+      try {
+        scraped = await chrome.tabs.sendMessage(tab.id, {
+          type: 'UZA_BORDRO_SCRAPE_PAGE',
+          bordroType,
+          scrapeMode: scrapeMode || 'puantaj',
+        });
+      } catch {
+        /* */
+      }
+    } else if (view?.error) {
+      return {
+        ok: false,
+        error: `${view.error} Sonra «Açık sekmeden çek» veya Excele Aktar.`,
+        url: tab.url,
+      };
+    }
+  }
   if (!scraped?.ok || !scraped.table?.rows?.length) {
+    const href = scraped?.url || '';
+    const downloadOnly = uzaKbsIsDownloadOnlyPage(href);
+    const dlHint =
+      downloadOnly || bordroType === 'maas_bordro' || bordroType === 'ek_ders_bordro'
+        ? uzaKbsScrapeHint(bordroType) || 'KBS’de Excel indirin, sonra «Son indirilen Excel».'
+        : null;
     return {
       ok: false,
-      error: scraped?.hint || 'Tabloda personel verisi bulunamadı. Liste/rapor ekranını açın.',
+      error: dlHint || scraped?.hint || 'Tabloda personel verisi bulunamadı. Liste/rapor ekranını açın.',
       url: scraped?.url,
+      useExcelDownload: !!(downloadOnly || bordroType === 'maas_bordro' || bordroType === 'ek_ders_bordro'),
     };
   }
   return {
@@ -104,6 +187,27 @@ async function uzaScrapeBordroActiveTab(bordroType, scrapeMode) {
     tablesFound: scraped.tablesFound,
     kbsWarnings: scraped.kbsWarnings || [],
   };
+}
+
+async function uzaBordroScrapeDiag(bordroType, scrapeMode) {
+  const patterns = uzaBordroTabPatterns(bordroType);
+  const tabs = await uzaCollectTabsByPatterns(patterns);
+  const tab = uzaPickBordroTab(tabs, bordroType);
+  if (!tab?.id) {
+    return { ok: false, error: 'KBS sekmesi yok.', tabs: tabs.map((t) => t.url) };
+  }
+  const injected = await uzaEnsureBordroScrapeScript(tab.id);
+  if (!injected) return { ok: false, error: 'bordro-scrape enjekte edilemedi', tabUrl: tab.url };
+  try {
+    const diag = await chrome.tabs.sendMessage(tab.id, {
+      type: 'UZA_BORDRO_SCRAPE_DIAG',
+      bordroType,
+      scrapeMode: scrapeMode || '',
+    });
+    return { ok: true, tabId: tab.id, tabUrl: tab.url, ...diag };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e), tabUrl: tab.url };
+  }
 }
 
 async function uzaBordroScrapeAndSnapshot(bordroType, snapshotKey, scrapeMode) {
@@ -120,7 +224,7 @@ async function uzaBordroScrapeAndSnapshot(bordroType, snapshotKey, scrapeMode) {
 async function uzaBordroCompareSnapshots(opts) {
   const snaps = await uzaGetBordroSnapshots();
   if (!snaps.mebbis?.table?.rows?.length || !snaps.kbs?.table?.rows?.length) {
-    return { ok: false, error: 'Önce PersonelNet ve MaliNet anlık görüntüsü alın.' };
+    return { ok: false, error: 'Önce MEBBİS ve KBS anlık görüntüsü alın.' };
   }
   const data = await uzaBordroComparePayload({
     token: opts.token,
@@ -132,17 +236,22 @@ async function uzaBordroCompareSnapshots(opts) {
 }
 
 const UZA_MEBBIS_REPORT_PATH_HINT =
-  'Ek Ders Modülü → Raporlar → Ek Ders Listesi (puantaj) veya Veri Tipi Bazlı Çizelge';
+  'ekd04002: ay/yıl ve filtreleri seçin → «Rapor Görüntüle» (btnRaporGoruntule) → çek veya Excele Aktar';
 
 async function uzaOpenMebbisReport() {
+  const url = UZA_MEBBIS_PUANTAJ_URL;
   const tabs = await uzaCollectTabsByPatterns(uzaBordroTabPatterns('mebbis_puantaj'));
-  const url = 'https://mebbis.meb.gov.tr/';
+  const ekd = tabs.find((t) => uzaMebbisPuantajPage(t.url));
+  if (ekd?.id) {
+    await chrome.tabs.update(ekd.id, { active: true });
+    return { ok: true, url, hint: UZA_MEBBIS_REPORT_PATH_HINT };
+  }
   if (tabs.length) {
-    await chrome.tabs.update(tabs[0].id, { active: true });
-    return { ok: true, hint: UZA_MEBBIS_REPORT_PATH_HINT };
+    await chrome.tabs.update(tabs[0].id, { active: true, url });
+    return { ok: true, url, hint: UZA_MEBBIS_REPORT_PATH_HINT };
   }
   await chrome.tabs.create({ url });
-  return { ok: true, hint: UZA_MEBBIS_REPORT_PATH_HINT };
+  return { ok: true, url, hint: UZA_MEBBIS_REPORT_PATH_HINT };
 }
 
 async function uzaBordroScrapeAndParse(opts) {

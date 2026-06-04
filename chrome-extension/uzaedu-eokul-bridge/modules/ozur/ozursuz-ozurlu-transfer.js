@@ -10,7 +10,7 @@ async function uzaFetchOgr02012Ozursuz(profile, ogrNo, state) {
   if (!res.ok) return { ok: false, error: `02012 (${res.status})` };
   const html = await res.text();
   if (uzaLooksLikeLoginPage(html)) return { ok: false, error: 'login' };
-  const scraped = uzaScrapeOgr02012OzursuzList(html);
+  const scraped = await uzaScrapeOgr02012OzursuzList(html);
   let ozurlu_gun = 0;
   let ozursuz_gun = 0;
   try {
@@ -83,7 +83,7 @@ async function uzaRunOzursuzOzurluAktar(opts) {
     for (const row of rows) {
       const r = await uzaPostOzurluKayitIkiAsama(profile, nav.detailUrl, row, nedeni, aciklama);
       if (!r.ok) {
-        if (r.error === 'login') return { ok: false, error: 'OkulNet oturumu sona erdi.' };
+        if (r.error === 'login') return { ok: false, error: 'e-Okul oturumu sona erdi.' };
         failed.push({ tarih: row.tarih, error: r.error });
         continue;
       }

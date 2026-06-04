@@ -1,33 +1,34 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="tr">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#070b14" />
+    <meta name="theme-color" content="#2563eb" />
     <title>Devamsızlık — Uzaedu Okul Köprüsü</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="../gate/gate.css" />
     <link rel="stylesheet" href="kelebek.css" />
+    <link rel="stylesheet" href="../shared/embed.css" />
   </head>
-  <body class="uza-body">
+  <body class="uza-body" data-uza-platform="eokul" data-uza-icon="calendar" data-uza-title="Günlük devamsızlık" data-uza-lead="Günlük devamsızlık verisini panele alır.">
     <main class="card uza-page">
       <header>
-        <a href="../app/app.html" class="back-link">← Modüller</a>
+        <a href="../app/app.html" class="back-link">‹ Modüller</a>
         <h1 id="gdTitle">Günlük devamsızlık</h1>
-        <p id="gdLead" class="gate-sub">Seçili tarih için OkulNet listesini mesaj merkezine aktarır.</p>
+        <p id="gdLead" class="gate-sub">Seçili tarih için e-Okul listesini mesaj merkezine aktarır.</p>
       </header>
       <label class="gate-sub" for="gdTarih">Tarih</label>
-      <input id="gdTarih" type="date" class="gate-input" style="margin: 0.5rem 0 1rem" />
+      <input id="gdTarih" type="date" class="gate-input uza-mb-1" />
       <div class="kb-actions">
         <button type="button" id="btnGdAll" class="btn-primary">Tüm sınıfları aktar</button>
       </div>
       <p id="gdStatus" class="gate-message" role="status"></p>
       <ul id="gdClassList" class="kb-list" hidden></ul>
     </main>
-    <script src="../shared/brand-names.js"></script>
-    <script src="../shared/messaging.js"></script>
+  <script src="../shared/brand-names.js"></script>
+  <script src="../shared/embed.js"></script>
+  <script src="../shared/icons.js"></script>
+  <script src="../shared/notify.js"></script>
+  <script src="../shared/menu-chrome.js"></script>
+<script src="../shared/messaging.js"></script>
     <script src="../shared/menu-kurum.js"></script>
     <script src="gunluk.js"></script>
   </body>

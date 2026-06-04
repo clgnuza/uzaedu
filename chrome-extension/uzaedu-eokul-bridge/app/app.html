@@ -3,75 +3,98 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#070b14" />
+  <meta name="theme-color" content="#2563eb" />
   <title>Uzaedu Okul Köprüsü</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="app.css" />
+  <link rel="stylesheet" href="../shared/embed.css" />
 </head>
-<body>
-  <header class="topbar">
-    <div class="topbar-left">
-      <img src="../assets/icon48.png" alt="" width="40" height="40" />
-      <div>
-        <h1 id="shellTitle">Uzaedu Okul Köprüsü</h1>
-        <p class="meta" id="shellMeta">—</p>
+<body class="uza-app">
+  <div class="uza-panel uza-panel--app">
+    <header class="uza-panel-head">
+      <button type="button" class="uza-panel-exit" id="btnGateBack" title="Kapı ekranı">Çıkış</button>
+      <img class="uza-panel-logo" src="../assets/icon128.png" alt="" width="56" height="56" />
+      <h1 id="shellTitle">Uzaedu Okul Köprüsü</h1>
+      <p class="uza-panel-sub" id="shellTagline">e-Okul, MEBBİS ve KBS ile panel köprüsü</p>
+    </header>
+
+    <div class="uza-info-box">
+      <p>Üyelik: <strong id="shellMeta">—</strong></p>
+      <div class="uza-session-row" id="sessionStrip" aria-label="Oturum durumu">
+        <span class="session-chip panel wait" id="chipPanel" title="Uzaedu panel sekmesi">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="session-chip-label">Panel</span>
+          <span class="session-chip-state" id="chipPanelState">—</span>
+        </span>
+        <span class="session-chip eokul wait" id="chipEokul" title="e-Okul (e-okul.meb.gov.tr)">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="session-chip-label">e-Okul</span>
+          <span class="session-chip-state" id="chipEokulState">—</span>
+        </span>
+        <span class="session-chip mebbis wait" id="chipMebbis" title="MEBBİS (mebbis.meb.gov.tr)">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="session-chip-label">MEBBİS</span>
+          <span class="session-chip-state" id="chipMebbisState">—</span>
+        </span>
+        <span class="session-chip kbs wait" id="chipKbs" title="KBS (kbs.muhasebat.gov.tr)">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="session-chip-label">KBS</span>
+          <span class="session-chip-state" id="chipKbsState">—</span>
+        </span>
       </div>
     </div>
-    <button type="button" class="btn-ghost" id="btnGateBack">Kapı ekranı</button>
-  </header>
 
-  <div class="session-strip" id="sessionStrip" aria-label="Oturum durumu">
-    <span class="session-chip panel wait" id="chipPanel"><span class="dot"></span> Panel</span>
-    <span class="session-chip eokul wait" id="chipEokul"><span class="dot"></span> OkulNet</span>
-    <span class="session-chip mebbis wait" id="chipMebbis"><span class="dot"></span> PersonelNet</span>
-    <span class="session-chip kbs wait" id="chipKbs"><span class="dot"></span> MaliNet</span>
+    <details class="uza-settings">
+      <summary>Kurum ve oturum ayarları</summary>
+      <div class="uza-settings-body">
+        <p class="uza-settings-lead">Sekmeler açıkken köprü daha hızlı çalışır.</p>
+        <label class="uza-label" for="selKurum">Kurum türü</label>
+        <select id="selKurum" class="uza-input uza-mb-075">
+          <option value="okulOncesi">Okul öncesi</option>
+          <option value="ilkOgretim">İlköğretim</option>
+          <option value="ortaOgretim">Ortaöğretim</option>
+        </select>
+        <label class="uza-flex-check">
+          <input type="checkbox" id="chkAutoConfirm" />
+          <span>e-Okul onay kutularını otomatik onayla</span>
+        </label>
+        <div id="blockOkulTuru" hidden>
+          <label class="uza-label" for="selOkulTuru">Okul türü (ortaöğretim)</label>
+          <select id="selOkulTuru" class="uza-input uza-mb-075"></select>
+        </div>
+        <p class="uza-settings-lead">
+          Oturum canlı tutma için
+          <a href="#" id="linkOturumPage">Oturum açık tut</a>
+          modülünü kullanın.
+        </p>
+      </div>
+    </details>
+
+    <section class="uza-modules">
+      <h2 class="uza-modules-title">
+        <span class="uza-modules-icon" id="modulesTitleIcon" aria-hidden="true"></span>
+        Modüller
+      </h2>
+      <p class="uza-modules-intro" id="introText">e-Okul, MEBBİS ve KBS ile panel arasındaki işlemler.</p>
+      <div class="uza-filters" id="gridFilters" hidden>
+        <button type="button" class="filter-pill active" data-filter="all">Tümü</button>
+        <button type="button" class="filter-pill" data-filter="eokul">e-Okul</button>
+        <button type="button" class="filter-pill" data-filter="mebbis">MEBBİS</button>
+        <button type="button" class="filter-pill" data-filter="kbs">KBS</button>
+      </div>
+      <div class="uza-module-list" id="moduleGrid" role="list"></div>
+      <p class="uza-empty" id="gridEmpty" hidden>Modül listesi yüklenemedi.</p>
+    </section>
+
+    <footer class="uza-footer">
+      <span id="footerVersion">—</span>
+      <span>·</span>
+      <a href="http://localhost:3000/" target="_blank" rel="noopener">Uzaedu paneli</a>
+    </footer>
   </div>
 
-  <main class="layout">
-    <section class="settings-card">
-      <h2>Kurum ve oturum</h2>
-      <p>OkulNet, PersonelNet ve MaliNet sekmeleri açıkken köprü daha hızlı çalışır.</p>
-      <label class="oturum-toggle" for="selKurum">Kurum türü</label>
-      <select id="selKurum" class="kurum-select">
-        <option value="okulOncesi">Okul öncesi</option>
-        <option value="ilkOgretim">İlköğretim</option>
-        <option value="ortaOgretim">Ortaöğretim</option>
-      </select>
-      <label class="oturum-toggle">
-        <input type="checkbox" id="chkAutoConfirm" />
-        <span>OkulNet onay kutularını otomatik onayla</span>
-      </label>
-      <div id="blockOkulTuru" hidden>
-        <label class="oturum-toggle" for="selOkulTuru">Okul türü (ortaöğretim)</label>
-        <select id="selOkulTuru" class="kurum-select"></select>
-      </div>
-      <label class="oturum-toggle">
-        <input type="checkbox" id="chkOturumPing" checked />
-        <span>OkulNet oturumunu canlı tut (~20 dk)</span>
-      </label>
-      <label class="oturum-toggle">
-        <input type="checkbox" id="chkMebbisPing" checked />
-        <span>PersonelNet oturumunu canlı tut (~20 dk)</span>
-      </label>
-    </section>
-
-    <section class="grid-section">
-      <h2>Modüller</h2>
-      <p id="introText">OkulNet, PersonelNet ve MaliNet ile panel arasındaki işlemler.</p>
-      <div class="grid-filters" id="gridFilters" hidden>
-        <button type="button" class="filter-pill active" data-filter="all">Tümü</button>
-        <button type="button" class="filter-pill" data-filter="eokul">OkulNet</button>
-        <button type="button" class="filter-pill" data-filter="mebbis">PersonelNet</button>
-        <button type="button" class="filter-pill" data-filter="kbs">MaliNet</button>
-      </div>
-      <div class="grid" id="moduleGrid"></div>
-      <p class="empty" id="gridEmpty" hidden>Modül listesi yüklenemedi.</p>
-    </section>
-  </main>
-
   <script src="../shared/brand-names.js"></script>
+  <script src="../shared/embed.js"></script>
+  <script src="../shared/icons.js"></script>
   <script src="../shared/messaging.js"></script>
   <script src="../shared/storage.js"></script>
   <script src="app.js"></script>

@@ -7,9 +7,17 @@ const fieldList = document.getElementById('fieldList');
 const mebAjandaBox = document.getElementById('mebAjandaBox');
 const mebAjandaCode = document.getElementById('mebAjandaCode');
 const chkPortalImport = document.getElementById('chkPortalImport');
+const btnFieldsAll = document.getElementById('btnFieldsAll');
+const btnFieldsNone = document.getElementById('btnFieldsNone');
+const btnAllIcon = document.getElementById('btnAllIcon');
 
 let bootstrapGroups = [];
 let kurumKey = 'ilkOgretim';
+
+function setStatus(msg, tone) {
+  if (typeof UZA_NOTIFY !== 'undefined' && status) UZA_NOTIFY.show(status, msg, tone);
+  else if (status) status.textContent = msg || '';
+}
 
 function selectedFieldIds() {
   return [...fieldList.querySelectorAll('input[type="checkbox"]:checked')].map((cb) => cb.value);
@@ -34,27 +42,46 @@ function renderFields() {
   fieldBox.hidden = false;
   for (const f of fields) {
     const label = document.createElement('label');
-    label.className = 'sinif-sube-row';
+    label.className = 'uza-chip-check';
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.value = f.id;
     cb.checked = true;
+    const box = document.createElement('span');
+    box.className = 'uza-chip-check__box';
+    box.setAttribute('aria-hidden', 'true');
     const span = document.createElement('span');
-    span.className = 'sinif-sube-row-text';
+    span.className = 'uza-chip-check__text';
     span.textContent = f.label || f.id;
-    label.append(cb, span);
+    label.append(cb, box, span);
+    if (cb.checked) label.classList.add('is-checked');
     fieldList.appendChild(label);
   }
 }
 
+function setAllFields(checked) {
+  fieldList.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    cb.checked = checked;
+    cb.closest('.uza-chip-check')?.classList.toggle('is-checked', checked);
+  });
+}
+
+btnFieldsAll?.addEventListener('click', () => setAllFields(true));
+btnFieldsNone?.addEventListener('click', () => setAllFields(false));
+fieldList?.addEventListener('change', (ev) => {
+  const cb = ev.target;
+  if (cb?.type !== 'checkbox') return;
+  cb.closest('.uza-chip-check')?.classList.toggle('is-checked', cb.checked);
+});
+
 async function runExport(sinifValues) {
   const fieldIds = selectedFieldIds();
   if (!fieldIds.length) {
-    status.textContent = 'En az bir alan seçin.';
+    setStatus('En az bir alan seçin.', 'error');
     return;
   }
   btnAll.disabled = true;
-  status.textContent = 'Okunuyor…';
+  setStatus('Okunuyor…', 'loading');
   try {
     const res = await chrome.runtime.sendMessage({
       type: UZA_MSG_OGRENCI_DOSYA_EXPORT,
@@ -65,11 +92,11 @@ async function runExport(sinifValues) {
       mebAjandaCode: mebAjandaCode?.value?.trim() || null,
     });
     if (res?.needMebAjanda) {
-      status.textContent = res?.error || 'MEB Ajanda kodu girin.';
+      setStatus(res?.error || 'MEB Ajanda kodu girin.', 'error');
       return;
     }
     if (!res?.ok) {
-      status.textContent = res?.error || 'Başarısız.';
+      setStatus(res?.error || 'Başarısız.', 'error');
       return;
     }
     let msg = `${res.rowCount ?? 0} satır indirildi.`;
@@ -78,9 +105,9 @@ async function runExport(sinifValues) {
     } else if (res.importResult?.stored) {
       msg += ` Panel: ${res.importResult.stored} kayıt alındı.`;
     }
-    status.textContent = msg;
+    setStatus(msg, 'success');
   } catch (e) {
-    status.textContent = e?.message || String(e);
+    setStatus(e?.message || String(e), 'error');
   } finally {
     btnAll.disabled = false;
   }
@@ -92,10 +119,10 @@ groupSelect?.addEventListener('change', renderFields);
 (async () => {
   const data = await chrome.storage.session.get(UZA_SESSION_GATE_KEY);
   if (!data[UZA_SESSION_GATE_KEY]) {
-    window.location.replace(chrome.runtime.getURL('gate/gate.html'));
+    window.location.replace(typeof uzaExtUrl==='function'?uzaExtUrl('gate/gate.html'):chrome.runtime.getURL('gate/gate.html'));
     return;
   }
-  status.textContent = 'Yapılandırma yükleniyor…';
+  setStatus('Yapılandırma yükleniyor…', 'loading');
   try {
     const bootRes = await chrome.runtime.sendMessage({ type: UZA_MSG_GET_BOOTSTRAP });
     const boot = bootRes?.bootstrap || bootRes;
@@ -115,13 +142,16 @@ groupSelect?.addEventListener('change', renderFields);
       groupSelect.appendChild(opt);
     }
     renderFields();
+    if (btnAllIcon && typeof UZA_ICON !== 'undefined') {
+      btnAllIcon.innerHTML = UZA_ICON.svg('download', 18);
+    }
 
     const res = await chrome.runtime.sendMessage({
       type: UZA_MSG_KELEBEK_LIST,
       kurumKey: await uzaMenuKurumKey(),
     });
     if (!res?.ok || !res.options?.length) {
-      status.textContent = res?.error || 'Sınıf listesi alınamadı.';
+      setStatus(res?.error || 'Sınıf listesi alınamadı.', 'error');
       return;
     }
     classList.hidden = false;
@@ -138,8 +168,8 @@ groupSelect?.addEventListener('change', renderFields);
       li.append(label, btn);
       classList.appendChild(li);
     }
-    status.textContent = `${res.options.length} sınıf hazır.`;
+    setStatus(`${res.options.length} sınıf hazır.`, 'success');
   } catch (e) {
-    status.textContent = e?.message || String(e);
+    setStatus(e?.message || String(e), 'error');
   }
 })();

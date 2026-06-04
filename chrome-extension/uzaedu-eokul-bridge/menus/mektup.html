@@ -1,34 +1,36 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="tr">
   <head>
-    <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="utf-8" />
     <title>Mektup — Uzaedu Okul Köprüsü</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="../gate/gate.css" />
     <link rel="stylesheet" href="kelebek.css" />
+    <link rel="stylesheet" href="../shared/embed.css" />
   </head>
-  <body class="uza-body">
+  <body class="uza-body" data-uza-platform="eokul" data-uza-icon="mail" data-uza-title="Devamsızlık mektubu" data-uza-lead="Mektup listesini panele aktarır.">
     <main class="card uza-page">
-      <a href="../app/app.html" class="back-link">← Modüller</a>
+      <a href="../app/app.html" class="back-link">‹ Modüller</a>
       <h1>Devamsızlık mektubu</h1>
       <p class="gate-sub">OKL08002 listesini alıcı olarak panele aktarır (PDF sizde).</p>
       <label class="gate-sub" for="uyari">Uyarı dilimi</label>
-      <select id="uyari" class="btn-primary" style="width: 100%; margin: 0.5rem 0">
+      <select id="uyari" class="uza-input uza-w-full uza-mb-05">
         <option value="1">1. uyarı</option>
         <option value="2">2. uyarı</option>
         <option value="3">3. uyarı</option>
       </select>
-      <label style="display: flex; gap: 0.5rem; margin: 0.75rem 0">
+      <label class="uza-flex-check uza-mb-075">
         <input type="checkbox" id="includeSent" />
         <span>Gönderilmişleri de al</span>
       </label>
-      <button type="button" id="btnRun" class="btn-primary" style="width: 100%">Listeyi panele aktar</button>
+      <button type="button" id="btnRun" class="btn-primary uza-w-full">Listeyi panele aktar</button>
       <p id="status" class="gate-message" role="status"></p>
     </main>
-    <script src="../shared/brand-names.js"></script>
-    <script src="../shared/messaging.js"></script>
+  <script src="../shared/brand-names.js"></script>
+  <script src="../shared/embed.js"></script>
+  <script src="../shared/icons.js"></script>
+  <script src="../shared/notify.js"></script>
+  <script src="../shared/menu-chrome.js"></script>
+<script src="../shared/messaging.js"></script>
     <script src="mektup.js"></script>
   </body>
 </html>

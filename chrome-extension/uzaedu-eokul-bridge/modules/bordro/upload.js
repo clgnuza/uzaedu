@@ -1,16 +1,16 @@
 const UZA_BORDRO_TYPES = {
   mebbis_puantaj: {
-    label: 'PersonelNet Puantaj',
+    label: 'MEBBİS Puantaj',
     panelPath: '/mesaj-merkezi/mebbis-puantaj',
     privacy: 'Puantaj mesajları öğretmenlere ayrı gönderilir.',
   },
   ek_ders_bordro: {
-    label: 'MaliNet Ek Ders Bordro',
+    label: 'KBS Ek Ders Bordro',
     panelPath: '/mesaj-merkezi/kbs-ek-ders',
     privacy: 'Ek ders bordro mesajları öğretmenlere ayrı gönderilir.',
   },
   maas_bordro: {
-    label: 'MaliNet Maaş Bordro',
+    label: 'KBS Maaş Bordro',
     panelPath: '/mesaj-merkezi/kbs-maas',
     privacy: 'Maaş bordroları gizlidir; her öğretmene kişisel mesaj gider.',
   },
@@ -20,8 +20,10 @@ function uzaBordroMeta(type) {
   return UZA_BORDRO_TYPES[type] || UZA_BORDRO_TYPES.mebbis_puantaj;
 }
 
-function uzaBordroSchoolQ(schoolId) {
-  return schoolId ? `&school_id=${encodeURIComponent(schoolId)}` : '';
+/** @param amp true when path already has `?` (use `&`), else `?` */
+function uzaBordroSchoolQ(schoolId, amp = false) {
+  if (!schoolId) return '';
+  return `${amp ? '&' : '?'}school_id=${encodeURIComponent(schoolId)}`;
 }
 
 async function uzaParseBordroExcel(opts) {
@@ -34,7 +36,7 @@ async function uzaParseBordroExcel(opts) {
   });
   const fd = new FormData();
   fd.append('file', blob, opts.filename || 'bordro.xlsx');
-  const path = `/messaging/bordro/parse?type=${encodeURIComponent(type)}&donem=${encodeURIComponent(donem)}${uzaBordroSchoolQ(opts.schoolId)}`;
+  const path = `/messaging/bordro/parse?type=${encodeURIComponent(type)}&donem=${encodeURIComponent(donem)}${uzaBordroSchoolQ(opts.schoolId, true)}`;
   try {
     const data = await uzaFetchFormData(path, { token: opts.token, formData: fd });
     return {
@@ -53,7 +55,10 @@ async function uzaParseBordroExcel(opts) {
 async function uzaParseBordroFromStoredExcel(opts) {
   const entry = await uzaGetLastBordroExcel();
   if (!entry?.fileBase64) {
-    return { ok: false, error: 'Son Excel yok. PersonelNet/MaliNet’te «Excele Aktar» kullanın veya dosya seçin.' };
+    return {
+      ok: false,
+      error: 'Son Excel yok. KBS maaş raporunda indirin veya dosya seçin.',
+    };
   }
   const buf = Uint8Array.from(atob(entry.fileBase64), (c) => c.charCodeAt(0));
   return uzaParseBordroExcel({
@@ -114,7 +119,7 @@ async function uzaCreateBordroCampaign(opts) {
   if (opts.manualPhones && Object.keys(opts.manualPhones).length) {
     fd.append('manualPhones', JSON.stringify(opts.manualPhones));
   }
-  const path = `/messaging/bordro/campaign?type=${encodeURIComponent(type)}${uzaBordroSchoolQ(opts.schoolId)}`;
+  const path = `/messaging/bordro/campaign?type=${encodeURIComponent(type)}${uzaBordroSchoolQ(opts.schoolId, true)}`;
   try {
     const campaign = await uzaFetchFormData(path, { token: opts.token, formData: fd });
     return { ok: true, campaign };

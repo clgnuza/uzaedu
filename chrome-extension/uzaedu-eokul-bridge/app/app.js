@@ -1,3 +1,9 @@
+function uzaGo(path) {
+  const url =
+    typeof uzaExtUrl === 'function' ? uzaExtUrl(path) : chrome.runtime.getURL(path);
+  window.location.href = url;
+}
+
 const grid = document.getElementById('moduleGrid');
 const gridEmpty = document.getElementById('gridEmpty');
 const shellMeta = document.getElementById('shellMeta');
@@ -28,27 +34,58 @@ function platformForMenu(id) {
   return 'eokul';
 }
 
-function setSessionChip(el, ready) {
+function sessionStateLabel(ready, count) {
+  if (!ready) return 'Kapalı';
+  if (count > 1) return `${count} sekme`;
+  return 'Açık';
+}
+
+function setSessionChip(el, stateEl, ready, count) {
   if (!el) return;
   el.classList.remove('ok', 'wait');
   el.classList.add(ready ? 'ok' : 'wait');
+  if (stateEl) stateEl.textContent = sessionStateLabel(ready, count || 0);
 }
 
 async function refreshSessionStrip() {
   try {
     const st = await chrome.runtime.sendMessage({ type: UZA_MSG_GATE_STATUS });
     if (!st?.ok) return;
-    setSessionChip(document.getElementById('chipPanel'), st.portalConnected);
-    setSessionChip(document.getElementById('chipEokul'), st.eokulReady);
-    setSessionChip(document.getElementById('chipMebbis'), st.mebbisReady);
-    setSessionChip(document.getElementById('chipKbs'), st.kbsReady);
+    setSessionChip(
+      document.getElementById('chipPanel'),
+      document.getElementById('chipPanelState'),
+      st.portalConnected,
+      st.portalTabCount,
+    );
+    setSessionChip(
+      document.getElementById('chipEokul'),
+      document.getElementById('chipEokulState'),
+      st.eokulReady,
+      st.eokulTabCount,
+    );
+    setSessionChip(
+      document.getElementById('chipMebbis'),
+      document.getElementById('chipMebbisState'),
+      st.mebbisReady,
+      st.mebbisTabCount,
+    );
+    setSessionChip(
+      document.getElementById('chipKbs'),
+      document.getElementById('chipKbsState'),
+      st.kbsReady,
+      st.kbsTabCount,
+    );
   } catch {
     /* sessiz */
   }
 }
 
 btnGateBack?.addEventListener('click', () => {
-  window.location.href = chrome.runtime.getURL('gate/gate.html');
+  if (window.UZA_EMBED && typeof uzaFloatPost === 'function') {
+    uzaFloatPost({ type: 'UZA_FLOAT_CLOSE' });
+    return;
+  }
+  uzaGo('gate/gate.html');
 });
 
 function badgeForMenu(m) {
@@ -78,7 +115,6 @@ function renderMenus(ui, kurumKey) {
   let hasKbs = false;
 
   for (const id of ids) {
-    if (id === 'oturumAcik') continue;
     const m = menus[id];
     if (!m) continue;
     if (!menuSupportsKurum(m, kurumKey)) continue;
@@ -87,65 +123,74 @@ function renderMenus(ui, kurumKey) {
     if (platform === 'kbs') hasKbs = true;
     if (activeFilter !== 'all' && platform !== activeFilter) continue;
     const b = badgeForMenu(m);
-    const card = document.createElement('article');
-    card.className = `module-card platform-${platform}${m.enabled ? ' enabled' : ''}`;
-    card.dataset.platform = platform;
-    card.innerHTML = `
-      <div class="module-icon" aria-hidden="true">${PLATFORM_ICON[platform] || 'EO'}</div>
-      <div class="module-head">
-        <h3>${escapeHtml(m.label || id)}</h3>
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = `module-row platform-${platform}${m.enabled ? ' enabled' : ''}`;
+    row.dataset.platform = platform;
+    row.disabled = !m.enabled;
+    const desc = [m.description, DIR_LABEL[m.direction] || m.direction]
+      .filter(Boolean)
+      .join(' · ');
+    const iconKey =
+      (typeof UZA_ICON !== 'undefined' && UZA_ICON.menu[id]) ||
+      (platform === 'mebbis' || platform === 'kbs' ? 'payroll' : 'module');
+    const iconHtml =
+      typeof UZA_ICON !== 'undefined' ? UZA_ICON.svg(iconKey, 22) : escapeHtml(PLATFORM_ICON[platform] || 'ON');
+    row.innerHTML = `
+      <span class="module-row__icon" aria-hidden="true">${iconHtml}</span>
+      <span class="module-row__body">
+        <span class="module-row__title">${escapeHtml(m.label || id)}</span>
+        <span class="module-row__desc">${escapeHtml(desc)}</span>
+      </span>
+      <span class="module-row__meta">
         <span class="badge ${b.cls}">${escapeHtml(b.text)}</span>
-      </div>
-      <p>${escapeHtml(m.description || '')}</p>
-      <p class="module-dir">${escapeHtml(DIR_LABEL[m.direction] || m.direction || '')}</p>
-      <div class="module-foot">
-        <span class="module-platform-tag">${escapeHtml(PLATFORM_LABEL[platform] || '')}</span>
-        <span>${m.enabled ? 'Başlat →' : soon}</span>
-      </div>
+        <span class="module-row__chev" aria-hidden="true">›</span>
+      </span>
     `;
     if (m.enabled) {
-      card.style.cursor = 'pointer';
-      card.addEventListener('click', () => {
+      row.addEventListener('click', () => {
         if (id === 'kelebekSinavOgrenciAktar') {
-          window.location.href = chrome.runtime.getURL('menus/kelebek.html');
+          uzaGo('menus/kelebek.html');
         } else if (id === 'gunlukDevamsizlikAktar') {
-          window.location.href = chrome.runtime.getURL('menus/gunluk.html');
+          uzaGo('menus/gunluk.html');
         } else if (id === 'eyoklamaDersDevamsizlikAktar') {
-          window.location.href = chrome.runtime.getURL('menus/gunluk.html?kind=ders');
+          uzaGo('menus/gunluk.html?kind=ders');
         } else if (id === 'toplamDevamsizlikAktar') {
-          window.location.href = chrome.runtime.getURL('menus/toplam.html');
+          uzaGo('menus/toplam.html');
         } else if (id === 'devamsizlikMektubuEokul') {
-          window.location.href = chrome.runtime.getURL('menus/mektup.html');
+          uzaGo('menus/mektup.html');
         } else if (id === 'ogrenciRehberEokul') {
-          window.location.href = chrome.runtime.getURL('menus/rehber.html');
+          uzaGo('menus/rehber.html');
         } else if (id === 'evciCarsiIzin') {
-          window.location.href = chrome.runtime.getURL('menus/izin.html');
+          uzaGo('menus/izin.html');
         } else if (id === 'dersProgramiEokul') {
-          window.location.href = chrome.runtime.getURL('menus/ders-programi.html');
+          uzaGo('menus/ders-programi.html');
         } else if (id === 'gunlukDevamsizlikYaz') {
-          window.location.href = chrome.runtime.getURL('menus/gunluk-yaz.html');
+          uzaGo('menus/gunluk-yaz.html');
         } else if (id === 'topluOzursuzDevam') {
-          window.location.href = chrome.runtime.getURL('menus/toplu-ozursuz.html');
+          uzaGo('menus/toplu-ozursuz.html');
         } else if (id === 'topluOzurluDevam') {
-          window.location.href = chrome.runtime.getURL('menus/ozurlu.html');
+          uzaGo('menus/ozurlu.html');
         } else if (id === 'ozursuzdenOzurluye') {
-          window.location.href = chrome.runtime.getURL('menus/ozursuz-ozurlu.html');
+          uzaGo('menus/ozursuz-ozurlu.html');
         } else if (id === 'ogrenciDosyaBilgileriAl') {
-          window.location.href = chrome.runtime.getURL('menus/ogrenci-dosya.html');
+          uzaGo('menus/ogrenci-dosya.html');
         } else if (id === 'veliBilgiGuncelle') {
-          window.location.href = chrome.runtime.getURL('menus/veli-guncelle.html');
+          uzaGo('menus/veli-guncelle.html');
         } else if (id === 'topluFaaliyet') {
-          window.location.href = chrome.runtime.getURL('menus/faaliyet.html');
+          uzaGo('menus/faaliyet.html');
         } else if (id === 'mebbisPuantajBordro') {
-          window.location.href = chrome.runtime.getURL('menus/bordro.html?type=mebbis_puantaj');
+          uzaGo('menus/bordro.html?type=mebbis_puantaj');
         } else if (id === 'kbsEkDersBordro') {
-          window.location.href = chrome.runtime.getURL('menus/bordro.html?type=ek_ders_bordro');
+          uzaGo('menus/bordro.html?type=ek_ders_bordro');
         } else if (id === 'kbsMaasBordro') {
-          window.location.href = chrome.runtime.getURL('menus/bordro.html?type=maas_bordro');
+          uzaGo('menus/bordro.html?type=maas_bordro');
+        } else if (id === 'oturumAcik') {
+          uzaGo('menus/oturum.html');
         }
       });
     }
-    grid.appendChild(card);
+    grid.appendChild(row);
   }
 
   if (filtersEl) {
@@ -219,24 +264,9 @@ selKurum?.addEventListener('change', async () => {
   await uzaRefreshOkulTuruUi(selKurum.value);
 });
 
-const chkOturumPing = document.getElementById('chkOturumPing');
-chkOturumPing?.addEventListener('change', () => {
-  void chrome.runtime.sendMessage({ type: UZA_MSG_OTURUM_SET, enabled: chkOturumPing.checked });
-});
-void chrome.storage.local.get([UZA_OTURUM_ENABLED_KEY]).then((st) => {
-  if (chkOturumPing && st[UZA_OTURUM_ENABLED_KEY] != null) {
-    chkOturumPing.checked = !!st[UZA_OTURUM_ENABLED_KEY];
-  }
-});
-
-const chkMebbisPing = document.getElementById('chkMebbisPing');
-chkMebbisPing?.addEventListener('change', () => {
-  void chrome.runtime.sendMessage({ type: UZA_MSG_MEBBIS_OTURUM_SET, enabled: chkMebbisPing.checked });
-});
-void chrome.storage.local.get([UZA_MEBBIS_OTURUM_ENABLED_KEY]).then((st) => {
-  if (chkMebbisPing && st[UZA_MEBBIS_OTURUM_ENABLED_KEY] != null) {
-    chkMebbisPing.checked = !!st[UZA_MEBBIS_OTURUM_ENABLED_KEY];
-  }
+document.getElementById('linkOturumPage')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  uzaGo('menus/oturum.html');
 });
 
 const chkAutoConfirm = document.getElementById('chkAutoConfirm');
@@ -250,7 +280,9 @@ void chrome.storage.local.get(['uzaEokulAutoConfirm']).then((st) => {
 (async function appEntry() {
   const data = await chrome.storage.session.get(UZA_SESSION_GATE_KEY);
   if (!data[UZA_SESSION_GATE_KEY]) {
-    window.location.replace(chrome.runtime.getURL('gate/gate.html'));
+    window.location.replace(
+      typeof uzaExtUrl === 'function' ? uzaExtUrl('gate/gate.html') : chrome.runtime.getURL('gate/gate.html'),
+    );
     return;
   }
   const gate = data[UZA_SESSION_GATE_KEY];
@@ -274,6 +306,20 @@ void chrome.storage.local.get(['uzaEokulAutoConfirm']).then((st) => {
   } catch {
     gridEmpty.hidden = false;
   }
+  const footerVersion = document.getElementById('footerVersion');
+  if (footerVersion) {
+    try {
+      footerVersion.textContent = `v${chrome.runtime.getManifest().version}`;
+    } catch {
+      footerVersion.textContent = 'v—';
+    }
+  }
+  const shellTagline = document.getElementById('shellTagline');
+  if (shellTagline && typeof UZA_BRAND !== 'undefined') {
+    shellTagline.textContent = `${UZA_BRAND.productShort} · ${UZA_BRAND.okulNet}, ${UZA_BRAND.personelNet}, ${UZA_BRAND.maliNet}`;
+  }
+  const modIcon = document.getElementById('modulesTitleIcon');
+  if (modIcon && typeof UZA_ICON !== 'undefined') modIcon.innerHTML = UZA_ICON.svg('grid', 18);
   await refreshSessionStrip();
   setInterval(refreshSessionStrip, 5000);
 })();

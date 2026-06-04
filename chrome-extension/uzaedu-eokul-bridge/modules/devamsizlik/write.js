@@ -20,7 +20,7 @@ async function uzaRunDevamsizlikCampaignWriteHtml(profile, kurumKey, opts) {
 
   const jd = await uzaOkl08001FetchInitialDataHtml(profile, kurumKey);
   if (!jd.ok) {
-    return { ok: false, error: jd.error === 'login' ? 'OkulNet oturumu gerekli.' : 'Sınıf listesi yok.' };
+    return { ok: false, error: jd.error === 'login' ? 'e-Okul oturumu gerekli.' : 'Sınıf listesi yok.' };
   }
   let baseHtml = jd._baseHtml;
   let savedClasses = 0;
@@ -35,10 +35,10 @@ async function uzaRunDevamsizlikCampaignWriteHtml(profile, kurumKey, opts) {
 
     const lr = await uzaOkl08001PostListeleHtml(profile, kurumKey, baseHtml, opt.value, listeleTarih);
     if (!lr.ok) {
-      if (lr.error === 'login') return { ok: false, error: 'OkulNet oturumu sona erdi.' };
+      if (lr.error === 'login') return { ok: false, error: 'e-Okul oturumu sona erdi.' };
       continue;
     }
-    const scraped = uzaScrapeGunlukGridEditableRows(lr.html, kurumKey, scrapeMode);
+    const scraped = await uzaScrapeGunlukGridEditableRows(lr.html, kurumKey, scrapeMode);
     if (!scraped.ok) continue;
 
     let ap;
@@ -60,7 +60,7 @@ async function uzaRunDevamsizlikCampaignWriteHtml(profile, kurumKey, opts) {
       ap.selectSets,
     );
     if (!ks.ok) {
-      return { ok: false, error: ks.error === 'login' ? 'OkulNet oturumu sona erdi.' : ks.error || 'Kaydet başarısız.' };
+      return { ok: false, error: ks.error === 'login' ? 'e-Okul oturumu sona erdi.' : ks.error || 'Kaydet başarısız.' };
     }
     savedClasses += 1;
     baseHtml = ks.html;
@@ -103,7 +103,7 @@ async function uzaRunDevamsizlikCampaignWrite(opts) {
     if (!turSync.ok) return turSync;
     const jd = await uzaOkl08001FetchInitialDataJson(profile);
     if (!jd.ok) {
-      return { ok: false, error: jd.error === 'login' ? 'OkulNet oturumu gerekli.' : 'Sınıf listesi yok.' };
+      return { ok: false, error: jd.error === 'login' ? 'e-Okul oturumu gerekli.' : 'Sınıf listesi yok.' };
     }
     const meta = {
       donemKodu: String(jd.donemKodu || '').trim(),
@@ -125,7 +125,7 @@ async function uzaRunDevamsizlikCampaignWrite(opts) {
         kurumKoduFrontend: meta.kurumKodu,
       });
       if (!lr.ok) {
-        if (lr.error === 'login') return { ok: false, error: 'OkulNet oturumu sona erdi.' };
+        if (lr.error === 'login') return { ok: false, error: 'e-Okul oturumu sona erdi.' };
         continue;
       }
 
@@ -145,7 +145,7 @@ async function uzaRunDevamsizlikCampaignWrite(opts) {
         kurumKoduFrontend: meta.kurumKodu,
       });
       if (!ks.ok) {
-        return { ok: false, error: ks.error === 'login' ? 'OkulNet oturumu sona erdi.' : ks.error || 'Kaydet başarısız.' };
+        return { ok: false, error: ks.error === 'login' ? 'e-Okul oturumu sona erdi.' : ks.error || 'Kaydet başarısız.' };
       }
       savedClasses += 1;
       await new Promise((r) => setTimeout(r, 400));

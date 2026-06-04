@@ -40,6 +40,7 @@ import {
   AlertTriangle,
   Layers,
   UserCheck,
+  Puzzle,
 } from 'lucide-react';
 import {
   SCHOOL_MODULE_KEYS,
@@ -86,6 +87,7 @@ const MODULE_ICONS: Record<SchoolModuleKey, LucideIcon> = {
   messaging: MessageSquare,
   dogrudan_temin: ClipboardList,
   ders_dagit: Sparkles,
+  okul_koprusu: Puzzle,
 };
 
 function modChild(
@@ -178,6 +180,7 @@ const MODULE_CHILDREN: Record<SchoolModuleKey, MenuItem[]> = {
     modChild('Bütçe hiyerarşisi', '/dogrudan-temin/butce-hierarsisi', Wallet, 'dogrudan_temin'),
   ],
   ders_dagit: DERS_DAGIT_CHILDREN,
+  okul_koprusu: [modChild('E-Okul Köprüsü', '/e-okul-kopru', Puzzle, 'okul_koprusu')],
 };
 
 /** Okul yöneticisi: modül dışı çekirdek işler */
@@ -201,7 +204,7 @@ export const SCHOOL_ADMIN_CORE_MENU: MenuItem[] = [
 /** Her okul modülü = bir menü grubu (SCHOOL_MODULE_KEYS sırası) */
 export function buildSchoolAdminModuleMenuItems(): MenuItem[] {
   return SCHOOL_MODULE_KEYS.map((key, index) => {
-    const children = MODULE_CHILDREN[key];
+    const children = MODULE_CHILDREN[key] ?? [];
     if (children.length === 0) return null;
     return {
       title: SCHOOL_MODULE_LABELS[key],

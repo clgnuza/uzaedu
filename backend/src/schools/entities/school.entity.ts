@@ -476,6 +476,19 @@ export class School {
   @Column({ name: 'review_placement_charts', type: 'jsonb', nullable: true })
   review_placement_charts: Record<string, unknown> | null;
 
+  /**
+   * E-Okul köprüsü (Chrome): okula özel aktivasyon kodu ve ücretsiz/ücretli paket.
+   * @see backend/src/eokul-bridge/okul-koprusu-license.ts
+   */
+  @Column({ name: 'okul_koprusu_license', type: 'jsonb', nullable: true })
+  okulKoprusuLicense: {
+    code: string;
+    tier: 'free' | 'paid';
+    active: boolean;
+    createdAt?: string;
+    expiresAt?: string | null;
+  } | null;
+
   /** Market: okul jeton bakiyesi (kurumsal satın alma) */
   @Column({ name: 'market_jeton_balance', type: 'numeric', precision: 14, scale: 6, default: 0 })
   marketJetonBalance: string;

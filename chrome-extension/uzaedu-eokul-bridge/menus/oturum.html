@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#2563eb" />
+    <title>Oturum açık tut — Uzaedu Okul Köprüsü</title>
+    <link rel="stylesheet" href="oturum.css" />
+    <link rel="stylesheet" href="kelebek.css" />
+    <link rel="stylesheet" href="../shared/embed.css" />
+  </head>
+  <body
+    class="uza-body"
+    data-uza-platform="panel"
+    data-uza-icon="wifi"
+    data-uza-title="Oturum açık tut"
+    data-uza-lead="MEB sitelerinde oturumun düşmesini geciktirir"
+  >
+    <main class="card uza-page-card">
+      <section class="oturum-sites">
+        <h2 class="oturum-sites__title" id="oturumSitesTitle">Aktif edilecek siteler</h2>
+        <ul class="oturum-list" id="oturumList" aria-label="MEB siteleri"></ul>
+      </section>
+
+      <aside class="oturum-help">
+        <h3 id="oturumHelpTitle">Nasıl çalışır?</h3>
+        <p id="oturumHelpText">
+          Seçtiğiniz sitelerin açık sekmesine belirli aralıklarla hafif istek gider; sayfa
+          yenilenmez. Sekmeyi kapatınca o site için sinyal durur.
+        </p>
+      </aside>
+
+      <p class="oturum-meta" id="oturumInterval">Yenileme aralığı: ~10 dakika</p>
+      <p id="oturumStatus" class="gate-message" role="status"></p>
+    </main>
+
+    <script src="../shared/brand-names.js"></script>
+    <script src="../shared/embed.js"></script>
+    <script src="../shared/icons.js"></script>
+    <script src="../shared/notify.js"></script>
+    <script src="../shared/menu-chrome.js"></script>
+    <script src="../shared/messaging.js"></script>
+    <script src="../shared/oturum-sites.js"></script>
+    <script src="oturum.js"></script>
+  </body>
+</html>

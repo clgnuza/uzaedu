@@ -1,15 +1,17 @@
 /** E-Okul sayfa kazıma seçicileri — deploy ile güncellenir. */
 export const EOKUL_BRIDGE_DOM_RUNTIME = {
   exportPage: {
-    mainFormSelectors: ['form#aspnetForm', 'form[name="aspnetForm"]'],
+    mainFormSelectors: ['form#aspnetForm', 'form[name="aspnetForm"]', 'form#Form1'],
     mainFormLastChance: 'form',
     pageModeInputName: 'pageMode',
     classSelectSelectors: [
+      '#Us_SinifSube1_ddlSinifSube',
       '#ddlSinifiSube',
       '#ddlSinifSube',
       'select[id*="Sinif" i]',
       'select[id*="Sube" i]',
     ],
+    classSelectAppFormControl: '#app select.form-control',
     optionExcludeValue: '-1',
     listelePageModeValue: 'listele',
     listeleSubmitValue: 'Listele',
@@ -22,7 +24,7 @@ export const EOKUL_BRIDGE_DOM_RUNTIME = {
     labelLooseMaxLen: 48,
   },
   tableScrape: {
-    tableIds: ['#dgListem', '#dgListe', '#grdListe'],
+    tableIds: ['#dgListem', '#tbPageDataTable', '#dgListe', '#grdListe'],
     minTdCount: 5,
     colSinif: 1,
     colTc: 2,
@@ -33,8 +35,26 @@ export const EOKUL_BRIDGE_DOM_RUNTIME = {
   },
   gunlukDevamsizlik: {
     listeleDateFieldName: 'Us_tarih1$txtTarihGiris',
+    listeleDateFieldNameIok: 'txtTarih',
     gridTableId: '#dgListem',
-    dateInputSelectors: ['#Us_tarih1_txtTarihGiris', 'input[name*="Tarih" i]'],
+    gridTableIds: {
+      ortaOgretim: '#dgListem',
+      ilkOgretim: '#tbPageDataTable',
+      okulOncesi: '#tbPageDataTable',
+    },
+    checkboxColIndex: { tamGun: 5, yarimGun: 6, gec: 7 },
+    checkboxNamePrefix: {
+      tamGun: 'chkTamGun_',
+      yarimGunSabah: 'chkYarimGunSabah_',
+      yarimGunOglen: 'chkYarimGunOglen_',
+      nobet: 'chkNobet_',
+      gec: 'chkGec_',
+    },
+    dateInputSelectors: [
+      '#Us_tarih1_txtTarihGiris',
+      '#app input[type="date"].form-control',
+      'input[name*="Tarih" i]',
+    ],
   },
   okulAltTur: {
     oklSelectSelectors: [
@@ -56,10 +76,12 @@ export const EOKUL_BRIDGE_DOM_RUNTIME = {
   },
   ozur02012: {
     tableId: '#tblOzursuzDevamsizlik',
+    tableIds: ['#dgListe', 'table#Table6.frmDis', 'table.frmList', '#tblOzursuzDevamsizlik'],
     minTdOzursuz: 5,
     colSira: 2,
     colTarih: 3,
     colTur: 4,
+    headerSiraLabel: 'Sıra No',
   },
   ozur02013: {
     pageModeYeni: 'yeniKayit',

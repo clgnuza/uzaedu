@@ -25,11 +25,24 @@
   --br-accent-bg: var(--br-maas-bg);
 }
 
+.bordro-header {
+  margin-bottom: 0.5rem;
+}
+
+.bordro-header--compact {
+  margin-bottom: 0.75rem;
+}
+
 .bordro-header h1 {
   margin: 0.25rem 0 0;
   font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+.bordro-header--compact h1,
+.bordro-header--compact .page-lead {
+  display: none;
 }
 
 .bordro-header .page-lead {
@@ -56,8 +69,8 @@
 
 .bordro-alert {
   display: flex;
-  gap: 0.5rem;
   align-items: flex-start;
+  gap: 0.5rem;
   padding: 0.65rem 0.75rem;
   border-radius: 12px;
   font-size: 0.78rem;
@@ -66,30 +79,51 @@
   border: 1px solid transparent;
 }
 
+.bordro-alert::before {
+  content: '';
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.1rem;
+  background: currentColor;
+  opacity: 0.85;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+
+.bordro-alert.privacy::before {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Cpath stroke='black' stroke-width='2' d='M12 11v5M12 8v.5'/%3E%3Ccircle cx='12' cy='12' r='9' stroke='black' stroke-width='2'/%3E%3C/svg%3E");
+}
+
+.bordro-alert.warn::before {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 3 2 20h20L12 3zm0 6.5v5M12 17.5v.5'/%3E%3C/svg%3E");
+}
+
 .bordro-alert.privacy {
-  background: rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.25);
-  color: #6ee7b7;
+  background: var(--ok-soft);
+  border-color: #a7f3d0;
+  color: var(--ok);
 }
 
 .bordro-alert.warn {
-  background: rgba(245, 158, 11, 0.1);
-  border-color: rgba(245, 158, 11, 0.28);
-  color: #fcd34d;
+  background: var(--warn-soft);
+  border-color: #fde68a;
+  color: var(--warn);
 }
 
 .bordro-alert.info {
   background: var(--br-indigo-bg);
-  border-color: rgba(129, 140, 248, 0.28);
-  color: #c7d2fe;
+  border-color: #c7d2fe;
+  color: var(--panel);
 }
 
 .bordro-hints {
   margin: 0.65rem 0 0;
   padding: 0.65rem 0.85rem;
   border-radius: 12px;
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   list-style: none;
   font-size: 0.76rem;
   color: var(--muted);
@@ -115,15 +149,15 @@
   margin: 0.5rem 0 0;
   padding: 0.45rem 0.65rem;
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--surface-2);
 }
 
 .bordro-section {
   margin-top: 1rem;
   padding: 1rem;
   border-radius: 14px;
-  background: rgba(0, 0, 0, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
 }
 
 .bordro-section-title {
@@ -144,29 +178,29 @@
 
 .bordro-field span {
   font-size: 0.78rem;
-  font-weight: 500;
-  color: #cbd5e1;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .bordro-input,
 .bordro-field input[type='file'],
 .bordro-field textarea {
   width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   padding: 0.55rem 0.7rem;
   font-size: 0.88rem;
   font-family: inherit;
   color: var(--text);
-  background: rgba(15, 23, 42, 0.65);
+  background: #fff;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .bordro-input:focus,
 .bordro-field textarea:focus {
   outline: none;
-  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
 .bordro-field input[type='file'] {
@@ -175,7 +209,7 @@
 }
 
 .bordro-file-zone {
-  border: 2px dashed rgba(255, 255, 255, 0.12);
+  border: 2px dashed var(--border-strong);
   border-radius: 12px;
   padding: 0.85rem;
   text-align: center;
@@ -184,8 +218,8 @@
 }
 
 .bordro-file-zone:hover {
-  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
-  background: rgba(20, 184, 166, 0.06);
+  border-color: var(--primary);
+  background: var(--primary-soft);
 }
 
 .bordro-file-zone label {
@@ -228,9 +262,9 @@
 }
 
 .bordro-btn.primary {
-  color: #042f2e;
-  background: linear-gradient(135deg, #2dd4bf, var(--primary2));
-  box-shadow: 0 6px 20px rgba(13, 148, 136, 0.35);
+  color: #fff;
+  background: var(--primary);
+  box-shadow: 0 4px 14px var(--primary-glow);
 }
 
 .bordro-btn.primary:hover:not(:disabled) {
@@ -239,8 +273,8 @@
 
 .bordro-btn.secondary {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
 }
 
 .bordro-btn.accent-mebbis {
@@ -258,7 +292,7 @@
 .bordro-btn.ghost {
   color: var(--muted);
   background: transparent;
-  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border: 1px dashed var(--border-strong);
   font-weight: 500;
 }
 
@@ -279,7 +313,7 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--border);
 }
 
 .bordro-output {
@@ -291,9 +325,9 @@
   white-space: pre-wrap;
   max-height: 9rem;
   overflow: auto;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: #cbd5e1;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
   font-family: ui-monospace, monospace;
 }
 
@@ -308,7 +342,7 @@
   text-align: center;
   padding: 0.65rem 0.5rem;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
 }
 
 .bordro-stat.ok {
@@ -348,13 +382,13 @@
   overflow: auto;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(0, 0, 0, 0.15);
+  background: #fff;
 }
 
 .bordro-list li {
   padding: 0.45rem 0.65rem;
   font-size: 0.8rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   gap: 0.5rem;
@@ -380,7 +414,7 @@
   gap: 0.5rem;
   align-items: center;
   padding: 0.45rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border);
   font-size: 0.78rem;
 }
 
@@ -403,27 +437,14 @@
 .bordro-phone-row input {
   padding: 0.4rem 0.5rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid var(--border-strong);
+  background: #fff;
   color: var(--text);
   font-size: 0.8rem;
 }
 
 .bordro-status {
   margin-top: 1rem;
-  min-height: 1.25rem;
-  font-size: 0.82rem;
-  line-height: 1.4;
-  text-align: center;
-  color: var(--muted);
-}
-
-.bordro-status.error {
-  color: var(--err);
-}
-
-.bordro-status.success {
-  color: var(--ok);
 }
 
 .bordro-done {

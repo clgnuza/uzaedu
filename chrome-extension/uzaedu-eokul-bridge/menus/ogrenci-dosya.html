@@ -1,46 +1,69 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="tr">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#070b14" />
+    <meta name="theme-color" content="#2563eb" />
     <title>Öğrenci dosya — Uzaedu Okul Köprüsü</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="../gate/gate.css" />
     <link rel="stylesheet" href="kelebek.css" />
+    <link rel="stylesheet" href="../shared/embed.css" />
   </head>
-  <body class="uza-body">
+  <body
+    class="uza-body"
+    data-uza-platform="eokul"
+    data-uza-icon="file"
+    data-uza-title="Öğrenci dosyası"
+    data-uza-lead="Grup ve alan seçerek CSV/ZIP indirir; isteğe bağlı panele aktarır."
+  >
     <main class="card uza-page">
-      <header>
-        <a href="../app/app.html" class="back-link">← Modüller</a>
-        <h1>Öğrenci dosya bilgileri</h1>
-        <p class="gate-sub">Grup ve alan seçerek CSV/ZIP indirir; isteğe bağlı panele aktarır.</p>
-      </header>
-      <label class="gate-field">
-        <span>Grup</span>
-        <select id="groupId" class="gate-input"></select>
+      <label class="uza-field">
+        <span class="uza-field__label">Grup</span>
+        <select id="groupId" class="gate-input uza-select"></select>
       </label>
-      <div id="fieldBox" class="kb-actions" hidden>
-        <p class="gate-sub" style="margin: 0 0 0.5rem">Alanlar</p>
-        <div id="fieldList"></div>
+
+      <div id="fieldBox" class="uza-field" hidden>
+        <div class="uza-field__head">
+          <span class="uza-field__label">Alanlar</span>
+          <div class="uza-field__tools">
+            <button type="button" id="btnFieldsAll" class="uza-text-btn">Tümünü seç</button>
+            <span class="uza-field__sep" aria-hidden="true">·</span>
+            <button type="button" id="btnFieldsNone" class="uza-text-btn">Temizle</button>
+          </div>
+        </div>
+        <div id="fieldList" class="uza-chip-grid" role="group" aria-label="Dışa aktarılacak alanlar"></div>
       </div>
-      <label class="gate-field" id="mebAjandaBox" hidden>
-        <span>MEB Ajanda kodu (6 hane, veli/ilköğretim)</span>
-        <input id="mebAjandaCode" class="gate-input" inputmode="numeric" maxlength="6" />
+
+      <label class="uza-field" id="mebAjandaBox" hidden>
+        <span class="uza-field__label">MEB Ajanda kodu</span>
+        <span class="uza-field__hint">6 hane — veli / ilköğretim</span>
+        <input id="mebAjandaCode" class="gate-input" inputmode="numeric" maxlength="6" placeholder="000000" />
       </label>
-      <label class="gate-sub" style="display: flex; gap: 8px; align-items: center">
-        <input type="checkbox" id="chkPortalImport" />
-        CSV sonrası panele aktar
+
+      <label class="uza-option-card">
+        <input type="checkbox" id="chkPortalImport" class="uza-option-card__input" />
+        <span class="uza-option-card__box" aria-hidden="true"></span>
+        <span class="uza-option-card__text">
+          <strong>CSV sonrası panele aktar</strong>
+          <small>İndirilen dosyayı Uzaedu paneline yükler</small>
+        </span>
       </label>
-      <div class="kb-actions">
-        <button type="button" id="btnAll" class="btn-primary">Tüm sınıfları indir</button>
+
+      <div class="uza-actions">
+        <button type="button" id="btnAll" class="btn-primary btn-with-icon uza-btn-hero">
+          <span class="btn-with-icon__ic" id="btnAllIcon" aria-hidden="true"></span>
+          <span>Tüm sınıfları indir</span>
+        </button>
       </div>
+
       <p id="status" class="gate-message" role="status"></p>
-      <ul id="classList" class="kb-list" hidden></ul>
+      <ul id="classList" class="kb-list uza-class-list" hidden></ul>
     </main>
+
     <script src="../shared/brand-names.js"></script>
+    <script src="../shared/embed.js"></script>
+    <script src="../shared/icons.js"></script>
+    <script src="../shared/notify.js"></script>
+    <script src="../shared/menu-chrome.js"></script>
     <script src="../shared/messaging.js"></script>
     <script src="../shared/menu-kurum.js"></script>
     <script src="ogrenci-dosya.js"></script>

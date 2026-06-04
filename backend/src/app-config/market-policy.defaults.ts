@@ -17,6 +17,7 @@ export const MARKET_MODULE_KEYS = [
   'messaging',
   'dogrudan_temin',
   'ders_dagit',
+  'okul_koprusu',
 ] as const;
 
 export type MarketModuleKey = (typeof MARKET_MODULE_KEYS)[number];
@@ -228,6 +229,10 @@ const MODULE_ENTRY_NOTICES: Record<MarketModuleKey, { tr: string; en: string }> 
   ders_dagit: {
     tr: 'DersDağıt Program Stüdyosu: 5 adımlı kurulum, kural katmanları, 3 versiyon üretim, e-Okul dışa aktarım ve ders programına yayın. Başlangıç: /ders-dagit/studyo/kurulum',
     en: 'DersDağıt studio: setup wizard, rules, triple generation, e-Okul export and publish to school timetable. Start: /ders-dagit/studyo/kurulum',
+  },
+  okul_koprusu: {
+    tr: 'Chrome E-Okul Köprüsü: e-Okul ile panel arasında veri aktarımı. Okula özel aktivasyon kodu; ücretsiz veya ücretli paket. Başlangıç: /e-okul-kopru',
+    en: 'Chrome E-Okul Bridge: data sync between e-Okul and the admin panel. School activation code; free or paid tier. Start: /e-okul-kopru',
   },
 };
 

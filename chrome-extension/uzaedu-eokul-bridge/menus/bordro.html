@@ -1,26 +1,20 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="tr">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#070b14" />
-    <title>Bordro — Uzaedu Okul Köprüsü</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="../gate/gate.css" />
+    <meta name="theme-color" content="#2563eb" />
+    <title>Bordro – Uzaedu Okul Köprüsü</title>
     <link rel="stylesheet" href="kelebek.css" />
+    <link rel="stylesheet" href="../shared/embed.css" />
     <link rel="stylesheet" href="bordro.css" />
   </head>
-  <body class="uza-body">
+  <body class="uza-body" data-uza-platform="mebbis" data-uza-icon="payroll" data-uza-title="Bordro / puantaj" data-uza-lead="Excel veya sekmeden bordro aktarımı." data-uza-wide="1">
     <main id="bordroRoot" class="card bordro-page uza-page type-mebbis">
       <header class="bordro-header">
         <a href="../app/app.html" class="back-link">← Modüller</a>
-        <span id="typeBadge" class="bordro-badge">PersonelNet</span>
-        <h1 id="pageTitle">PersonelNet / MaliNet Bordro</h1>
+        <span id="typeBadge" class="bordro-badge">MEBBİS</span>
+        <h1 id="pageTitle">MEBBİS / KBS Bordro</h1>
         <p id="pageLead" class="page-lead">Excel, sekme kazıması veya son indirilen dosya ile WhatsApp kampanyası.</p>
       </header>
 
@@ -55,42 +49,48 @@
           <div class="bordro-file-zone">
             <label for="fileInput">
               <strong>Excel seç veya sürükle</strong>
-              <small>.xlsx / .xls — PersonelNet veya MaliNet çıktısı</small>
+              <small>.xlsx / .xls · MEBBİS veya KBS çıktısı</small>
             </label>
             <input id="fileInput" type="file" accept=".xlsx,.xls" hidden />
           </div>
           <button type="button" id="btnParse" class="bordro-btn primary">Excel’i ayrıştır</button>
-          <button type="button" id="btnLastExcel" class="bordro-btn secondary" style="margin-top: 0.4rem">
+          <button type="button" id="btnLastExcel" class="bordro-btn secondary">
             Son indirilen Excel’i kullan
+          </button>
+          <button type="button" id="btnMaasExport" class="bordro-btn primary" hidden>
+            KBS’de indir (yakala)
           </button>
         </section>
 
-        <section class="bordro-section">
-          <h2 class="bordro-section-title">Otomatik çekim</h2>
+        <section class="bordro-section" id="scrapeSection">
+          <h2 class="bordro-section-title" id="scrapeSectionTitle">Otomatik çekim</h2>
           <div class="bordro-actions">
             <button type="button" id="btnMebbisReport" class="bordro-btn accent-mebbis" hidden>
-              PersonelNet rapor ekranına git
+              MEBBİS puantaj (ekd04002)
+            </button>
+            <button type="button" id="btnMebbisViewReport" class="bordro-btn accent-mebbis" hidden>
+              Raporu göster ve çek
             </button>
             <button type="button" id="btnOpenTab" class="bordro-btn secondary">Sekme aç</button>
             <button type="button" id="btnScrape" class="bordro-btn primary">Açık sekmeden çek</button>
             <button type="button" id="btnScrapePuantaj" class="bordro-btn accent-kbs" hidden>
-              MaliNet — puantaj tablosu
+              KBS · puantaj tablosu
             </button>
             <button type="button" id="btnScrapeBordro" class="bordro-btn accent-kbs" hidden>
-              MaliNet — bordro tablosu
+              KBS · bordro tablosu
             </button>
           </div>
 
           <div class="bordro-divider">Karşılaştırma</div>
           <div class="bordro-actions">
             <button type="button" id="btnSnapshotMebbis" class="bordro-btn accent-mebbis" hidden>
-              PersonelNet anlık görüntü al
+              MEBBİS anlık görüntü al
             </button>
             <button type="button" id="btnSnapshotKbs" class="bordro-btn accent-kbs" hidden>
-              MaliNet anlık görüntü al
+              KBS anlık görüntü al
             </button>
             <button type="button" id="btnCompare" class="bordro-btn ghost" hidden>
-              PersonelNet ↔ MaliNet saat karşılaştır
+              MEBBİS - KBS saat karşılaştır
             </button>
             <button type="button" id="btnTcAudit" class="bordro-btn ghost">TC / öğretmen kontrolü</button>
           </div>
@@ -114,17 +114,17 @@
           <p id="matchSummary" class="bordro-meta"></p>
           <div id="unmatchedPhones"></div>
           <ul id="matchList" class="bordro-list"></ul>
-          <button type="button" id="btnCampaign" class="bordro-btn primary" style="margin-top: 0.85rem">
+          <button type="button" id="btnCampaign" class="bordro-btn primary">
             Kampanya oluştur
           </button>
-          <button type="button" id="btnBack" class="bordro-btn secondary" style="margin-top: 0.4rem">Geri</button>
+          <button type="button" id="btnBack" class="bordro-btn secondary">Geri</button>
         </section>
       </div>
 
       <div id="stepDone" hidden>
         <section class="bordro-section bordro-done">
           <p id="doneText"></p>
-          <a id="panelLink" class="bordro-btn primary" style="display: block; text-align: center; text-decoration: none"
+          <a id="panelLink" class="bordro-btn primary uza-w-full"
             >Panelde kampanyayı aç</a
           >
         </section>
@@ -132,8 +132,12 @@
 
       <p id="status" class="bordro-status" role="status"></p>
     </main>
-    <script src="../shared/brand-names.js"></script>
-    <script src="../shared/messaging.js"></script>
+  <script src="../shared/brand-names.js"></script>
+  <script src="../shared/embed.js"></script>
+  <script src="../shared/icons.js"></script>
+  <script src="../shared/notify.js"></script>
+  <script src="../shared/menu-chrome.js"></script>
+<script src="../shared/messaging.js"></script>
     <script src="bordro.js"></script>
   </body>
 </html>

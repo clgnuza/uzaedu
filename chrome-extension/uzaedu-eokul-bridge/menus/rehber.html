@@ -1,25 +1,27 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="tr">
   <head>
-    <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="utf-8" />
     <title>Veli rehberi</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="../gate/gate.css" />
     <link rel="stylesheet" href="kelebek.css" />
+    <link rel="stylesheet" href="../shared/embed.css" />
   </head>
-  <body class="uza-body">
+  <body class="uza-body" data-uza-platform="eokul" data-uza-icon="users" data-uza-title="Öğrenci rehberi" data-uza-lead="Rehber bilgilerini panele aktarır.">
     <main class="card uza-page">
-      <a href="../app/app.html" class="back-link">← Modüller</a>
+      <a href="../app/app.html" class="back-link">‹ Modüller</a>
       <h1>Öğrenci rehber</h1>
-      <p class="gate-sub">Anne/baba cep → veli rehberi (öğrenci başına, yavaş).</p>
-      <button type="button" id="btnAll" class="btn-primary" style="width: 100%">Tüm sınıfları aktar</button>
+      <p class="gate-sub">Anne/baba cep › veli rehberi (öğrenci başına, yavaş).</p>
+      <button type="button" id="btnAll" class="btn-primary uza-w-full">Tüm sınıfları aktar</button>
       <p id="status" class="gate-message"></p>
       <ul id="classList" class="kb-list" hidden></ul>
     </main>
-    <script src="../shared/brand-names.js"></script>
-    <script src="../shared/messaging.js"></script>
+  <script src="../shared/brand-names.js"></script>
+  <script src="../shared/embed.js"></script>
+  <script src="../shared/icons.js"></script>
+  <script src="../shared/notify.js"></script>
+  <script src="../shared/menu-chrome.js"></script>
+<script src="../shared/messaging.js"></script>
     <script src="../shared/menu-kurum.js"></script>
     <script src="rehber.js"></script>
   </body>

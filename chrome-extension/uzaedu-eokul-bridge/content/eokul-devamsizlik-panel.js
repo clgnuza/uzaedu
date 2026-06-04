@@ -1,6 +1,7 @@
 (function () {
   const path = window.location.pathname || '';
   if (!/08001\.aspx/i.test(path)) return;
+  if (document.getElementById('uza-float-host-root')) return;
   if (document.getElementById('uzaedu-eokul-bridge-panel')) return;
 
   const root = document.createElement('div');

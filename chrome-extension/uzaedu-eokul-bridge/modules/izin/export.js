@@ -62,7 +62,7 @@ async function uzaRunIzinExport(opts) {
   try {
     const eokul = await uzaEokulTabReady();
     if (!eokul.ok || !eokul.tabs?.length) {
-      return { ok: false, error: 'OkulNet sekmesi gerekli.' };
+      return { ok: false, error: 'e-Okul sekmesi gerekli.' };
     }
     const tabId = eokul.tabs[0].id;
     const rows = await uzaScrapeIzinTablesFromTab(tabId);

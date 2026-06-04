@@ -27,6 +27,7 @@ import {
   Search,
   Layers,
   School,
+  Puzzle,
 } from 'lucide-react';
 import {
   SCHOOL_MODULE_KEYS,
@@ -73,6 +74,7 @@ const MODULE_ICONS: Record<SchoolModuleKey, LucideIcon> = {
   messaging: MessageSquare,
   dogrudan_temin: ClipboardList,
   ders_dagit: Sparkles,
+  okul_koprusu: Puzzle,
 };
 
 function modChild(
@@ -132,6 +134,7 @@ const MODULE_CHILDREN: Record<SchoolModuleKey, MenuItem[]> = {
     modChild('Müsaitlik tercihleri', '/ders-dagit/tercihler', BookUser, 'ders_dagit'),
     modChild('Sınıf görünümü', '/ders-dagit/veli', LayoutGrid, 'ders_dagit'),
   ],
+  okul_koprusu: [],
 };
 
 /** Misafir / public-admin-paths ile aynı — okul modülü kapısı yok. */
@@ -204,7 +207,7 @@ export const TEACHER_CORE_MENU: MenuItem[] = [
 
 function buildTeacherModuleMenuItems(): MenuItem[] {
   return SCHOOL_MODULE_KEYS.map((key, index) => {
-    const children = MODULE_CHILDREN[key];
+    const children = MODULE_CHILDREN[key] ?? [];
     if (children.length === 0) return null;
 
     const base: MenuItem = {

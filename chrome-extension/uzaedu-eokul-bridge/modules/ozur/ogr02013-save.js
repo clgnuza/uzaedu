@@ -55,7 +55,7 @@ async function uzaPostOzurluKayitIkiAsama(profile, detailUrl, row, nedeni, acikl
   let html = await getRes.text();
   if (uzaLooksLikeLoginPage(html)) return { ok: false, error: 'login' };
 
-  const built1 = uzaBuild02013SaveBody(html, row, nedeni, aciklama, UZA_02013_PAGE_YENI);
+  const built1 = await uzaBuild02013SaveBody(html, row, nedeni, aciklama, UZA_02013_PAGE_YENI);
   if (!built1.ok) return built1;
   const post1 = await uzaHtmlSessionFetch(pageUrl, {
     method: 'POST',
@@ -66,7 +66,7 @@ async function uzaPostOzurluKayitIkiAsama(profile, detailUrl, row, nedeni, acikl
   html = await post1.text();
   if (uzaLooksLikeLoginPage(html)) return { ok: false, error: 'login' };
 
-  const built2 = uzaBuild02013SaveBody(html, row, nedeni, aciklama, UZA_02013_PAGE_DEVAM);
+  const built2 = await uzaBuild02013SaveBody(html, row, nedeni, aciklama, UZA_02013_PAGE_DEVAM);
   if (!built2.ok) return built2;
   const post2 = await uzaHtmlSessionFetch(pageUrl, {
     method: 'POST',
@@ -110,7 +110,7 @@ async function uzaRunTopluOzurluWrite(opts) {
         const r = await uzaPostOzurluKayitIkiAsama(profile, nav.detailUrl, row, nedeni, aciklama);
         if (!r.ok) {
           okStudent = false;
-          if (r.error === 'login') return { ok: false, error: 'OkulNet oturumu sona erdi.' };
+          if (r.error === 'login') return { ok: false, error: 'e-Okul oturumu sona erdi.' };
           break;
         }
         await new Promise((res) => setTimeout(res, 350));

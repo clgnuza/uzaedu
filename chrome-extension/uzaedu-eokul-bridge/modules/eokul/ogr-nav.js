@@ -56,7 +56,7 @@ async function uzaFetchOgr02015Totals(profile, ogrNo, state) {
     state.ogr01001Html = await g.text();
     if (uzaLooksLikeLoginPage(state.ogr01001Html)) return { ok: false, error: 'login' };
   }
-  const built = uzaBuildOgr01001Search(state.ogr01001Html, ogrNo, profile);
+  const built = await uzaBuildOgr01001Search(state.ogr01001Html, ogrNo, profile);
   if (!built.ok) return built;
   const searchRes = await uzaHtmlSessionFetch(built.postUrl, {
     method: 'POST',
@@ -72,7 +72,7 @@ async function uzaFetchOgr02015Totals(profile, ogrNo, state) {
   });
   const html15 = await res15.text();
   if (uzaLooksLikeLoginPage(html15)) return { ok: false, error: 'login' };
-  return uzaScrapeOgr02015Totals(html15);
+  return await uzaScrapeOgr02015Totals(html15);
 }
 
 function uzaScrapeOgr02015Totals(html) {

@@ -1,0 +1,42 @@
+html.uza-embed-root,
+body.uza-embed {
+  margin: 0;
+  min-height: 100%;
+  background: #f1f5f9;
+  overflow-x: hidden;
+}
+
+body.uza-embed .uza-panel,
+body.uza-embed .shell {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  min-height: 100%;
+  box-shadow: none;
+}
+
+body.uza-embed .uza-shell {
+  max-width: none;
+  box-shadow: none;
+}
+
+body.uza-embed .uza-panel-exit {
+  display: none;
+}
+
+body.uza-embed .uza-crumb {
+  font-size: 0.68rem;
+  padding: 0.4rem 0.65rem;
+}
+
+body.uza-embed .uza-page-card {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0.85rem;
+}
+
+body.uza-embed .uza-float-hide-in-embed,
+body.uza-embed .back-link {
+  display: none !important;
+}

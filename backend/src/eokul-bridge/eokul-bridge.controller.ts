@@ -33,6 +33,10 @@ import { VeliIzinPdfDto } from './dto/veli-izin-pdf.dto';
 import { EokulBridgeVeliIzinPdfService } from './eokul-bridge-veli-izin-pdf.service';
 import { OgrenciDosyaImportDto } from './dto/ogrenci-dosya-import.dto';
 import { EokulBridgeOgrenciDosyaImportService } from './eokul-bridge-ogrenci-dosya-import.service';
+import { EokulBridgeSchoolAccessService } from './eokul-bridge-school-access.service';
+import { SchoolAccessVerifyDto } from './dto/school-access-verify.dto';
+import { SchoolAccessPatchDto } from './dto/school-access-patch.dto';
+import { SchoolAccessRegenerateDto } from './dto/school-access-regenerate.dto';
 
 @Controller('eokul-bridge/v1')
 export class EokulBridgeController {
@@ -43,6 +47,7 @@ export class EokulBridgeController {
     private readonly dersDagit: DersDagitService,
     private readonly veliIzinPdfService: EokulBridgeVeliIzinPdfService,
     private readonly ogrenciDosyaImport: EokulBridgeOgrenciDosyaImportService,
+    private readonly schoolAccess: EokulBridgeSchoolAccessService,
   ) {}
 
   @Get('bootstrap')
@@ -78,6 +83,65 @@ export class EokulBridgeController {
           }
         : null,
     };
+  }
+
+  @Get('school-access')
+  @UseGuards(JwtAuthGuard)
+  getSchoolAccess(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Query('school_id') schoolIdQ?: string,
+  ) {
+    const schoolId = this.resolveSchoolId(payload, schoolIdQ);
+    return this.schoolAccess.getAccessForSchoolId(schoolId);
+  }
+
+  @Get('school-access/admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  getSchoolAccessAdmin(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Query('school_id') schoolIdQ?: string,
+  ) {
+    const schoolId = this.resolveSchoolId(payload, schoolIdQ);
+    return this.schoolAccess.getLicenseAdminView(schoolId);
+  }
+
+  @Post('school-access/verify')
+  @UseGuards(JwtAuthGuard)
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  verifySchoolAccess(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Body() body: SchoolAccessVerifyDto,
+    @Query('school_id') schoolIdQ?: string,
+  ) {
+    const schoolId = this.resolveSchoolId(payload, schoolIdQ);
+    return this.schoolAccess.verifyCode(schoolId, body.code);
+  }
+
+  @Post('school-access/regenerate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  regenerateSchoolAccess(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Body() body: SchoolAccessRegenerateDto,
+    @Query('school_id') schoolIdQ?: string,
+  ) {
+    const schoolId = this.resolveSchoolId(payload, schoolIdQ);
+    return this.schoolAccess.regenerateLicense(schoolId, body.tier ?? 'paid');
+  }
+
+  @Post('school-access/patch')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  patchSchoolAccess(
+    @CurrentUser() payload: CurrentUserPayload,
+    @Body() body: SchoolAccessPatchDto,
+    @Query('school_id') schoolIdQ?: string,
+  ) {
+    const schoolId = this.resolveSchoolId(payload, schoolIdQ);
+    return this.schoolAccess.patchLicense(schoolId, body);
   }
 
   @Post('import/kelebek-students')

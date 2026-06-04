@@ -49,7 +49,7 @@ async function uzaRunDersProgramEokulUpload(opts) {
   if (!page) return { ok: false, error: 'Bu kurum için program yükleme sayfası tanımlı değil.' };
   if (!opts.fileBase64) return { ok: false, error: 'Dosya yok.' };
   const eokul = await uzaEokulTabReady();
-  if (!eokul.ok || !eokul.tabs?.[0]?.id) return { ok: false, error: 'OkulNet sekmesi gerekli.' };
+  if (!eokul.ok || !eokul.tabs?.[0]?.id) return { ok: false, error: 'e-Okul sekmesi gerekli.' };
   const tabId = eokul.tabs[0].id;
   await chrome.tabs.update(tabId, { url: page, active: true });
   if (!(await uzaWaitTabLoad(tabId))) return { ok: false, error: 'Sayfa yüklenmedi.' };
@@ -60,7 +60,7 @@ async function uzaRunDersProgramEokulUpload(opts) {
       ok: false,
       error:
         up.error === 'file_input'
-          ? 'OkulNet program sayfasında dosya alanı bulunamadı. Sayfayı elle açıp deneyin.'
+          ? 'e-Okul program sayfasında dosya alanı bulunamadı. Sayfayı elle açıp deneyin.'
           : up.error || 'Yükleme başarısız.',
     };
   }

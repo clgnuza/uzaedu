@@ -3,7 +3,7 @@ const btnRun = document.getElementById('btnRun');
 
 btnRun?.addEventListener('click', async () => {
   btnRun.disabled = true;
-  status.textContent = 'OkulNet okunuyor…';
+  status.textContent = 'e-Okul okunuyor…';
   try {
     const uyari = document.getElementById('uyari')?.value || '1';
     const includeSent = !!document.getElementById('includeSent')?.checked;
@@ -28,6 +28,6 @@ btnRun?.addEventListener('click', async () => {
 (async () => {
   const data = await chrome.storage.session.get(UZA_SESSION_GATE_KEY);
   if (!data[UZA_SESSION_GATE_KEY]) {
-    window.location.replace(chrome.runtime.getURL('gate/gate.html'));
+    window.location.replace(typeof uzaExtUrl==='function'?uzaExtUrl('gate/gate.html'):chrome.runtime.getURL('gate/gate.html'));
   }
 })();

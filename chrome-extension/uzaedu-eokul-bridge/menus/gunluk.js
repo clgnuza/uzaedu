@@ -27,7 +27,7 @@ function setStatus(text) {
 async function ensureGate() {
   const data = await chrome.storage.session.get(UZA_SESSION_GATE_KEY);
   if (!data[UZA_SESSION_GATE_KEY]) {
-    window.location.replace(chrome.runtime.getURL('gate/gate.html'));
+    window.location.replace(typeof uzaExtUrl==='function'?uzaExtUrl('gate/gate.html'):chrome.runtime.getURL('gate/gate.html'));
     return false;
   }
   return true;
@@ -36,7 +36,7 @@ async function ensureGate() {
 async function runExport(sinifValues) {
   const tarihIso = gdTarih?.value || todayIso();
   btnGdAll.disabled = true;
-  setStatus('OkulNet’ten okunuyor…');
+  setStatus('e-Okul’ten okunuyor…');
   try {
     const res = await chrome.runtime.sendMessage({
       type: UZA_MSG_DEVAMSIZLIK_EXPORT,

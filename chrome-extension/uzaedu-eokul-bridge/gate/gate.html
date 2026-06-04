@@ -3,60 +3,109 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#070b14" />
+  <meta name="theme-color" content="#2563eb" />
   <title>Uzaedu Okul Köprüsü — Bağlantı</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="gate.css" />
+  <link rel="stylesheet" href="../shared/embed.css" />
 </head>
 <body>
   <div class="shell">
-    <header class="brand">
-      <img src="../assets/icon128.png" alt="" width="52" height="52" />
-      <div>
+    <header class="topbar">
+      <img class="topbar-logo" src="../assets/icon128.png" alt="" width="48" height="48" />
+      <div class="topbar-text">
         <h1 id="gateTitle">Uzaedu Okul Köprüsü</h1>
-        <p id="gateSubtitle">Uzaedu paneli ile OkulNet, PersonelNet ve MaliNet arasında güvenli köprü</p>
+        <p id="gateSubtitle">Panel ile e-Okul arasında güvenli köprü</p>
       </div>
     </header>
 
-    <section class="card">
-      <div class="status-grid">
-        <div class="status-row">
-          <span id="lblPortal">Panel oturumu</span>
-          <span id="pillPortal" class="pill wait">Kontrol…</span>
+    <section class="school-panel" id="schoolCard" hidden>
+      <div class="school-panel-row">
+        <div class="school-panel-status" id="schoolStatusIcon" aria-hidden="true">
+          <svg class="school-status-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
         </div>
-        <div class="status-row">
-          <span id="lblEokul">OkulNet sekmesi</span>
-          <span id="pillEokul" class="pill eokul wait">Kontrol…</span>
-        </div>
-        <div class="status-row status-row--group">
-          <span class="status-row-label">Bordro kaynakları (isteğe bağlı)</span>
-          <div class="status-row" style="border: none; padding: 0.5rem 0 0; background: transparent">
-            <span id="lblMebbis">PersonelNet sekmesi</span>
-            <span id="pillMebbis" class="pill mebbis wait">—</span>
-          </div>
-          <div class="status-row" style="border: none; padding: 0.35rem 0 0; background: transparent">
-            <span id="lblKbs">MaliNet sekmesi</span>
-            <span id="pillKbs" class="pill kbs wait">—</span>
-          </div>
-        </div>
-        <div class="status-row">
-          <span>Eklenti sürümü</span>
-          <span id="pillVersion" class="pill wait">—</span>
+        <div class="school-panel-body">
+          <p class="school-panel-kicker" id="schoolCardKicker">Okul</p>
+          <h2 class="school-panel-name" id="schoolName">—</h2>
+          <p class="school-panel-meta" id="schoolMeta">—</p>
+          <p class="school-panel-msg" id="schoolAccessMsg" hidden></p>
         </div>
       </div>
-
-      <button type="button" class="btn-primary" id="btnGateRun">Bağlantıyı doğrula ve devam et</button>
-      <p class="message" id="gateMessage" role="alert"></p>
-
-      <p class="hint">
-        Önce <a href="http://localhost:3000/" target="_blank" rel="noopener">Uzaedu paneline</a> giriş yapın.
-        OkulNet için <a href="https://e-okul.meb.gov.tr/" target="_blank" rel="noopener">okul bilgi sistemi</a>;
-        puantaj/bordro için <a href="https://mebbis.meb.gov.tr/" target="_blank" rel="noopener">personel sistemi</a> ve
-        <a href="https://kbs.muhasebat.gov.tr/" target="_blank" rel="noopener">mali sistem</a> sekmelerini açık tutabilirsiniz.
-      </p>
+      <details class="code-more" id="codeFormBlock" hidden>
+        <summary>Okul kodu (isteğe bağlı)</summary>
+        <div class="code-row">
+          <input
+            id="inpBridgeCode"
+            class="code-input"
+            type="text"
+            autocomplete="off"
+            placeholder="UZA-XXXX-XXXX"
+            spellcheck="false"
+          />
+          <button type="button" class="btn-verify" id="btnVerifyCode">Doğrula</button>
+        </div>
+      </details>
     </section>
+
+    <section class="steps-card">
+      <h2 class="steps-title">Bağlantı kontrolü</h2>
+      <ul class="steps-list" id="coreStatusGrid">
+        <li class="step-item">
+          <div class="step-copy">
+            <span class="step-name">Uzaedu panel</span>
+            <span class="step-hint">Giriş yapılmış sekme</span>
+          </div>
+          <span id="pillPortal" class="chip chip--wait">…</span>
+        </li>
+        <li class="step-item">
+          <div class="step-copy">
+            <span class="step-name">e-Okul</span>
+            <span class="step-hint" id="eokulStepHint">e-Okul modülleri için</span>
+          </div>
+          <span id="pillEokul" class="chip chip--eokul chip--wait">…</span>
+        </li>
+        <li class="step-item">
+          <div class="step-copy">
+            <span class="step-name">Eklenti sürümü</span>
+          </div>
+          <span id="pillVersion" class="chip chip--wait">…</span>
+        </li>
+      </ul>
+
+      <details class="steps-more">
+        <summary>Bordro sekmeleri (isteğe bağlı)</summary>
+        <ul class="steps-list steps-list--nested">
+          <li class="step-item">
+            <div class="step-copy">
+              <span class="step-name">MEBBİS</span>
+            </div>
+            <span id="pillMebbis" class="chip chip--mebbis chip--wait">—</span>
+          </li>
+          <li class="step-item">
+            <div class="step-copy">
+              <span class="step-name">KBS</span>
+            </div>
+            <span id="pillKbs" class="chip chip--kbs chip--wait">—</span>
+          </li>
+        </ul>
+      </details>
+
+      <details class="steps-more">
+        <summary>Oturum açık tut</summary>
+        <div class="oturum-grid" id="oturumStatusGrid"></div>
+      </details>
+    </section>
+
+    <footer class="gate-footer">
+      <button type="button" class="btn-continue" id="btnGateRun">Devam et</button>
+      <p class="gate-alert" id="gateMessage" role="alert" hidden></p>
+      <p class="gate-footnote">
+        <a href="http://localhost:3000/" target="_blank" rel="noopener">Panelde oturum</a>
+        ·
+        <a href="http://localhost:3000/market?module=okul_koprusu" target="_blank" rel="noopener">Market</a>
+      </p>
+    </footer>
   </div>
 
   <div class="overlay" id="gateOverlay" hidden>
@@ -64,6 +113,9 @@
   </div>
 
   <script src="../shared/brand-names.js"></script>
+  <script src="../shared/embed.js"></script>
+  <script src="../shared/icons.js"></script>
+  <script src="../shared/notify.js"></script>
   <script src="../shared/messaging.js"></script>
   <script src="gate.js"></script>
 </body>

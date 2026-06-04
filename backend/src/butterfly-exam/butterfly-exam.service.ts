@@ -1284,6 +1284,82 @@ export class ButterflyExamService {
     return { created, skipped, classGroups: results.map((r) => ({ className: r.className, classId: r.classId, count: r.students.length })) };
   }
 
+  async importKelebekFromEokulPayload(
+    schoolId: string,
+    body: {
+      siniflar: {
+        sinif_adi: string;
+        ogrenciler: { ogrenci_no: string; ad: string; soyad: string; cinsiyet?: string }[];
+      }[];
+      create_missing_classes?: boolean;
+    },
+  ) {
+    const createMissing = body.create_missing_classes !== false;
+    const classes = await this.classRepo.find({ where: { schoolId } });
+    const byName = new Map(
+      classes.map((c) => [String(c.name || '').trim().toLocaleLowerCase('tr-TR'), c]),
+    );
+    let classesCreated = 0;
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const sinif of body.siniflar) {
+      const sinifAdi = String(sinif.sinif_adi || '').trim();
+      if (!sinifAdi) continue;
+      const key = sinifAdi.toLocaleLowerCase('tr-TR');
+      let cls = byName.get(key);
+      if (!cls && createMissing) {
+        cls = await this.classRepo.save(
+          this.classRepo.create({ schoolId, name: sinifAdi, grade: null, section: null, ownerUserId: null }),
+        );
+        byName.set(key, cls);
+        classesCreated++;
+      }
+      if (!cls) {
+        skipped += sinif.ogrenciler?.length ?? 0;
+        continue;
+      }
+
+      for (const ogr of sinif.ogrenciler || []) {
+        const no = String(ogr.ogrenci_no || '').trim();
+        const adSoyad = [ogr.ad, ogr.soyad].filter(Boolean).join(' ').trim();
+        if (!adSoyad && !no) {
+          skipped++;
+          continue;
+        }
+        const name = adSoyad || no;
+        let st = no
+          ? await this.studentRepo.findOne({ where: { schoolId, studentNumber: no } })
+          : null;
+        if (st) {
+          st.name = name;
+          st.firstName = ogr.ad?.trim() || st.firstName;
+          st.lastName = ogr.soyad?.trim() || st.lastName;
+          st.classId = cls.id;
+          if (ogr.cinsiyet) st.gender = ogr.cinsiyet.trim();
+          await this.studentRepo.save(st);
+          updated++;
+        } else {
+          await this.studentRepo.save(
+            this.studentRepo.create({
+              schoolId,
+              classId: cls.id,
+              name,
+              studentNumber: no || null,
+              firstName: ogr.ad?.trim() || null,
+              lastName: ogr.soyad?.trim() || null,
+              gender: ogr.cinsiyet?.trim() || null,
+            }),
+          );
+          created++;
+        }
+      }
+    }
+
+    return { success: true, created, updated, skipped, classesCreated, totalClasses: body.siniflar.length };
+  }
+
   async getSchoolOverviewStats(schoolId: string) {
     // «Sınav salonları» sanal binası, her şube için otomatik oluşan koltuk havuzudur.
     // Anasayfa kartlarında fiziksel salon ve koltuk sayısını yansıtmak için bu binadaki

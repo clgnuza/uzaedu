@@ -41,7 +41,7 @@ async function uzaNavigateStudentDetail(profile, ogrNo, state) {
     state.ogr01001Html = await g.text();
     if (uzaLooksLikeLoginPage(state.ogr01001Html)) return { ok: false, error: 'login' };
   }
-  const built = uzaBuildOgr01001Search(state.ogr01001Html, ogrNo, profile);
+  const built = await uzaBuildOgr01001Search(state.ogr01001Html, ogrNo, profile);
   if (!built.ok) return { ok: false, error: 'arama' };
   const searchRes = await uzaHtmlSessionFetch(built.postUrl, {
     method: 'POST',

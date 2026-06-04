@@ -18,6 +18,7 @@ export const SCHOOL_MODULE_KEYS = [
   'messaging',
   'dogrudan_temin',
   'ders_dagit',
+  'okul_koprusu',
 ] as const;
 
 export type SchoolModuleKey = (typeof SCHOOL_MODULE_KEYS)[number];
@@ -39,6 +40,7 @@ export const SCHOOL_MODULE_LABELS: Record<SchoolModuleKey, string> = {
   messaging: 'Mesaj Gönderme Merkezi',
   dogrudan_temin: 'Doğrudan Temin',
   ders_dagit: 'DersDağıt',
+  okul_koprusu: 'E-Okul Köprüsü',
 };
 
 /** Market sayfası: modül hücresi için kısa bağlam (hover) */
@@ -60,6 +62,8 @@ export const SCHOOL_MODULE_MARKET_HINTS: Record<SchoolModuleKey, string> = {
   dogrudan_temin: 'Okul satın alma: doğrudan temin dosyaları, teklif/karar ve rapor/çıktılar.',
   ders_dagit:
     'DersDağıt: kural motoru, gruplar/bölümler, otomatik üretim; mevcut ders programına yayın.',
+  okul_koprusu:
+    'Chrome eklentisi: e-Okul ile panel köprüsü; okula özel aktivasyon kodu (ücretsiz veya ücretli paket).',
 };
 
 export const SCHOOL_MODULE_OPTIONS = SCHOOL_MODULE_KEYS.map((key) => ({
