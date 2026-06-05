@@ -2036,6 +2036,17 @@ html.pwa-app .min-h-full {
   }
 }
 
+/* Ana sayfa — dar ekran: modül grid satır yüksekliği içerik kadar */
+@media (max-width: 1023px) {
+  .landing-features-grid {
+    grid-auto-rows: auto;
+  }
+  .landing-feature-hub-wrap {
+    min-height: 0;
+    height: auto;
+  }
+}
+
 /* Ana sayfa — PWA / dar mobil: seal yukarı, kart halkası içerik kadar */
 @media (max-width: 639px) {
   html.pwa-app .landing-hero-section {
