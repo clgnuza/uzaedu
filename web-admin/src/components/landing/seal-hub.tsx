@@ -439,7 +439,10 @@ export function SealHub() {
   return (
     <div className="w-full min-w-0 max-w-[100vw]">
       {/* Yuvarlak logo + çevrede simgeler — tüm ekranlar */}
-      <div ref={hubRef} className="relative isolate mx-auto aspect-square w-full min-h-0 max-w-[min(94vw,440px)] sm:max-w-[min(92vw,500px)] md:max-w-[min(90vw,540px)] lg:max-w-[min(88vw,620px)] xl:max-w-[min(84vw,700px)]">
+      <div
+        ref={hubRef}
+        className="landing-seal-hub relative isolate mx-auto aspect-square w-full min-h-0 max-w-[min(88vw,400px)] sm:max-w-[min(92vw,500px)] md:max-w-[min(90vw,540px)] lg:max-w-[min(88vw,620px)] xl:max-w-[min(84vw,700px)]"
+      >
         {/* Ambient bloom */}
         <div
           className="pointer-events-none absolute inset-0 rounded-full"

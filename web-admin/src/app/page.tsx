@@ -102,16 +102,16 @@ export default function HomePage() {
       {/* ── Main ── */}
       <main className="relative z-10 mx-auto flex w-full min-w-0 flex-col items-center">
         <section
-          className="flex w-full min-h-[min(100dvh,920px)] flex-col items-center justify-center px-2 pb-4 pt-1 sm:min-h-dvh sm:px-4 sm:pb-7 sm:pt-2 md:px-6 lg:px-8"
+          className="landing-hero-section flex w-full min-h-0 flex-col items-center justify-start px-2 pb-3 pt-0 sm:min-h-[min(100dvh,920px)] sm:justify-center sm:px-4 sm:pb-7 sm:pt-2 md:px-6 lg:px-8 lg:min-h-dvh"
           style={{ animation: 'landing-fadein 0.7s ease 0.1s both' }}
         >
-        <div className="flex w-full min-w-0 flex-col items-center justify-center gap-0">
+        <div className="flex w-full min-w-0 flex-col items-center justify-start gap-0 sm:justify-center">
           <SealHubClient />
         </div>
 
         {/* ── Bottom CTA strip ── */}
         <div
-          className="mt-3 flex w-full max-w-xl flex-col items-center gap-2 px-2 sm:mt-10 sm:max-w-2xl sm:gap-4 sm:px-0 md:gap-5"
+          className="mt-2 flex w-full max-w-xl flex-col items-center gap-2 px-2 sm:mt-10 sm:max-w-2xl sm:gap-4 sm:px-0 md:gap-5"
           style={{ animation: 'landing-fadein 0.7s ease 0.25s both' }}
         >
           <div className="flex w-full min-w-0 items-center gap-2 px-1 sm:gap-4">

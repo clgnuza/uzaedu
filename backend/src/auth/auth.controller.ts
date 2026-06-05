@@ -40,6 +40,7 @@ import {
   WebauthnLoginOptionsDto,
   WebauthnLoginVerifyDto,
   WebauthnRegisterVerifyDto,
+  WebauthnRenameCredentialDto,
 } from './dto/webauthn-login.dto';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 
@@ -381,6 +382,17 @@ export class AuthController {
   async webauthnDeleteCredential(@CurrentUser() user: User, @Param('id') id: string) {
     await this.webauthnService.deleteCredential(user.id, id);
     return { ok: true };
+  }
+
+  @Post('webauthn/credentials/:id/rename')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async webauthnRenameCredential(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Body() dto: WebauthnRenameCredentialDto,
+  ) {
+    return this.webauthnService.renameCredential(user.id, id, dto.name);
   }
 
   @Post('webauthn/login/options')

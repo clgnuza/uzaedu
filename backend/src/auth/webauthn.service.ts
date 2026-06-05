@@ -115,7 +115,7 @@ export class WebauthnService {
   async hasCredentials(email: string, portal: AuthPortal): Promise<{ available: boolean; count: number }> {
     if (!this.isConfigured()) return { available: false, count: 0 };
     const user = await this.findActiveUser(email);
-    if (!user) return { available: false, count: 0 };
+    if (!user || user.passkeyLoginEnabled === false) return { available: false, count: 0 };
     try {
       this.assertPortal(user, portal);
     } catch {
@@ -144,6 +144,18 @@ export class WebauthnService {
     const row = await this.credRepo.findOne({ where: { id: credId, user_id: userId } });
     if (!row) throw new BadRequestException({ code: 'NOT_FOUND', message: 'Kayıt bulunamadı.' });
     await this.credRepo.remove(row);
+  }
+
+  async renameCredential(userId: string, credId: string, name: string): Promise<{ ok: true }> {
+    const trimmed = name.trim().slice(0, 120);
+    if (!trimmed) {
+      throw new BadRequestException({ code: 'INVALID_INPUT', message: 'Cihaz adı gerekli.' });
+    }
+    const row = await this.credRepo.findOne({ where: { id: credId, user_id: userId } });
+    if (!row) throw new BadRequestException({ code: 'NOT_FOUND', message: 'Kayıt bulunamadı.' });
+    row.name = trimmed;
+    await this.credRepo.save(row);
+    return { ok: true };
   }
 
   async registrationOptions(userId: string, origin: string) {
@@ -216,6 +228,12 @@ export class WebauthnService {
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Kayıtlı biyometrik giriş bulunamadı.' });
     }
     this.assertPortal(user, portal);
+    if (user.passkeyLoginEnabled === false) {
+      throw new BadRequestException({
+        code: 'PASSKEY_DISABLED',
+        message: 'Biyometrik giriş hesabınızda kapalı. Profil → Güvenlik bölümünden açın.',
+      });
+    }
 
     const creds = await this.credRepo.find({ where: { user_id: user.id } });
     if (creds.length === 0) {
@@ -248,6 +266,12 @@ export class WebauthnService {
     const user = await this.findActiveUser(email);
     if (!user) throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Oturum açılamadı.' });
     this.assertPortal(user, portal);
+    if (user.passkeyLoginEnabled === false) {
+      throw new BadRequestException({
+        code: 'PASSKEY_DISABLED',
+        message: 'Biyometrik giriş hesabınızda kapalı.',
+      });
+    }
 
     const expectedChallenge = await this.takeChallenge(user.id);
     const cred = await this.credRepo.findOne({

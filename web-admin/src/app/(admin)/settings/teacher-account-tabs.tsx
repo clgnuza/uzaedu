@@ -468,7 +468,12 @@ export function TeacherAccountTabs() {
               initialRequired={me?.login_otp_required !== false}
               onSaved={() => void refetchMe()}
             />
-            <PasskeyPreference token={token} portal="teacher" />
+            <PasskeyPreference
+              token={token}
+              portal="teacher"
+              enabled={me?.passkey_login_enabled !== false}
+              onEnabledChange={() => void refetchMe()}
+            />
 
             {/* Hesap kapatma */}
             <section className="space-y-1.5 rounded-lg border border-border/60 bg-linear-to-br from-muted/20 via-muted/10 to-muted/20 p-2.5 transition-all duration-300 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/20 dark:to-zinc-800/40 sm:space-y-2 sm:rounded-xl sm:p-4">

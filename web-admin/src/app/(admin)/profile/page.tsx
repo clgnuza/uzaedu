@@ -9,6 +9,7 @@ import { DataExportButton, DeleteAccountButton } from '@/components/account/data
 import { BackupExportPanel } from '@/components/account/backup-export-panel';
 import { EditProfileForm, ChangePasswordForm } from '@/components/account/profile-account-forms';
 import { LoginOtpPreference } from '@/components/account/login-otp-preference';
+import { PasskeyPreference } from '@/components/account/passkey-preference';
 import { ProfileSidebar } from './components/profile-sidebar';
 import { TeacherAccountTabs } from '../settings/teacher-account-tabs';
 import { SchoolAdminAccountTabs } from '../settings/school-admin-account-tabs';
@@ -93,12 +94,20 @@ export default function ProfilePage() {
               </div>
 
               {me.role === 'moderator' && (
-                <LoginOtpPreference
-                  token={token}
-                  initialRequired={me.login_otp_required !== false}
-                  onSaved={() => void refetchMe()}
-                  className="border-sky-500/20 bg-linear-to-br from-sky-500/5 to-transparent"
-                />
+                <>
+                  <LoginOtpPreference
+                    token={token}
+                    initialRequired={me.login_otp_required !== false}
+                    onSaved={() => void refetchMe()}
+                    className="border-sky-500/20 bg-linear-to-br from-sky-500/5 to-transparent"
+                  />
+                  <PasskeyPreference
+                    token={token}
+                    portal="teacher"
+                    enabled={me.passkey_login_enabled !== false}
+                    onEnabledChange={() => void refetchMe()}
+                  />
+                </>
               )}
 
               <Card className="overflow-hidden rounded-xl border-2 border-border/70 bg-card shadow-md ring-1 ring-black/4 dark:border-border/80 dark:ring-white/6 sm:rounded-2xl">

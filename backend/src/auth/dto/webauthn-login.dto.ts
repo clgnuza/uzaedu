@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsIn, IsObject, IsOptional } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class WebauthnLoginOptionsDto {
   @IsEmail()
@@ -23,4 +23,11 @@ export class WebauthnRegisterVerifyDto {
 
   @IsOptional()
   name?: string;
+}
+
+export class WebauthnRenameCredentialDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  name: string;
 }

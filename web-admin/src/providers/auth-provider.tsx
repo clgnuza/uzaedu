@@ -103,6 +103,7 @@ export type Me = {
   email_verified?: boolean;
   /** E-posta+şifre girişinde OTP (varsayılan true) */
   login_otp_required?: boolean;
+  passkey_login_enabled?: boolean;
   /** Nöbet günü gelen kutusu hatırlatması (TSİ) */
   duty_reminder_enabled?: boolean;
   duty_reminder_time_tr?: string;

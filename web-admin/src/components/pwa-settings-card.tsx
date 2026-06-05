@@ -30,30 +30,32 @@ export function PwaSettingsCard({ className }: { className?: string }) {
   return (
     <section
       className={cn(
-        'rounded-xl border border-border/60 bg-muted/15 p-3 sm:p-4',
+        'overflow-hidden rounded-2xl border border-red-500/20 bg-linear-to-br from-zinc-950/90 via-card/80 to-red-950/10 p-3 sm:p-4',
         className,
       )}
     >
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <Smartphone className="size-4 text-teal-600" />
-        <h3 className="text-sm font-semibold">PWA uygulama</h3>
+        <span className="flex size-9 items-center justify-center rounded-xl bg-linear-to-br from-red-700 to-red-900 text-white">
+          <Smartphone className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-bold tracking-tight">PWA uygulama</h3>
+          <p className="text-[11px] text-muted-foreground">Ana ekran · tam ekran · paylaşım</p>
+        </div>
         <PwaOfflineQueueBadge />
         {installed ? (
-          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
             Kurulu
           </span>
         ) : null}
       </div>
-      <p className="mb-3 text-xs text-muted-foreground leading-relaxed">
-        Ana ekrandan tam ekran açılır; paylaşım menüsünden dosya/metin gönderebilirsiniz.
-      </p>
       {!installed ? (
         <div className="flex flex-wrap gap-2">
           {canInstall ? (
             <Button
               type="button"
               size="sm"
-              className="h-8 gap-1"
+              className="h-8 gap-1 bg-red-700 hover:bg-red-600"
               onClick={() => {
                 void promptInstall().then(() => markPwaOnboardingPending());
                 trackPwaEvent('pwa_install_prompt', { source: 'settings' });
@@ -64,11 +66,11 @@ export function PwaSettingsCard({ className }: { className?: string }) {
             </Button>
           ) : null}
           {ios ? (
-            <p className="text-[10px] text-muted-foreground">Safari → Paylaş → Ana Ekrana Ekle</p>
+            <p className="w-full text-[10px] text-muted-foreground">Safari → Paylaş → Ana Ekrana Ekle</p>
           ) : null}
           <Link
             href="/uygulama"
-            className="inline-flex h-8 items-center gap-1 rounded-md border border-border/60 px-2.5 text-[11px] font-medium text-foreground hover:bg-muted/40"
+            className="inline-flex h-8 items-center gap-1 rounded-lg border border-red-800/30 px-2.5 text-[11px] font-medium text-foreground hover:bg-red-950/20"
           >
             <ExternalLink className="size-3" />
             Kurulum rehberi

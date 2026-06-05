@@ -5,21 +5,23 @@ import {
   PWA_ICON_512,
   PWA_MASKABLE_ICON,
   PWA_SCREENSHOTS,
-  UZAEDU_APP_ICON_SVG,
+  PWA_SEAL_CENTER_LOGO,
+  UZAEDU_APP_ICON_PNG,
 } from '@/lib/pwa-assets';
 import { PWA_FILE_HANDLERS, PWA_LAUNCH_HANDLER, PWA_SHARE_TARGET } from '@/lib/pwa-manifest-extras';
 
 const ICONS: MetadataRoute.Manifest['icons'] = [
   { src: PWA_ICON_512, sizes: '512x512', type: 'image/png', purpose: 'any' },
   { src: PWA_ICON_192, sizes: '192x192', type: 'image/png', purpose: 'any' },
-  { src: UZAEDU_APP_ICON_SVG, sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+  { src: PWA_SEAL_CENTER_LOGO, sizes: '1024x1024', type: 'image/png', purpose: 'any' },
+  { src: UZAEDU_APP_ICON_PNG, sizes: '1024x1024', type: 'image/png', purpose: 'any' },
   { src: PWA_MASKABLE_ICON, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
 ];
 
 export default async function manifest(): Promise<MetadataRoute.Manifest> {
   const extras = await fetchWebExtrasPublic();
   const shortName = extras?.pwa_short_name?.trim() || 'Öğretmen';
-  const theme = extras?.theme_color?.trim() || '#0d9488';
+  const theme = extras?.theme_color?.trim() || '#991b1b';
 
   return {
     id: '/',
@@ -31,7 +33,7 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     display: 'standalone',
     display_override: ['fullscreen', 'standalone', 'minimal-ui', 'browser'],
     prefer_related_applications: false,
-    background_color: '#042f2e',
+    background_color: '#050505',
     theme_color: theme,
     lang: 'tr',
     orientation: 'any',

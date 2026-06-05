@@ -29,8 +29,6 @@ import {
 } from '@/lib/notification-push-prefs';
 import { isIosSafari } from '@/lib/pwa-display';
 import { PwaOfflineQueueBadge } from '@/components/pwa-offline-queue-badge';
-import { PwaSettingsCard } from '@/components/pwa-settings-card';
-
 type ChannelDef = { id: string; label: string };
 type Pref = { channel: string; push_enabled: boolean; critical?: boolean };
 
@@ -288,7 +286,6 @@ export function NotificationPushSettings() {
 
   return (
     <>
-      <PwaSettingsCard className="mb-2" />
       <section className="mb-3 overflow-hidden rounded-xl border border-teal-500/20 bg-card/80 shadow-sm">
         <div className="flex items-center gap-2 px-2.5 py-2 sm:px-3">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-teal-600 to-cyan-600 text-white">

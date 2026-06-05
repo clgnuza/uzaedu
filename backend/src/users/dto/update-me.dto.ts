@@ -160,6 +160,11 @@ export class UpdateMeDto {
   @IsBoolean()
   login_otp_required?: boolean;
 
+  /** WebAuthn / biyometrik giriş (öğretmen / okul yöneticisi / süperadmin / moderatör) */
+  @IsOptional()
+  @IsBoolean()
+  passkey_login_enabled?: boolean;
+
   /** Hazır profil görseli (null = sıfırla) */
   @IsOptional()
   @Transform(({ value }) => {

@@ -479,6 +479,18 @@ export class UsersService {
       }
       user.loginOtpRequired = dto.login_otp_required;
     }
+    if (dto.passkey_login_enabled !== undefined) {
+      const allowed = [UserRole.teacher, UserRole.school_admin, UserRole.superadmin, UserRole.moderator].includes(
+        user.role as UserRole,
+      );
+      if (!allowed) {
+        throw new ForbiddenException({
+          code: 'FORBIDDEN',
+          message: 'Biyometrik giriş ayarı bu hesap türü için kullanılamaz.',
+        });
+      }
+      user.passkeyLoginEnabled = dto.passkey_login_enabled;
+    }
     if (dto.teacher_branch !== undefined) {
       const b = dto.teacher_branch?.trim() || null;
       if (b?.includes('\0')) {

@@ -105,3 +105,19 @@ export async function listPasskeys(token: string): Promise<PasskeyCredentialRow[
 export async function deletePasskey(token: string, id: string): Promise<void> {
   await apiFetch(`/auth/webauthn/credentials/${id}/delete`, { method: 'POST', token });
 }
+
+export async function renamePasskey(token: string, id: string, name: string): Promise<void> {
+  await apiFetch(`/auth/webauthn/credentials/${id}/rename`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ name: name.trim() }),
+  });
+}
+
+export async function updatePasskeyLoginEnabled(token: string, enabled: boolean): Promise<void> {
+  await apiFetch('/me', {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify({ passkey_login_enabled: enabled }),
+  });
+}

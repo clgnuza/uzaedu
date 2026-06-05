@@ -41,40 +41,40 @@ const FEATURES = [
 ] as const;
 
 function PlatformTabIcon({ id }: { id: PwaInstallPlatformId }) {
-  if (id.startsWith('ios')) return <Smartphone className="size-4 text-zinc-200" />;
-  if (id.startsWith('android')) return <Smartphone className="size-4 text-emerald-400" />;
-  return <Monitor className="size-4 text-sky-400" />;
+  if (id.startsWith('ios')) return <Smartphone className="size-4 text-red-200" />;
+  if (id.startsWith('android')) return <Smartphone className="size-4 text-red-400" />;
+  return <Monitor className="size-4 text-zinc-300" />;
 }
 
 function GuideSteps({ guide, highlighted }: { guide: PwaInstallGuide; highlighted: boolean }) {
   return (
-    <ol className="space-y-2">
+    <ol className="mx-auto flex w-full max-w-lg flex-col gap-2.5">
       {guide.steps.map((step, i) => (
         <li
           key={step.title}
           className={cn(
-            'flex gap-3 rounded-xl border px-3.5 py-3 transition',
+            'flex items-start gap-3 rounded-2xl border px-4 py-3.5 transition',
             highlighted
-              ? 'border-teal-500/25 bg-teal-950/30'
-              : 'border-white/6 bg-zinc-900/50',
+              ? 'border-red-500/30 bg-red-950/25 shadow-[0_0_24px_-8px_rgba(220,38,38,0.35)]'
+              : 'border-white/8 bg-zinc-900/55',
           )}
         >
           <span
             className={cn(
-              'flex size-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold',
-              highlighted ? 'bg-teal-500 text-white' : 'bg-zinc-800 text-zinc-400',
+              'flex size-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold tabular-nums',
+              highlighted ? 'bg-red-600 text-white shadow-md shadow-red-950/50' : 'bg-zinc-800 text-zinc-400',
             )}
           >
             {i + 1}
           </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-zinc-100">{step.title}</p>
+          <div className="min-w-0 flex-1 text-left">
+            <p className="text-sm font-semibold leading-snug text-zinc-50">{step.title}</p>
             {step.detail ? (
-              <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">{step.detail}</p>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-400">{step.detail}</p>
             ) : null}
           </div>
           {i < guide.steps.length - 1 ? (
-            <ChevronRight className="mt-1 size-4 shrink-0 text-zinc-700" aria-hidden />
+            <ChevronRight className="mt-1.5 size-4 shrink-0 text-zinc-700" aria-hidden />
           ) : null}
         </li>
       ))}
@@ -117,110 +117,128 @@ export function PwaInstallLanding({ variant = 'page' }: { variant?: 'page' | 'em
     <div
       className={cn(
         'w-full',
-        variant === 'page' && 'relative mx-auto max-w-2xl px-4 pb-10 pt-2 sm:px-6 sm:pb-14 sm:pt-4',
+        variant === 'page' && 'relative mx-auto max-w-xl px-4 pb-10 pt-1 sm:max-w-2xl sm:px-6 sm:pb-14 sm:pt-3',
       )}
     >
       {variant === 'page' ? (
-        <Link
-          href="/"
-          className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-zinc-900/60 px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:border-white/20 hover:text-zinc-200"
-        >
-          <ArrowLeft className="size-3.5" />
-          Anasayfa
-        </Link>
+        <div className="mb-6 flex justify-center sm:justify-start">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-zinc-900/70 px-3.5 py-1.5 text-xs font-medium text-zinc-400 transition hover:border-red-500/25 hover:text-zinc-200"
+          >
+            <ArrowLeft className="size-3.5" />
+            Anasayfa
+          </Link>
+        </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/80 shadow-2xl shadow-black/40 backdrop-blur-sm">
-        <div className="border-b border-white/8 bg-linear-to-br from-teal-600/20 via-zinc-950 to-zinc-950 px-5 py-6 sm:px-8 sm:py-8">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-8">
-            <div className="relative mx-auto shrink-0 sm:mx-0">
-              <div className="absolute -inset-4 rounded-3xl bg-teal-500/25 blur-2xl" aria-hidden />
-              <UzaeduAppIcon size={96} className="relative" />
+      <div className="overflow-hidden rounded-3xl border border-red-900/35 bg-zinc-950/90 shadow-2xl shadow-black/50 backdrop-blur-sm">
+        <div className="relative border-b border-white/8 px-5 py-8 sm:px-10 sm:py-10">
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(ellipse_80%_100%_at_50%_0%,rgba(185,28,28,0.28),transparent)]"
+            aria-hidden
+          />
+
+          <div className="relative flex flex-col items-center text-center">
+            <div className="relative">
+              <div
+                className="absolute -inset-5 rounded-full bg-red-600/25 blur-2xl sm:-inset-6"
+                aria-hidden
+              />
+              <UzaeduAppIcon size={108} className="relative" />
             </div>
-            <div className="min-w-0 flex-1 text-center sm:text-left">
-              <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-                Uygulamayı yükle
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                Uzaedu Öğretmen&apos;i ana ekrana ekleyin; tam ekran, bildirim ve hızlı erişim.
+
+            <p className="mt-4 text-[10px] font-bold uppercase tracking-[0.32em] text-red-400/90">
+              Uzaedu Öğretmen
+            </p>
+            <h1 className="mt-2 text-[clamp(1.65rem,5.5vw,2.35rem)] font-bold leading-[1.1] tracking-tight text-white">
+              Uygulamayı yükle
+            </h1>
+            <p className="mx-auto mt-3 max-w-md text-[15px] leading-relaxed text-zinc-400">
+              Ana ekrana ekleyin — tam ekran, bildirim ve hızlı modül erişimi.
+            </p>
+
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              {installed ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3.5 py-1.5 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/30">
+                  <Check className="size-3.5" />
+                  Bu cihazda kurulu
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-zinc-900/80 px-3.5 py-1.5 text-xs font-medium text-zinc-300">
+                  <Globe className="size-3.5 text-red-400" />
+                  {detectedGuide.label} · {detectedGuide.browserLabel}
+                </span>
+              )}
+            </div>
+
+            {!installed && canInstall ? (
+              <Button
+                type="button"
+                size="lg"
+                className="mt-5 h-12 min-w-[min(100%,240px)] gap-2 rounded-2xl bg-linear-to-r from-red-700 to-red-800 px-8 text-sm font-semibold shadow-lg shadow-red-950/45 hover:from-red-600 hover:to-red-700"
+                onClick={runInstall}
+              >
+                <Download className="size-4" />
+                Şimdi yükle
+              </Button>
+            ) : null}
+
+            {!installed && iosHint && !canInstall ? (
+              <p className="mt-4 max-w-md rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-left text-xs leading-relaxed text-amber-100/90">
+                iPhone: Safari ile açın → Paylaş → Ana Ekrana Ekle (iOS 16.4+).
               </p>
-              <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-                {installed ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/30">
-                    <Check className="size-3.5" />
-                    Bu cihazda kurulu
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-800/80 px-3 py-1 text-xs font-medium text-zinc-300 ring-1 ring-white/10">
-                    <Globe className="size-3.5 text-teal-400" />
-                    {detectedGuide.label} · {detectedGuide.browserLabel}
-                  </span>
-                )}
-              </div>
-              {!installed && canInstall ? (
-                <Button
-                  type="button"
-                  size="lg"
-                  className="mt-4 h-11 w-full gap-2 bg-teal-600 text-sm font-semibold hover:bg-teal-500 sm:w-auto sm:min-w-[200px]"
-                  onClick={runInstall}
-                >
-                  <Download className="size-4" />
-                  Şimdi yükle
-                </Button>
-              ) : null}
-              {!installed && iosHint && !canInstall ? (
-                <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-left text-[11px] leading-snug text-amber-100/90">
-                  iPhone: Safari ile açın → Paylaş → Ana Ekrana Ekle (iOS 16.4+).
-                </p>
-              ) : null}
-              {!installed && !canInstall && isFirefoxBrowser() ? (
-                <p className="mt-3 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-left text-[11px] leading-snug text-orange-100/95">
-                  Firefox: “Şimdi yükle” yok — Labs’ta görev çubuğu özelliğini açın, adres çubuğundaki
-                  ekle simgesini kullanın (yalnızca Windows, FF 143+). Tam deneyim için Chrome veya Edge.
-                </p>
-              ) : null}
-            </div>
+            ) : null}
+            {!installed && !canInstall && isFirefoxBrowser() ? (
+              <p className="mt-4 max-w-md rounded-2xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-left text-xs leading-relaxed text-orange-100/95">
+                Firefox: “Şimdi yükle” yok — Labs’ta görev çubuğu özelliğini açın, adres çubuğundaki ekle
+                simgesini kullanın (yalnızca Windows, FF 143+). Tam deneyim için Chrome veya Edge.
+              </p>
+            ) : null}
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-px bg-white/5 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 sm:gap-2.5 sm:p-4">
           {FEATURES.map((f) => (
             <div
               key={f.label}
-              className="flex flex-col items-center gap-1 bg-zinc-950/90 px-3 py-3 text-center"
+              className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-white/6 bg-zinc-900/50 px-2 py-3.5 text-center sm:py-4"
             >
-              <f.icon className="size-4 text-teal-400" aria-hidden />
-              <span className="text-[11px] font-semibold text-zinc-200">{f.label}</span>
-              <span className="text-[10px] text-zinc-500">{f.desc}</span>
+              <span className="flex size-9 items-center justify-center rounded-xl bg-red-950/60 ring-1 ring-red-800/40">
+                <f.icon className="size-4 text-red-400" aria-hidden />
+              </span>
+              <span className="text-[11px] font-semibold text-zinc-100">{f.label}</span>
+              <span className="text-[10px] leading-snug text-zinc-500">{f.desc}</span>
             </div>
           ))}
         </div>
       </div>
 
-      <section className="mt-6">
-        <div className="mb-3 flex items-center gap-2">
-          <LayoutGrid className="size-4 text-teal-500" aria-hidden />
-          <h2 className="text-sm font-bold text-white">Kurulum adımları</h2>
+      <section className="mt-8 text-center">
+        <div className="mb-4 flex flex-col items-center gap-1.5">
+          <span className="flex size-9 items-center justify-center rounded-xl border border-red-900/45 bg-zinc-950/80 text-red-400">
+            <LayoutGrid className="size-4" aria-hidden />
+          </span>
+          <h2 className="text-base font-bold tracking-tight text-white sm:text-lg">Kurulum adımları</h2>
+          <p className="max-w-sm text-xs text-zinc-500">Cihazınıza göre rehberi seçin</p>
         </div>
 
-        <div className="mb-4 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="mx-auto mb-5 flex max-w-lg justify-center gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {PWA_INSTALL_GUIDE_LIST.map((g) => (
             <button
               key={g.id}
               type="button"
               onClick={() => setSelected(g.id)}
               className={cn(
-                'flex shrink-0 flex-col items-start gap-0.5 rounded-xl border px-3 py-2 text-left transition',
+                'flex shrink-0 flex-col items-center gap-1 rounded-2xl border px-3.5 py-2.5 text-center transition min-w-[5.5rem]',
                 selected === g.id
-                  ? 'border-teal-500/50 bg-teal-500/10 ring-1 ring-teal-500/20'
+                  ? 'border-red-500/45 bg-red-500/10 ring-1 ring-red-500/25'
                   : 'border-zinc-800 bg-zinc-950/90 hover:border-zinc-700',
               )}
             >
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-zinc-100">
-                <PlatformTabIcon id={g.id} />
-                {g.label}
-              </span>
-              <span className="text-[10px] text-zinc-500">{g.browserLabel}</span>
+              <PlatformTabIcon id={g.id} />
+              <span className="text-[11px] font-semibold text-zinc-100">{g.label}</span>
+              <span className="text-[9px] text-zinc-500">{g.browserLabel}</span>
             </button>
           ))}
         </div>
@@ -228,28 +246,28 @@ export function PwaInstallLanding({ variant = 'page' }: { variant?: 'page' | 'em
         <GuideSteps guide={activeGuide} highlighted={stepsHighlighted} />
 
         {selected !== platform && platform !== 'unknown' ? (
-          <p className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-100/90">
+          <p className="mx-auto mt-4 flex max-w-lg items-start gap-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left text-xs text-amber-100/90">
             <Shield className="mt-0.5 size-4 shrink-0" aria-hidden />
-            Bu cihaz: <strong className="font-semibold">{detectedGuide.browserLabel}</strong> — otomatik
-            seçim için ilk sekmeye dönün veya adımları takip edin.
+            Bu cihaz: <strong className="font-semibold">{detectedGuide.browserLabel}</strong> — otomatik seçim
+            için ilk sekmeye dönün veya adımları takip edin.
           </p>
         ) : null}
       </section>
 
-      <div className="mt-8 flex flex-col gap-2 rounded-xl border border-white/8 bg-zinc-900/40 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-zinc-400">
+      <div className="mx-auto mt-8 flex max-w-lg flex-col items-center gap-4 rounded-2xl border border-white/8 bg-zinc-900/45 px-5 py-5 text-center sm:flex-row sm:justify-between sm:text-left">
+        <p className="text-sm leading-relaxed text-zinc-400">
           Kurulumdan sonra giriş yapın; push bildirimlerini panelden açın.
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex shrink-0 flex-wrap justify-center gap-2">
           <Link
             href="/login"
-            className="inline-flex h-9 items-center justify-center rounded-lg bg-white px-4 text-xs font-semibold text-zinc-900 transition hover:bg-zinc-200"
+            className="inline-flex h-10 items-center justify-center rounded-xl bg-white px-5 text-xs font-semibold text-zinc-900 transition hover:bg-zinc-200"
           >
             Giriş yap
           </Link>
           <Link
             href="/bildirimler"
-            className="inline-flex h-9 items-center justify-center rounded-lg border border-white/15 px-4 text-xs font-medium text-zinc-200 transition hover:bg-white/5"
+            className="inline-flex h-10 items-center justify-center rounded-xl border border-white/15 px-5 text-xs font-medium text-zinc-200 transition hover:bg-white/5"
           >
             Bildirim ayarları
           </Link>

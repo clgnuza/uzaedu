@@ -232,7 +232,12 @@ export function SuperadminAccountTabs() {
                 initialRequired={me.login_otp_required !== false}
                 onSaved={() => void refetchMe()}
               />
-              <PasskeyPreference token={token} portal="teacher" />
+              <PasskeyPreference
+                token={token}
+                portal="teacher"
+                enabled={me?.passkey_login_enabled !== false}
+                onEnabledChange={() => void refetchMe()}
+              />
             </CardContent>
           </Card>
 

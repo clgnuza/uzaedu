@@ -2035,3 +2035,48 @@ html.pwa-app .min-h-full {
     min-height: -webkit-fill-available;
   }
 }
+
+/* Ana sayfa — PWA / dar mobil: seal yukarı, kart halkası içerik kadar */
+@media (max-width: 639px) {
+  html.pwa-app .landing-hero-section {
+    min-height: 0 !important;
+    justify-content: flex-start !important;
+    padding-top: max(0.125rem, env(safe-area-inset-top, 0px));
+  }
+  html.pwa-app .landing-seal-hub {
+    max-width: min(86vw, 380px) !important;
+  }
+  html.pwa-app .landing-features {
+    margin-top: 0;
+  }
+  html.pwa-app .landing-features-grid {
+    grid-auto-rows: auto;
+  }
+  html.pwa-app .landing-features-grid > li {
+    min-height: 0;
+    align-items: flex-start;
+  }
+  html.pwa-app .landing-feature-hub-wrap {
+    min-height: 0;
+    height: auto;
+    flex: 0 1 auto;
+  }
+  html.pwa-app .landing-feature-card,
+  html.pwa-app .landing-pillar-card {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+}
+
+@media (max-width: 1023px) {
+  .landing-features-grid {
+    grid-auto-rows: auto;
+  }
+  .landing-features-grid > li {
+    align-items: flex-start;
+  }
+  .landing-feature-hub-wrap {
+    min-height: 0;
+    height: auto;
+  }
+}

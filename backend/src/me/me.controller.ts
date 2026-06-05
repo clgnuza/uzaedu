@@ -59,6 +59,7 @@ export class MeController {
       school_join_email_verified_at: user.schoolJoinEmailVerifiedAt?.toISOString() ?? null,
       email_verified: !!user.emailVerifiedAt,
       login_otp_required: user.loginOtpRequired !== false,
+      passkey_login_enabled: user.passkeyLoginEnabled !== false,
       teacher_public_name_masked: user.teacherPublicNameMasked,
       teacher_branch: user.teacherBranch ?? null,
       school: user.school
@@ -117,6 +118,7 @@ export class MeController {
       school_join_email_verified_at: user.schoolJoinEmailVerifiedAt?.toISOString() ?? null,
       email_verified: !!user.emailVerifiedAt,
       login_otp_required: user.loginOtpRequired !== false,
+      passkey_login_enabled: user.passkeyLoginEnabled !== false,
       teacher_public_name_masked: user.teacherPublicNameMasked,
       status: user.status,
       evrak_defaults: user.evrakDefaults ?? null,

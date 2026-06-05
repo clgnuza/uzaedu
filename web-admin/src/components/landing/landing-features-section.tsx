@@ -154,8 +154,8 @@ function HubMiniRopeFrame({ children, className }: { children: ReactNode; classN
 
   if (!ropeEnabled) {
     return (
-      <div className={cn('landing-feature-hub-wrap flex min-h-0 w-full flex-1 flex-col', className)}>
-        <div className="landing-feature-inner flex min-h-0 flex-1 flex-col">{children}</div>
+      <div className={cn('landing-feature-hub-wrap flex h-auto min-h-0 w-full flex-col sm:flex-1', className)}>
+        <div className="landing-feature-inner flex h-auto min-h-0 flex-col sm:flex-1">{children}</div>
       </div>
     );
   }
@@ -163,9 +163,9 @@ function HubMiniRopeFrame({ children, className }: { children: ReactNode; classN
   return (
     <div
       ref={wrapRef}
-      className={cn('landing-feature-hub-wrap flex min-h-0 w-full flex-1 flex-col', className)}
+      className={cn('landing-feature-hub-wrap flex h-auto min-h-0 w-full flex-col sm:flex-1', className)}
     >
-      <div className="landing-feature-inner flex min-h-0 flex-1 flex-col">{children}</div>
+      <div className="landing-feature-inner flex h-auto min-h-0 flex-col sm:flex-1">{children}</div>
 
       <svg
         className="landing-feature-hub-rings"
@@ -187,12 +187,12 @@ function PillarCard({ pillar }: { pillar: (typeof PILLARS)[number] }) {
   return (
     <li
       className={cn(
-        'landing-pillar-card group flex min-h-[200px]',
+        'landing-pillar-card group flex min-h-0 items-start sm:min-h-[200px]',
         `landing-pillar-card--${pillar.accent}`,
       )}
     >
-      <HubMiniRopeFrame className="min-h-full w-full flex-1">
-        <div className="landing-pillar-inner relative z-[1] flex flex-1 flex-col p-5 sm:p-6">
+      <HubMiniRopeFrame className="h-auto w-full sm:min-h-full sm:flex-1">
+        <div className="landing-pillar-inner relative z-[1] flex flex-col p-5 sm:flex-1 sm:p-6">
           <div className="landing-pillar-icon-ring flex size-12 items-center justify-center rounded-2xl">
             <Icon className="size-6 text-current" strokeWidth={1.65} aria-hidden />
           </div>
@@ -209,8 +209,8 @@ function ModuleCard({ item }: { item: LandingHubItem }) {
   const catLabel = CATEGORY_LABELS.find((c) => c.id === cat)?.label ?? 'Modül';
 
   const body = (
-    <HubMiniRopeFrame className="min-h-full flex-1">
-      <div className="landing-feature-card-body relative z-[1] flex min-h-0 flex-1 flex-col p-4 sm:p-5">
+    <HubMiniRopeFrame className="h-auto w-full sm:min-h-full sm:flex-1">
+      <div className="landing-feature-card-body relative z-[1] flex min-h-0 flex-col p-4 sm:flex-1 sm:p-5">
         <div className="flex items-start gap-3">
           <HubNodeIcon icon={item.icon} />
           <div className="min-w-0 flex-1 space-y-1.5">
@@ -224,7 +224,7 @@ function ModuleCard({ item }: { item: LandingHubItem }) {
           </div>
         </div>
 
-        <div className="mt-3.5 flex min-w-0 flex-1 flex-col">
+        <div className="mt-3.5 flex min-w-0 flex-col">
           <p className="text-sm leading-relaxed text-zinc-200">{item.description}</p>
           <p className="mt-2 line-clamp-3 text-[13px] leading-relaxed text-zinc-400">{item.detail}</p>
 
@@ -253,7 +253,7 @@ function ModuleCard({ item }: { item: LandingHubItem }) {
   );
 
   const shell = cn(
-    'landing-feature-card group flex h-full w-full min-h-0 flex-col focus-visible:outline-none',
+    'landing-feature-card group flex h-auto w-full min-h-0 flex-col self-start focus-visible:outline-none sm:h-full',
     'focus-visible:ring-2 focus-visible:ring-red-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050505]',
   );
 
@@ -289,7 +289,7 @@ export function LandingFeaturesSection() {
         <div className="absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-red-900/40 to-transparent" />
       </div>
 
-      <div className="relative mx-auto w-full max-w-6xl px-4 pb-20 pt-6 sm:px-8 sm:pb-28 sm:pt-8 lg:px-10">
+      <div className="relative mx-auto w-full max-w-6xl px-4 pb-20 pt-2 sm:px-8 sm:pb-28 sm:pt-8 lg:px-10">
         <svg aria-hidden className="pointer-events-none absolute h-0 w-0 overflow-hidden">
           <defs>
             <linearGradient id="landing-feature-card-rope-grad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -387,7 +387,7 @@ export function LandingFeaturesSection() {
           key={category}
         >
           {filtered.map((item) => (
-            <li key={item.href} className="flex min-h-[272px]">
+            <li key={item.href} className="flex min-h-0 items-start sm:min-h-[272px]">
               <ModuleCard item={item} />
             </li>
           ))}

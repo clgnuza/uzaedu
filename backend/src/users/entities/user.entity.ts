@@ -166,6 +166,10 @@ export class User {
   @Column({ name: 'login_otp_required', type: 'boolean', default: true })
   loginOtpRequired: boolean;
 
+  /** Parmak izi / yüz (WebAuthn) ile giriş (varsayılan açık; profilden kapatılabilir) */
+  @Column({ name: 'passkey_login_enabled', type: 'boolean', default: true })
+  passkeyLoginEnabled: boolean;
+
   /** USB / tahta: sınıf TV ekranı için öğretmene özel PIN (bcrypt); idare atar. */
   @Column({ name: 'smart_board_usb_pin_hash', type: 'varchar', length: 255, nullable: true })
   smartBoardUsbPinHash: string | null;

@@ -1,5 +1,6 @@
-/** public/pwa — npm run pwa:assets (scripts/generate-pwa-brand-assets.mjs) */
-export const UZAEDU_APP_ICON_SVG = '/pwa/uzaedu-app-icon.svg';
+/** Seal halka merkez logosu — PWA ikon kaynağı (npm run pwa:assets) */
+export const PWA_SEAL_CENTER_LOGO = '/landing/uza-logo.png';
+export const UZAEDU_APP_ICON_PNG = '/pwa/uzaedu-app-icon.png';
 export const PWA_ICON_192 = '/icon-192.png';
 export const PWA_ICON_512 = '/icon-512.png';
 export const PWA_MASKABLE_ICON = '/pwa/icon-maskable-512.png';

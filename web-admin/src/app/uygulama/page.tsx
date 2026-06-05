@@ -18,9 +18,9 @@ export default async function UygulamaYuklePage() {
   return (
     <div className="landing-page relative flex min-h-dvh flex-col overflow-x-hidden bg-[#050505] text-white">
       <div className="pointer-events-none absolute inset-0" aria-hidden>
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_55%_at_50%_-10%,rgba(13,148,136,0.22),transparent_50%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_50%_40%_at_100%_80%,rgba(153,27,27,0.12),transparent)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_40%_50%_at_0%_60%,rgba(0,0,0,0.5),transparent)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_85%_60%_at_50%_-8%,rgba(185,28,28,0.28),transparent_55%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_50%_45%_at_100%_85%,rgba(127,29,29,0.18),transparent)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_45%_50%_at_0%_55%,rgba(0,0,0,0.55),transparent)]" />
       </div>
 
       <header className="relative z-20 flex shrink-0 items-center justify-between px-4 py-3 sm:px-8 sm:py-4">

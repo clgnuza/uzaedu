@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import webpush from 'web-push';
+import * as webpush from 'web-push';
 import { PushSubscription } from './entities/push-subscription.entity';
 import { NotificationPreference } from './entities/notification-preference.entity';
 import { NotificationPushSettings } from './entities/notification-push-settings.entity';
@@ -21,6 +21,8 @@ export class WebPushService {
   private readonly log = new Logger(WebPushService.name);
   private configured = false;
 
+  private vapidWarned = false;
+
   constructor(
     @InjectRepository(PushSubscription)
     private readonly subRepo: Repository<PushSubscription>,
@@ -28,28 +30,33 @@ export class WebPushService {
     private readonly prefRepo: Repository<NotificationPreference>,
     @InjectRepository(NotificationPushSettings)
     private readonly pushSettingsRepo: Repository<NotificationPushSettings>,
-  ) {
-    this.initVapid();
-  }
+  ) {}
 
-  private initVapid(): void {
+  private ensureVapid(): boolean {
+    if (this.configured) return true;
     const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
     const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
     const subject = process.env.VAPID_SUBJECT?.trim() || 'mailto:uzaeduapp@gmail.com';
     if (!publicKey || !privateKey) {
-      this.log.warn('VAPID anahtarları yok — Web Push devre dışı (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY)');
-      return;
+      if (!this.vapidWarned) {
+        this.vapidWarned = true;
+        this.log.warn('VAPID anahtarları yok — Web Push devre dışı (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY)');
+      }
+      return false;
     }
     webpush.setVapidDetails(subject, publicKey, privateKey);
     this.configured = true;
+    this.log.log('Web Push VAPID yapılandırıldı');
+    return true;
   }
 
   getPublicKey(): string | null {
+    if (!this.ensureVapid()) return null;
     return process.env.VAPID_PUBLIC_KEY?.trim() || null;
   }
 
   isEnabled(): boolean {
-    return this.configured;
+    return this.ensureVapid();
   }
 
   async upsertSubscription(userId: string, dto: PushSubscribeDto, userAgent?: string | null): Promise<void> {

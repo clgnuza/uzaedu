@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { isPwaDisplayMode } from '@/lib/pwa-display';
 import { pushSupported, subscribeWebPush } from '@/lib/web-push';
 import { fetchWebAuthnSupported, registerPasskey } from '@/lib/webauthn';
+import { suggestPasskeyDeviceName } from '@/lib/passkey-device-label';
 import { trackPwaEvent } from '@/lib/pwa-analytics';
 import { hapticSuccess } from '@/lib/pwa-haptic';
 import { cn } from '@/lib/utils';
@@ -101,7 +102,7 @@ export function PwaOnboarding() {
     if (!token) return;
     setBusy(true);
     try {
-      await registerPasskey(token, 'PWA — bu cihaz');
+      await registerPasskey(token, suggestPasskeyDeviceName());
       setPasskeyOk(true);
       toast.success('Biyometrik giriş eklendi');
       next();
