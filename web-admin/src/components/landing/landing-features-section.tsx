@@ -187,7 +187,7 @@ function PillarCard({ pillar }: { pillar: (typeof PILLARS)[number] }) {
   return (
     <li
       className={cn(
-        'landing-pillar-card group flex min-h-0 items-start sm:min-h-[200px]',
+        'landing-pillar-card group flex min-h-[200px] items-stretch',
         `landing-pillar-card--${pillar.accent}`,
       )}
     >
@@ -253,7 +253,7 @@ function ModuleCard({ item }: { item: LandingHubItem }) {
   );
 
   const shell = cn(
-    'landing-feature-card group flex h-auto w-full min-h-0 flex-col self-start focus-visible:outline-none sm:h-full',
+    'landing-feature-card group flex h-full w-full min-h-0 flex-col focus-visible:outline-none',
     'focus-visible:ring-2 focus-visible:ring-red-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#050505]',
   );
 
@@ -387,7 +387,7 @@ export function LandingFeaturesSection() {
           key={category}
         >
           {filtered.map((item) => (
-            <li key={item.href} className="flex min-h-0 items-start sm:min-h-[272px]">
+            <li key={item.href} className="flex min-h-[272px] items-stretch">
               <ModuleCard item={item} />
             </li>
           ))}
