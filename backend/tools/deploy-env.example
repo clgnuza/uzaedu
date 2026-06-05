@@ -1,0 +1,6 @@
+# Kopyala: backend/.env.deploy.local (gitignore'da)
+# Süperadmin JWT: canlıda giriş -> DevTools -> uzaedu_session veya login yanıtı token
+PROD_SUPERADMIN_TOKEN=
+PROD_API_BASE=https://api.uzaedu.com/api
+# DEPLOY_SSH_HOST=
+# DEPLOY_SSH_KEY=%USERPROFILE%\.ssh\id_rsa_uzaedu

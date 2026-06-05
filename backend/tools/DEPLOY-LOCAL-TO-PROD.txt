@@ -45,7 +45,7 @@ DB (plan submission sorgu hizi)
 - backend/migrations/add-plan-submission-author-indexes.sql -> canli psql ile (tablolar varsa).
 
 HETZNER (Windows / Cursor ortamı)
-- Bakim + deploy: PROD_SUPERADMIN_TOKEN + cd backend + .\tools\hetzner-deploy-maintained.ps1
+- Bakim + deploy: backend/.env.deploy.local (ornek: tools/deploy-env.example) + cd backend + .\tools\hetzner-deploy-maintained.ps1
 - cd backend
 - .\tools\hetzner-deploy.ps1
 - Ortam: DEPLOY_SSH_HOST (yoksa api.uzaedu.com A), DEPLOY_SSH_USER, DEPLOY_SSH_KEY, DEPLOY_REMOTE_ROOT=/opt/uzaedu

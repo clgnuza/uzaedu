@@ -14,6 +14,7 @@
     python tools/hetzner_ssh_deploy.py
 #>
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "load-deploy-env.ps1")
 
 $hostAddr = $env:DEPLOY_SSH_HOST
 if (-not $hostAddr) {

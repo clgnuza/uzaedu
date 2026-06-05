@@ -19,6 +19,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "load-deploy-env.ps1")
 
 $apiBase = "https://api.uzaedu.com/api"
 if ($env:PROD_API_BASE -and $env:PROD_API_BASE.Trim()) {
