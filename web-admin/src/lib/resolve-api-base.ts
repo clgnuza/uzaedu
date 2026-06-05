@@ -42,3 +42,19 @@ export function resolveDefaultApiBase(): string {
   }
   return 'http://127.0.0.1:4000/api';
 }
+
+/** Uzun POST (program üretimi vb.) — next dev rewrite proxy socket hang up riskini azaltır. */
+export function resolveLongRunningApiBase(): string {
+  const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (fromEnv) return fromEnv;
+  if (typeof window !== 'undefined') {
+    const h = window.location.hostname;
+    const p = process.env.NEXT_PUBLIC_API_PORT?.trim() || '4000';
+    if (isLikelyDevMachineHost(h)) {
+      return `http://${devApiHost(h)}:${p}/api`;
+    }
+    const prod = defaultProdApiBaseForHost(h);
+    if (prod) return prod;
+  }
+  return 'http://127.0.0.1:4000/api';
+}

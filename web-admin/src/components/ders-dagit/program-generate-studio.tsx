@@ -46,6 +46,14 @@ import {
   type DistributionPolicyDto,
 } from '@/lib/distribution-policy';
 import {
+  fetchPlacementSearchPolicy,
+  generationMinDurationSec,
+  placementSearchSummary,
+  type PlacementSearchPolicyDto,
+} from '@/lib/placement-search-policy';
+import { resolveLongRunningApiBase } from '@/lib/resolve-api-base';
+import { TimetablePlacementSettingsMenu } from '@/components/timetable/TimetablePlacementSettingsMenu';
+import {
   DERS_DAGIT_ASSIGNMENTS_CHANGED,
   type AssignmentsChangedDetail,
 } from '@/lib/ders-dagit-assignments-sync';
@@ -144,6 +152,9 @@ type GenerateResult = {
   violation_links?: Array<{ text: string; href?: string }>;
   failed?: number;
   entries_count?: number;
+  search_iterations?: number;
+  search_cap_estimate?: number;
+  search_complexity?: string;
 };
 
 const PREVIEW_DROP_ID = 'preview-drop';
@@ -387,6 +398,7 @@ export function ProgramGenerateStudio() {
   const [priority, setPriority] = useState<'coverage' | 'balanced' | 'fast'>('balanced');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [useCsp, setUseCsp] = useState(false);
+  const [relaxConstraints, setRelaxConstraints] = useState(true);
   const [versions, setVersions] = useState('1');
   const [durationSec, setDurationSec] = useState('120');
   const [result, setResult] = useState<GenerateResult | null>(null);
@@ -407,6 +419,7 @@ export function ProgramGenerateStudio() {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [generateBlockers, setGenerateBlockers] = useState<ValidationIssue[]>([]);
   const [distributionPolicy, setDistributionPolicy] = useState<DistributionPolicyDto | null>(null);
+  const [placementSearch, setPlacementSearch] = useState<PlacementSearchPolicyDto | null>(null);
 
   const refreshGenerateBlockers = useCallback(async () => {
     if (!token || !studio) return [];
@@ -427,6 +440,9 @@ export function ProgramGenerateStudio() {
     void apiFetch<DistributionPolicyDto>(`/ders-dagit/studios/${studio.id}/distribution-policy`, { token })
       .then((raw) => setDistributionPolicy(parseDistributionPolicyDto(raw)))
       .catch(() => setDistributionPolicy(parseDistributionPolicyDto(null)));
+    void fetchPlacementSearchPolicy(token, studio.id)
+      .then(setPlacementSearch)
+      .catch(() => setPlacementSearch(null));
   }, [token, studio]);
 
   useEffect(() => {
@@ -549,8 +565,18 @@ export function ProgramGenerateStudio() {
     generateAbortRef.current?.abort();
     const abort = new AbortController();
     generateAbortRef.current = abort;
-    const durationSecNum = showAdvanced ? Math.max(30, Number(durationSec) || 120) : 180;
-    const timeoutMs = (durationSecNum + 45) * 1000;
+    const minDuration = generationMinDurationSec(placementSearch?.search_complexity);
+    let durationSecNum: number;
+    if (showAdvanced) {
+      durationSecNum = Math.max(minDuration, Number(durationSec) || minDuration);
+    } else if (priority === 'fast') {
+      durationSecNum = Math.max(minDuration, 60);
+    } else if (priority === 'coverage') {
+      durationSecNum = Math.max(minDuration, 180);
+    } else {
+      durationSecNum = minDuration;
+    }
+    const timeoutMs = (durationSecNum + 120) * 1000;
     setBusy(true);
     setPreview(null);
     setPreviewId(null);
@@ -568,15 +594,21 @@ export function ProgramGenerateStudio() {
         );
         return;
       }
-      const body = showAdvanced
-        ? { duration_sec: durationSecNum, versions: Number(versions), use_csp: useCsp, priority }
-        : { priority, duration_sec: durationSecNum };
+      const body = {
+        priority,
+        duration_sec: durationSecNum,
+        relax_constraints: relaxConstraints,
+        ...(showAdvanced
+          ? { versions: Number(versions), use_csp: useCsp }
+          : {}),
+      };
       const res = await apiFetch<GenerateResult & { entries_count: number }>(
         `/ders-dagit/studios/${studio.id}/generate`,
         {
           token,
           method: 'POST',
           body,
+          apiBase: resolveLongRunningApiBase(),
           signal: (() => {
             const timeout = createFetchTimeoutSignal(timeoutMs);
             if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
@@ -599,6 +631,9 @@ export function ProgramGenerateStudio() {
         violation_links: res.violation_links,
         failed: res.failed,
         entries_count: res.entries_count,
+        search_iterations: res.search_iterations,
+        search_cap_estimate: res.search_cap_estimate,
+        search_complexity: res.search_complexity,
       });
       const ids = res.programs.map((p) => p.id).join(',');
       if (ids) {
@@ -618,7 +653,13 @@ export function ProgramGenerateStudio() {
             : `${res.entries_count} saat yerleşti, ${failed} saat sığmadı — süreyi artırın veya atamaları gözden geçirin.`,
         );
       } else {
-        toast.success(`${res.entries_count} ders saati yerleştirildi`);
+        const iter = res.search_iterations;
+        const cap = res.search_cap_estimate;
+        const extra =
+          iter != null && cap != null
+            ? ` · ${iter.toLocaleString('tr-TR')} hamle / ~${cap.toLocaleString('tr-TR')} olasılık`
+            : '';
+        toast.success(`${res.entries_count} ders saati yerleştirildi${extra}`);
       }
       await refresh({ force: true });
       await loadExisting();
@@ -748,6 +789,30 @@ export function ProgramGenerateStudio() {
               </CardContent>
             </DdCard>
 
+            {placementSearch && (
+              <DdCard>
+                <CardContent className="space-y-2 pt-4 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium text-foreground">Arama karmaşıklığı (üretimde)</p>
+                    <TimetablePlacementSettingsMenu
+                      token={token}
+                      studioId={studio?.id}
+                      onChange={setPlacementSearch}
+                    />
+                  </div>
+                  <p className="text-muted-foreground">{placementSearchSummary(placementSearch)}</p>
+                  {result?.search_iterations != null && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Son üretim: {result.search_iterations.toLocaleString('tr-TR')} hamle
+                      {result.search_cap_estimate != null
+                        ? ` · hedef ~${result.search_cap_estimate.toLocaleString('tr-TR')} olasılık`
+                        : ''}
+                    </p>
+                  )}
+                </CardContent>
+              </DdCard>
+            )}
+
             {distributionPolicy && (
               <DdCard>
                 <CardContent className="space-y-2 pt-4 text-xs">
@@ -813,6 +878,21 @@ export function ProgramGenerateStudio() {
                       </button>
                     ))}
                   </div>
+
+                  <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={relaxConstraints}
+                      onChange={(e) => setRelaxConstraints(e.target.checked)}
+                    />
+                    <span className="min-w-0">
+                      <span className="font-medium">Desen ve kuralları gevşet</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Bu üretimde 2+2 desen zorunluluğu ve stüdyo kuralları uygulanmaz; kalıcı ayarlar değişmez.
+                      </span>
+                    </span>
+                  </label>
 
                   <button
                     type="button"

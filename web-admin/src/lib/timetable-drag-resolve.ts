@@ -10,9 +10,29 @@ import { sameDayBlockRun } from '@/lib/timetable-double-block';
 import { validatePoolPlace } from '@/lib/timetable-move-validation';
 import { parsePoolDragId } from '@/lib/timetable-pool-id';
 import { findUnplacedPoolRow } from '@/lib/timetable-unplaced-pool';
+import {
+  placementBudgetFor,
+  yieldToMain,
+  type PlacementBfsBudget,
+  type PlacementSearchComplexity,
+} from '@/lib/timetable-placement-budget';
 
 type Slot = { day: number; lesson: number };
 export type TimetableMove = { entryId: string; day: number; lesson: number };
+
+export type PlacementSearchResult = EntryMovePlan & { explored: number; restarts: number };
+
+type BfsRunOpts = {
+  maxDepth?: number;
+  maxNodes?: number;
+  maxMs?: number;
+  maxTargetsPerCard?: number;
+  chunkNodes?: number;
+  focusEntryId?: string;
+  target?: Slot;
+  shuffleSeed?: number;
+  onProgress?: (explored: number) => void;
+};
 
 function entriesAtPositions(base: EditorEntry[], positions: Map<string, Slot>): EditorEntry[] {
   return base.map((e) => {
@@ -122,6 +142,7 @@ function orderedMovable(
   positions: Map<string, Slot>,
   target: Slot,
   focusEntryId?: string,
+  shuffleSeed?: number,
 ): EditorEntry[] {
   const movable = ctx.entries.filter((e) => !e.is_locked);
   const atTarget = new Set(slotOccupants(positions, target, focusEntryId));
@@ -136,22 +157,219 @@ function orderedMovable(
     return 10;
   };
 
-  return [...movable].sort((a, b) => score(a) - score(b));
+  const sorted = [...movable].sort((a, b) => score(a) - score(b));
+  return shuffleSeed ? seededShuffle(sorted, shuffleSeed) : sorted;
+}
+
+function seededShuffle<T>(arr: T[], seed: number): T[] {
+  const out = [...arr];
+  let s = seed >>> 0;
+  for (let i = out.length - 1; i > 0; i--) {
+    s = (s * 1_103_515_245 + 12_345) >>> 0;
+    const j = s % (i + 1);
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+
+function budgetToBfsOpts(budget: PlacementBfsBudget, extra?: BfsRunOpts): BfsRunOpts {
+  return {
+    maxDepth: budget.maxDepth,
+    maxNodes: budget.maxNodes,
+    maxMs: budget.maxMs,
+    maxTargetsPerCard: budget.maxTargetsPerCard,
+    chunkNodes: budget.chunkNodes,
+    ...extra,
+  };
+}
+
+async function runPlacementBfsAsync(
+  ctx: EditorContext,
+  closures: Map<string, SlotClosure>,
+  isGoal: (positions: Map<string, Slot>) => boolean,
+  opts?: BfsRunOpts,
+): Promise<PlacementSearchResult> {
+  const maxDepth = opts?.maxDepth ?? 10;
+  const maxNodes = opts?.maxNodes ?? 3500;
+  const maxMs = opts?.maxMs ?? 150;
+  const maxTargets = opts?.maxTargetsPerCard ?? 64;
+  const chunkNodes = opts?.chunkNodes ?? 10_000;
+  const started = Date.now();
+  const workDays = ctx.period.work_days?.length ? ctx.period.work_days : [1, 2, 3, 4, 5];
+  const lessonsPerDay = ctx.grid?.lessons_per_day_by_dow ?? {};
+  const target = opts?.target;
+  const shuffleSeed = opts?.shuffleSeed ?? 0;
+
+  const start = positionsFromEntries(ctx.entries);
+  if (isGoal(start)) return { ok: true, relocations: [], explored: 0, restarts: 0 };
+
+  type Node = { positions: Map<string, Slot>; moves: TimetableMove[] };
+  const visited = new Set<string>();
+  const queue: Node[] = [{ positions: start, moves: [] }];
+  visited.add(stateKey(start));
+
+  let explored = 0;
+  let sinceYield = 0;
+
+  while (queue.length > 0 && explored < maxNodes && Date.now() - started < maxMs) {
+    const node = queue.shift()!;
+    explored++;
+    sinceYield++;
+    if (sinceYield >= chunkNodes) {
+      sinceYield = 0;
+      opts?.onProgress?.(explored);
+      await yieldToMain();
+      if (Date.now() - started >= maxMs) break;
+    }
+
+    if (isGoal(node.positions)) {
+      return { ok: true, relocations: node.moves, explored, restarts: 0 };
+    }
+    if (node.moves.length >= maxDepth) continue;
+
+    if (opts?.focusEntryId && target) {
+      const fId = opts.focusEntryId;
+      const fCur = node.positions.get(fId);
+      if (fCur) {
+        const swapIds = seededShuffle(
+          slotOccupants(node.positions, target, fId),
+          shuffleSeed + explored,
+        );
+        for (const oId of swapIds) {
+          const o = ctx.entries.find((x) => x.id === oId);
+          if (!o || o.is_locked) continue;
+          const swapped = applySwap(node.positions, fId, oId);
+          if (!swapped) continue;
+          const swapEntries = entriesAtPositions(ctx.entries, swapped);
+          if (!placementValid(swapEntries, closures, ctx.assignment_hints)) continue;
+          const swapKey = stateKey(swapped);
+          if (visited.has(swapKey)) continue;
+          visited.add(swapKey);
+          queue.push({
+            positions: swapped,
+            moves: [
+              ...node.moves,
+              { entryId: oId, day: fCur.day, lesson: fCur.lesson },
+              { entryId: fId, day: target.day, lesson: target.lesson },
+            ],
+          });
+        }
+      }
+    }
+
+    const entries = entriesAtPositions(ctx.entries, node.positions);
+    const movable = orderedMovable(
+      ctx,
+      node.positions,
+      target ?? { day: 0, lesson: 0 },
+      opts?.focusEntryId,
+      shuffleSeed + node.moves.length,
+    );
+
+    for (const e of movable) {
+      const cur = node.positions.get(e.id);
+      if (!cur) continue;
+
+      const others = entries.filter((x) => x.id !== e.id);
+      let targets = listRelocationSlotsForEntry(
+        { ...e, day_of_week: cur.day, lesson_num: cur.lesson },
+        others,
+        closures,
+        workDays,
+        ctx.max_lesson,
+        lessonsPerDay,
+        target,
+        ctx.assignment_hints,
+      );
+      if (target) {
+        targets = targets.filter((t) => !(t.day === target.day && t.lesson === target.lesson));
+      }
+      if (targets.length > maxTargets) {
+        targets = seededShuffle(targets, shuffleSeed + explored + cur.day * 17 + cur.lesson).slice(
+          0,
+          maxTargets,
+        );
+      }
+
+      for (const t of targets) {
+        if (t.day === cur.day && t.lesson === cur.lesson) continue;
+
+        const move: TimetableMove = { entryId: e.id, day: t.day, lesson: t.lesson };
+        const nextPos = applyMove(node.positions, move);
+        const nextEntries = entriesAtPositions(ctx.entries, nextPos);
+        if (!placementValid(nextEntries, closures, ctx.assignment_hints)) continue;
+
+        const key = stateKey(nextPos);
+        if (!visited.has(key)) {
+          visited.add(key);
+          queue.push({ positions: nextPos, moves: [...node.moves, move] });
+        }
+      }
+    }
+  }
+
+  opts?.onProgress?.(explored);
+  return {
+    ok: false,
+    message: `Bu saate yer açılamadı (${explored.toLocaleString('tr-TR')} olasılık denendi).`,
+    explored,
+    restarts: 0,
+  };
+}
+
+async function runPlacementSearch(
+  ctx: EditorContext,
+  closures: Map<string, SlotClosure>,
+  isGoal: (positions: Map<string, Slot>) => boolean,
+  complexity: PlacementSearchComplexity,
+  extra?: BfsRunOpts,
+): Promise<PlacementSearchResult> {
+  const budget = placementBudgetFor(complexity);
+  let totalExplored = 0;
+  let last: PlacementSearchResult = {
+    ok: false,
+    message: 'Yer açılamadı.',
+    explored: 0,
+    restarts: 0,
+  };
+
+  for (let r = 0; r < budget.restarts; r++) {
+    const result = await runPlacementBfsAsync(ctx, closures, isGoal, {
+      ...budgetToBfsOpts(budget, extra),
+      shuffleSeed: (extra?.shuffleSeed ?? 1) * 9_871 + r * 65_521,
+      onProgress: (n) => extra?.onProgress?.(totalExplored + n),
+    });
+    totalExplored += result.explored;
+    if (result.ok) {
+      return { ...result, explored: totalExplored, restarts: r + 1 };
+    }
+    last = { ...result, explored: totalExplored, restarts: r + 1 };
+    await yieldToMain();
+  }
+
+  return {
+    ...last,
+    message: `Yer açılamadı (${totalExplored.toLocaleString('tr-TR')} olasılık, ${budget.restarts} tur).`,
+    explored: totalExplored,
+    restarts: budget.restarts,
+  };
 }
 
 function runPlacementBfs(
   ctx: EditorContext,
   closures: Map<string, SlotClosure>,
   isGoal: (positions: Map<string, Slot>) => boolean,
-  opts?: { maxDepth?: number; maxNodes?: number; maxMs?: number; focusEntryId?: string; target?: Slot },
+  opts?: BfsRunOpts,
 ): EntryMovePlan {
   const maxDepth = opts?.maxDepth ?? 10;
   const maxNodes = opts?.maxNodes ?? 3500;
   const maxMs = opts?.maxMs ?? 150;
+  const maxTargets = opts?.maxTargetsPerCard ?? 64;
   const started = Date.now();
   const workDays = ctx.period.work_days?.length ? ctx.period.work_days : [1, 2, 3, 4, 5];
   const lessonsPerDay = ctx.grid?.lessons_per_day_by_dow ?? {};
   const target = opts?.target;
+  const shuffleSeed = opts?.shuffleSeed ?? 0;
 
   const start = positionsFromEntries(ctx.entries);
   if (isGoal(start)) return { ok: true, relocations: [] };
@@ -199,7 +417,7 @@ function runPlacementBfs(
     }
 
     const entries = entriesAtPositions(ctx.entries, node.positions);
-    const movable = orderedMovable(ctx, node.positions, target ?? { day: 0, lesson: 0 }, opts?.focusEntryId);
+    const movable = orderedMovable(ctx, node.positions, target ?? { day: 0, lesson: 0 }, opts?.focusEntryId, shuffleSeed);
 
     for (const e of movable) {
       const cur = node.positions.get(e.id);
@@ -219,7 +437,9 @@ function runPlacementBfs(
       if (target) {
         targets = targets.filter((t) => !(t.day === target.day && t.lesson === target.lesson));
       }
-      if (targets.length > 32) targets = targets.slice(0, 32);
+      if (targets.length > maxTargets) {
+        targets = seededShuffle(targets, shuffleSeed + explored).slice(0, maxTargets);
+      }
 
       for (const t of targets) {
         if (t.day === cur.day && t.lesson === cur.lesson) continue;
@@ -304,13 +524,78 @@ export function orderMovesForApply(
 /**
  * Sürüklenen dersi hedefe yerleştir: tüm kilitsiz kartlar (farklı sınıf dahil) kaydırılabilir.
  */
+export async function planChainEntryMoveDeep(
+  entryId: string,
+  targetDay: number,
+  targetLesson: number,
+  ctx: EditorContext,
+  closures: Map<string, SlotClosure>,
+  complexity: PlacementSearchComplexity,
+  extra?: Pick<BfsRunOpts, 'onProgress'>,
+): Promise<PlacementSearchResult> {
+  const target: Slot = { day: targetDay, lesson: targetLesson };
+  const entry = ctx.entries.find((e) => e.id === entryId);
+  if (!entry) return { ok: false, message: 'Ders bulunamadı.', explored: 0, restarts: 0 };
+  if (entry.is_locked) return { ok: false, message: 'Kilitli ders taşınamaz.', explored: 0, restarts: 0 };
+  if (closureAt(closures, targetDay, targetLesson)) {
+    return { ok: false, message: 'Kapalı saat.', explored: 0, restarts: 0 };
+  }
+  const lockedAtTarget = ctx.entries.some(
+    (e) =>
+      e.id !== entryId &&
+      e.is_locked &&
+      e.day_of_week === targetDay &&
+      e.lesson_num === targetLesson,
+  );
+  if (lockedAtTarget) {
+    return { ok: false, message: 'Hedef saatte kilitli ders var.', explored: 0, restarts: 0 };
+  }
+  return runPlacementSearch(
+    ctx,
+    closures,
+    (positions) => goalEntryAt(positions, entryId, target, ctx.entries, closures, ctx.assignment_hints),
+    complexity,
+    { focusEntryId: entryId, target, ...extra },
+  );
+}
+
+export async function planChainPoolPlaceDeep(
+  poolKey: string,
+  targetDay: number,
+  targetLesson: number,
+  ctx: EditorContext,
+  closures: Map<string, SlotClosure>,
+  complexity: PlacementSearchComplexity,
+  extra?: Pick<BfsRunOpts, 'onProgress'>,
+): Promise<PlacementSearchResult> {
+  const row = findUnplacedPoolRow(ctx, poolKey);
+  if (!row) return { ok: false, message: 'Atama bulunamadı.', explored: 0, restarts: 0 };
+  if (closureAt(closures, targetDay, targetLesson)) {
+    return { ok: false, message: 'Kapalı saat.', explored: 0, restarts: 0 };
+  }
+  const lockedAtTarget = ctx.entries.some(
+    (e) => e.is_locked && e.day_of_week === targetDay && e.lesson_num === targetLesson,
+  );
+  if (lockedAtTarget) {
+    return { ok: false, message: 'Hedef saatte kilitli ders var.', explored: 0, restarts: 0 };
+  }
+  const target: Slot = { day: targetDay, lesson: targetLesson };
+  return runPlacementSearch(
+    ctx,
+    closures,
+    (positions) => poolAtTargetOk(poolKey, target, ctx.entries, positions, ctx, closures),
+    complexity,
+    { target, ...extra },
+  );
+}
+
 export function planChainEntryMove(
   entryId: string,
   targetDay: number,
   targetLesson: number,
   ctx: EditorContext,
   closures: Map<string, SlotClosure>,
-  opts?: { maxDepth?: number; maxNodes?: number; maxMs?: number },
+  opts?: BfsRunOpts,
 ): EntryMovePlan {
   const target: Slot = { day: targetDay, lesson: targetLesson };
 
@@ -346,7 +631,7 @@ export function planChainPoolPlace(
   targetLesson: number,
   ctx: EditorContext,
   closures: Map<string, SlotClosure>,
-  opts?: { maxDepth?: number; maxNodes?: number; maxMs?: number },
+  opts?: BfsRunOpts,
 ): EntryMovePlan {
   const row = findUnplacedPoolRow(ctx, poolKey);
   if (!row) return { ok: false, message: 'Atama bulunamadı.' };
@@ -388,18 +673,122 @@ export function canPlaceEntryAt(
 }
 
 /** Blok ders: tüm ardışık kartlar aynı kaydırma ile hedefe gider. */
+export async function planBlockEntryMoveDeep(
+  entryId: string,
+  targetDay: number,
+  targetLesson: number,
+  ctx: EditorContext,
+  closures: Map<string, SlotClosure>,
+  complexity: PlacementSearchComplexity,
+  extra?: Pick<BfsRunOpts, 'onProgress'>,
+): Promise<PlacementSearchResult> {
+  const entry = ctx.entries.find((e) => e.id === entryId);
+  if (!entry) return { ok: false, message: 'Ders bulunamadı.', explored: 0, restarts: 0 };
+  const block = sameDayBlockRun(entry, ctx.entries, ctx.assignment_hints);
+  if (block.length <= 1) {
+    return planChainEntryMoveDeep(entryId, targetDay, targetLesson, ctx, closures, complexity, extra);
+  }
+
+  const sorted = [...block].sort((a, b) => a.lesson_num - b.lesson_num);
+  const lead = sorted[0]!;
+  const offset = targetLesson - lead.lesson_num;
+  const blockIds = new Set(sorted.map((e) => e.id));
+
+  const directMoves: TimetableMove[] = sorted.map((e) => ({
+    entryId: e.id,
+    day: targetDay,
+    lesson: e.lesson_num + offset,
+  }));
+
+  let directOk = true;
+  for (const m of directMoves) {
+    if (closureAt(closures, m.day, m.lesson)) {
+      directOk = false;
+      break;
+    }
+  }
+  if (directOk) {
+    for (const m of directMoves) {
+      const occ = ctx.entries.filter(
+        (e) => e.day_of_week === m.day && e.lesson_num === m.lesson && !blockIds.has(e.id),
+      );
+      if (occ.length) {
+        directOk = false;
+        break;
+      }
+    }
+  }
+  if (directOk) {
+    let projected = ctx.entries;
+    for (const m of directMoves) {
+      projected = projected.map((e) =>
+        e.id === m.entryId ? { ...e, day_of_week: m.day, lesson_num: m.lesson } : e,
+      );
+    }
+    if (placementValid(projected, closures, ctx.assignment_hints) && clashEntryIds(projected).size === 0) {
+      return {
+        ok: true,
+        relocations: orderMovesForApply(directMoves, lead.id, { day: targetDay, lesson: targetLesson }, ctx.entries),
+        explored: 1,
+        restarts: 0,
+      };
+    }
+  }
+
+  const chain = await planChainEntryMoveDeep(lead.id, targetDay, targetLesson, ctx, closures, complexity, extra);
+  if (!chain.ok) return chain;
+
+  const baseMoves = finalizeMovesForEntry(chain, lead.id, targetDay, targetLesson);
+  const leadOrig = ctx.entries.find((e) => e.id === lead.id)!;
+  const leadDest =
+    baseMoves.find((m) => m.entryId === lead.id) ?? {
+      entryId: lead.id,
+      day: targetDay,
+      lesson: targetLesson,
+    };
+  const deltaD = leadDest.day - leadOrig.day_of_week;
+  const deltaL = leadDest.lesson - leadOrig.lesson_num;
+
+  const moves: TimetableMove[] = baseMoves.filter((m) => !blockIds.has(m.entryId));
+  for (const e of sorted) {
+    moves.push({
+      entryId: e.id,
+      day: e.day_of_week + deltaD,
+      lesson: e.lesson_num + deltaL,
+    });
+  }
+
+  let projected = ctx.entries;
+  for (const m of moves) {
+    projected = projected.map((e) =>
+      e.id === m.entryId ? { ...e, day_of_week: m.day, lesson_num: m.lesson } : e,
+    );
+  }
+  if (!placementValid(projected, closures, ctx.assignment_hints) || clashEntryIds(projected).size > 0) {
+    return { ok: false, message: 'Blok bu konuma yerleşemez.', explored: chain.explored, restarts: chain.restarts };
+  }
+
+  return {
+    ok: true,
+    relocations: orderMovesForApply(moves, lead.id, { day: leadDest.day, lesson: leadDest.lesson }, ctx.entries),
+    explored: chain.explored,
+    restarts: chain.restarts,
+  };
+}
+
 export function planBlockEntryMove(
   entryId: string,
   targetDay: number,
   targetLesson: number,
   ctx: EditorContext,
   closures: Map<string, SlotClosure>,
+  opts?: BfsRunOpts,
 ): EntryMovePlan {
   const entry = ctx.entries.find((e) => e.id === entryId);
   if (!entry) return { ok: false, message: 'Ders bulunamadı.' };
   const block = sameDayBlockRun(entry, ctx.entries, ctx.assignment_hints);
   if (block.length <= 1) {
-    return planChainEntryMove(entryId, targetDay, targetLesson, ctx, closures);
+    return planChainEntryMove(entryId, targetDay, targetLesson, ctx, closures, opts);
   }
 
   const sorted = [...block].sort((a, b) => a.lesson_num - b.lesson_num);
@@ -447,7 +836,7 @@ export function planBlockEntryMove(
     }
   }
 
-  const chain = planChainEntryMove(lead.id, targetDay, targetLesson, ctx, closures);
+  const chain = planChainEntryMove(lead.id, targetDay, targetLesson, ctx, closures, opts);
   if (!chain.ok) return chain;
 
   const baseMoves = finalizeMovesForEntry(chain, lead.id, targetDay, targetLesson);

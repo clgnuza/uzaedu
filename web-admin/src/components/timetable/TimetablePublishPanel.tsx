@@ -61,7 +61,8 @@ export function TimetablePublishPanel({ programId }: { programId: string }) {
   const [busy, setBusy] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
-  const pid = programId || programs[0]?.id;
+  const pid =
+    programId && programs.some((p) => p.id === programId) ? programId : programs[0]?.id;
   const current = programs.find((p) => p.id === pid);
   const publishedProg = programs.find((p) => p.status === 'published');
 

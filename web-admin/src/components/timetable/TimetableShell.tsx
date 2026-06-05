@@ -39,14 +39,20 @@ import { validateTimetableMove } from '@/lib/timetable-move-validation';
 import {
   canPlaceEntryAt,
   finalizeMovesForEntry,
-  planBlockEntryMove,
-  planChainEntryMove,
-  planChainPoolPlace,
+  planBlockEntryMoveDeep,
+  planChainEntryMoveDeep,
+  planChainPoolPlaceDeep,
 } from '@/lib/timetable-drag-resolve';
 import { listOkPoolSlotsWithClosures, planPoolPlacement, planSmartEntryMove } from '@/lib/timetable-pool-place';
 import { parsePoolDragId } from '@/lib/timetable-pool-id';
 import { findUnplacedPoolRow } from '@/lib/timetable-unplaced-pool';
-import { POOL_PLACEMENT_BFS, ENTRY_MOVE_BFS, yieldToMain } from '@/lib/timetable-placement-budget';
+import { yieldToMain } from '@/lib/timetable-placement-budget';
+import {
+  DEFAULT_TIMETABLE_PLACEMENT_SETTINGS,
+  type TimetablePlacementSettings,
+} from '@/lib/timetable-placement-settings';
+import { fetchPlacementSearchPolicy } from '@/lib/placement-search-policy';
+import { TimetablePlacementSettingsMenu } from './TimetablePlacementSettingsMenu';
 import { entryMatchesMatrixRow, parseMatrixDropId, poolRowMatches } from '@/lib/timetable-matrix-dnd';
 import { clashAtSlot, clashEntryIds } from '@/lib/timetable-clash';
 import { useRouter } from 'next/navigation';
@@ -180,8 +186,44 @@ export function TimetableShell({
   const [problemsOnly, setProblemsOnly] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [busyLocal, setBusyLocal] = useState(false);
+  const [placementSettings, setPlacementSettings] = useState<TimetablePlacementSettings>(
+    DEFAULT_TIMETABLE_PLACEMENT_SETTINGS,
+  );
   const gridWrapRef = useRef<HTMLDivElement>(null);
   const placementInFlight = useRef(false);
+  const placementProgressToastId = useRef<string | number | null>(null);
+
+  const formatExplored = useCallback((n: number) => {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.', ',')}M`;
+    if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
+    return String(n);
+  }, []);
+
+  const reportPlacementProgress = useCallback(
+    (explored: number) => {
+      const msg = `${formatExplored(explored)} olasılık deneniyor…`;
+      if (placementProgressToastId.current != null) {
+        toast.loading(msg, { id: placementProgressToastId.current });
+      } else {
+        placementProgressToastId.current = toast.loading(msg);
+      }
+    },
+    [formatExplored],
+  );
+
+  const clearPlacementProgress = useCallback(() => {
+    if (placementProgressToastId.current != null) {
+      toast.dismiss(placementProgressToastId.current);
+      placementProgressToastId.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!token || !studio?.id) return;
+    void fetchPlacementSearchPolicy(token, studio.id)
+      .then(setPlacementSettings)
+      .catch(() => setPlacementSettings(DEFAULT_TIMETABLE_PLACEMENT_SETTINGS));
+  }, [token, studio?.id]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -268,15 +310,14 @@ export function TimetableShell({
   }, [simulate, simPending.length]);
 
   useEffect(() => {
-    if (!token || !studio || !initialProgramId) return;
-    void editor.load(initialProgramId, { validation: true });
-  }, [initialProgramId, token, studio, editor.load]);
-
-  const firstProgramId = programs[0]?.id;
-  useEffect(() => {
-    if (!token || !studio || initialProgramId || editor.programId || !firstProgramId) return;
-    void editor.load(firstProgramId, { validation: true });
-  }, [initialProgramId, firstProgramId, token, studio, editor.programId, editor.load]);
+    if (!token || !studio || programs.length === 0) return;
+    const wanted = initialProgramId;
+    const exists = wanted && programs.some((p) => p.id === wanted);
+    const pick = exists ? wanted! : programs[0]!.id;
+    if (wanted && !exists) onProgramIdChange?.(pick);
+    if (editor.programId === pick) return;
+    void editor.load(pick, { validation: true });
+  }, [initialProgramId, programs, token, studio, editor.load, editor.programId, onProgramIdChange]);
 
   const lastUrlProgramId = useRef('');
   useEffect(() => {
@@ -291,10 +332,14 @@ export function TimetableShell({
       setCompareCtx(null);
       return;
     }
+    if (programs.length && !programs.some((p) => p.id === compareId)) {
+      setCompareCtx(null);
+      return;
+    }
     void import('@/lib/ders-dagit-timetable-api').then(({ fetchEditorContext }) =>
-      fetchEditorContext(token, studio.id, compareId).then(setCompareCtx),
+      fetchEditorContext(token, studio.id, compareId).then(setCompareCtx).catch(() => setCompareCtx(null)),
     );
-  }, [token, studio, compareId]);
+  }, [token, studio, compareId, programs]);
 
   const displayCtx = useMemo(() => {
     if (!editor.ctx) return null;
@@ -837,7 +882,16 @@ export function TimetableShell({
           placeLesson = direct.lesson;
         } else {
           await yieldToMain();
-          const chain = planChainPoolPlace(poolId, day, lesson, c, closures, POOL_PLACEMENT_BFS);
+          const chain = await planChainPoolPlaceDeep(
+            poolId,
+            day,
+            lesson,
+            c,
+            closures,
+            placementSettings.search_complexity,
+            { onProgress: reportPlacementProgress },
+          );
+          clearPlacementProgress();
           if (chain.ok) {
             relocations = chain.relocations;
           } else {
@@ -882,6 +936,7 @@ export function TimetableShell({
       } catch {
         return false;
       } finally {
+        clearPlacementProgress();
         placementInFlight.current = false;
         setBusyLocal(false);
       }
@@ -895,6 +950,9 @@ export function TimetableShell({
       pickedPoolAssignmentId,
       simulate,
       slotClosuresForCtx,
+      placementSettings.search_complexity,
+      reportPlacementProgress,
+      clearPlacementProgress,
     ],
   );
 
@@ -904,6 +962,21 @@ export function TimetableShell({
       void executePoolPlace(pickedPoolAssignmentId, day, lesson);
     },
     [pickedPoolAssignmentId, executePoolPlace],
+  );
+
+  const slotOccupants = useCallback(
+    (c: EditorContext, entryId: string, day: number, lesson: number) =>
+      c.entries.filter((e) => e.day_of_week === day && e.lesson_num === lesson && e.id !== entryId),
+    [],
+  );
+
+  const openCollisionDialog = useCallback(
+    (entryId: string, day: number, lesson: number, occupants: EditorEntry[]) => {
+      if (!occupants.length) return false;
+      setCollision({ entryId, day, lesson, occupants });
+      return true;
+    },
+    [],
   );
 
   const requestMoveAsync = useCallback(
@@ -918,13 +991,15 @@ export function TimetableShell({
       const closures = slotClosuresForCtx(c);
       const dragging = c.entries.find((e) => e.id === entryId) ?? null;
       if (!dragging) return false;
+      const occupants = slotOccupants(c, entryId, day, lesson);
 
       if (simulate) {
-        const occupants = c.entries.filter(
-          (e) => e.day_of_week === day && e.lesson_num === lesson && e.id !== entryId,
-        );
+        if (placementSettings.conflict_mode === 'ask' && occupants.length > 0) {
+          openCollisionDialog(entryId, day, lesson, occupants);
+          return false;
+        }
         if (occupants.length > 1) {
-          setCollision({ entryId, day, lesson, occupants });
+          openCollisionDialog(entryId, day, lesson, occupants);
           return false;
         }
         if (occupants.length === 1) {
@@ -945,6 +1020,11 @@ export function TimetableShell({
       }
       if (dragging.day_of_week === day && dragging.lesson_num === lesson) return true;
 
+      if (placementSettings.conflict_mode === 'ask' && occupants.length > 0) {
+        openCollisionDialog(entryId, day, lesson, occupants);
+        return false;
+      }
+
       const applyPlan = async (plan: {
         ok: true;
         relocations: Array<{ entryId: string; day: number; lesson: number }>;
@@ -953,6 +1033,7 @@ export function TimetableShell({
         const ok = await editor.applyMoves(moves, {
           primaryEntryId: entryId,
           target: { day, lesson },
+          silent: opts?.silent,
         });
         if (ok && !opts?.silent) {
           toast.success(
@@ -970,14 +1051,37 @@ export function TimetableShell({
         const block = sameDayBlockRun(dragging, c.entries, c.assignment_hints);
         const chain =
           block.length > 1
-            ? planBlockEntryMove(entryId, day, lesson, c, closures)
-            : planChainEntryMove(entryId, day, lesson, c, closures, ENTRY_MOVE_BFS);
-        if (chain.ok) return await applyPlan(chain);
+            ? await planBlockEntryMoveDeep(
+                entryId,
+                day,
+                lesson,
+                c,
+                closures,
+                placementSettings.search_complexity,
+                { onProgress: reportPlacementProgress },
+              )
+            : await planChainEntryMoveDeep(
+                entryId,
+                day,
+                lesson,
+                c,
+                closures,
+                placementSettings.search_complexity,
+                { onProgress: reportPlacementProgress },
+              );
+        clearPlacementProgress();
+        if (chain.ok) {
+          if (!opts?.silent && chain.explored > 50_000) {
+            toast.message(`${formatExplored(chain.explored)} olasılıkta yer bulundu`);
+          }
+          return await applyPlan(chain);
+        }
 
         if (canPlaceEntryAt(c.entries, entryId, day, lesson, closures, c.assignment_hints)) {
           const ok = await editor.applyMoves([{ entryId, day, lesson }], {
             primaryEntryId: entryId,
             target: { day, lesson },
+            silent: opts?.silent,
           });
           if (ok && !opts?.silent) toast.success('Taşındı');
           return ok;
@@ -985,6 +1089,11 @@ export function TimetableShell({
 
         const smart = planSmartEntryMove(entryId, day, lesson, c, closures);
         if (smart.ok) return await applyPlan(smart);
+
+        if (occupants.length > 0) {
+          openCollisionDialog(entryId, day, lesson, occupants);
+          return false;
+        }
 
         const v = validateTimetableMove({
           entryId,
@@ -1000,6 +1109,7 @@ export function TimetableShell({
         );
         return false;
       } finally {
+        clearPlacementProgress();
         placementInFlight.current = false;
         setBusyLocal(false);
       }
@@ -1012,8 +1122,64 @@ export function TimetableShell({
       simulate,
       applyLocalMove,
       slotClosuresForCtx,
+      slotOccupants,
+      openCollisionDialog,
+      placementSettings.conflict_mode,
+      placementSettings.search_complexity,
+      reportPlacementProgress,
+      clearPlacementProgress,
+      formatExplored,
     ],
   );
+
+  const resolveCollisionClearAndPlace = useCallback(async () => {
+    if (!collision) return;
+    if (collision.occupants.some((o) => o.is_locked)) {
+      toast.error('Kilitli ders silinemez.');
+      return;
+    }
+    const removeIds = collision.occupants.map((o) => o.id);
+    const { entryId, day, lesson } = collision;
+    setCollision(null);
+    if (simulate) {
+      setDraftEntries((prev) => {
+        const base = (prev ?? editor.ctx?.entries ?? []).filter((e) => !removeIds.includes(e.id));
+        return base.map((e) =>
+          e.id === entryId ? { ...e, day_of_week: day, lesson_num: lesson } : e,
+        );
+      });
+      toast.success('Çakışanlar kaldırıldı, kart yerleştirildi');
+      return;
+    }
+    await editor.removeEntries(removeIds, `${removeIds.length} çakışan havuza alındı`);
+    const ok = await editor.applyMoves([{ entryId, day, lesson }], {
+      primaryEntryId: entryId,
+      target: { day, lesson },
+    });
+    if (ok) toast.success('Kart yerleştirildi');
+  }, [collision, simulate, editor]);
+
+  const resolveCollisionPlaceAnyway = useCallback(async () => {
+    if (!collision) return;
+    const { entryId, day, lesson } = collision;
+    setCollision(null);
+    if (simulate) {
+      setDraftEntries((prev) => {
+        const base = prev ?? editor.ctx?.entries ?? [];
+        return base.map((e) =>
+          e.id === entryId ? { ...e, day_of_week: day, lesson_num: lesson } : e,
+        );
+      });
+      toast.message('Çelişkili yerleştirme (önizleme)');
+      return;
+    }
+    const ok = await editor.applyMoves([{ entryId, day, lesson }], {
+      primaryEntryId: entryId,
+      target: { day, lesson },
+      ignoreClash: true,
+    });
+    if (ok) toast.message('Kart yerleştirildi (çelişki var)');
+  }, [collision, simulate, editor]);
 
   const requestMove = useCallback(
     (entryId: string, day: number, lesson: number) => {
@@ -1355,6 +1521,11 @@ export function TimetableShell({
             >
               {placementMode === 'click' ? 'Tıkla-yerleştir' : 'Sürükle-bırak'}
             </Button>
+            <TimetablePlacementSettingsMenu
+              token={token}
+              studioId={studio?.id}
+              onChange={setPlacementSettings}
+            />
             <Button
               type="button"
               size="sm"
@@ -1592,9 +1763,17 @@ export function TimetableShell({
           </div>
           <CollisionResolveDialog
             open={!!collision}
-            moving={collision ? editor.ctx?.entries.find((e) => e.id === collision.entryId) ?? null : null}
+            moving={
+              collision
+                ? (displayCtx ?? editor.ctx)?.entries.find((e) => e.id === collision.entryId) ?? null
+                : null
+            }
+            day={collision?.day ?? 1}
+            lesson={collision?.lesson ?? 1}
             occupants={collision?.occupants ?? []}
+            allowIgnoreClash={placementSettings.allow_ignore_clash}
             onClose={() => setCollision(null)}
+            onClearConflictsAndPlace={() => void resolveCollisionClearAndPlace()}
             onSwapWith={(targetId) => {
               if (!collision) return;
               if (simulate) {
@@ -1604,6 +1783,11 @@ export function TimetableShell({
               }
               setCollision(null);
             }}
+            onPlaceAnyway={
+              placementSettings.allow_ignore_clash
+                ? () => void resolveCollisionPlaceAnyway()
+                : undefined
+            }
           />
           </>
         ) : null}

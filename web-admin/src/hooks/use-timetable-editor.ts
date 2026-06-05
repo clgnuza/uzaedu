@@ -164,7 +164,12 @@ export function useTimetableEditor(token: string | null, studioId: string | null
   const applyMoves = useCallback(
     async (
       moves: Array<{ entryId: string; day: number; lesson: number }>,
-      opts?: { primaryEntryId?: string; target?: { day: number; lesson: number } },
+      opts?: {
+        primaryEntryId?: string;
+        target?: { day: number; lesson: number };
+        ignoreClash?: boolean;
+        silent?: boolean;
+      },
     ): Promise<boolean> => {
       if (!token || !studioId || !programId || !moves.length || !ctx) return false;
       const primary = opts?.primaryEntryId ?? moves[moves.length - 1]!.entryId;
@@ -185,11 +190,13 @@ export function useTimetableEditor(token: string | null, studioId: string | null
         const movingIds = new Set(ordered.map((m) => m.entryId));
         let working = ctx.entries;
         for (const m of ordered) {
-          const clash = clashAtSlot(working, m.entryId, m.day, m.lesson, movingIds);
-          if (clash) {
-            toast.error(clash === 'CLASS_CLASH' ? 'Sınıf çakışması' : 'Öğretmen çakışması');
-            await reloadEditor(programId);
-            return false;
+          if (!opts?.ignoreClash) {
+            const clash = clashAtSlot(working, m.entryId, m.day, m.lesson, movingIds);
+            if (clash) {
+              toast.error(clash === 'CLASS_CLASH' ? 'Sınıf çakışması' : 'Öğretmen çakışması');
+              await reloadEditor(programId);
+              return false;
+            }
           }
           const updated = await patchEntry(token, studioId, programId, m.entryId, {
             day_of_week: m.day,
