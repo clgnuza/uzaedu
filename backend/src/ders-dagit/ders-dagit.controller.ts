@@ -121,6 +121,15 @@ export class DersDagitController {
     return this.service.getSectionSchedules(studioId, u.schoolId!);
   }
 
+  @Post('studios/:studioId/section-schedules/sync-open-slots')
+  @Roles(UserRole.school_admin)
+  syncSectionScheduleOpenSlots(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+  ) {
+    return this.service.syncSectionScheduleOpenSlots(studioId, u.schoolId!);
+  }
+
   @Patch('studios/:studioId/section-schedules')
   @Roles(UserRole.school_admin)
   updateSectionSchedule(
@@ -830,6 +839,7 @@ export class DersDagitController {
       versions?: number;
       use_csp?: boolean;
       priority?: 'coverage' | 'balanced' | 'fast';
+      relax_constraints?: boolean;
     },
   ) {
     return this.service.generatePrograms(studioId, u.schoolId!, u.userId, body);
@@ -904,6 +914,22 @@ export class DersDagitController {
     @Body() body: Record<string, unknown>,
   ) {
     return this.service.updateDistributionPolicy(studioId, u.schoolId!, body as never);
+  }
+
+  @Get('studios/:studioId/placement-search')
+  @Roles(UserRole.school_admin)
+  getPlacementSearchPolicy(@CurrentUser() u: CurrentUserPayload, @Param('studioId') studioId: string) {
+    return this.service.getPlacementSearchPolicy(studioId, u.schoolId!);
+  }
+
+  @Patch('studios/:studioId/placement-search')
+  @Roles(UserRole.school_admin)
+  patchPlacementSearchPolicy(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.service.updatePlacementSearchPolicy(studioId, u.schoolId!, body as never);
   }
 
   @Get('studios/:studioId/report-settings')

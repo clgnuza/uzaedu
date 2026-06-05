@@ -238,6 +238,7 @@ export function effectivePatternForAssignment(
   need: number,
   ctx?: SolverContext,
 ): number[] | null {
+  if (ctx?.relax_constraints) return null;
   const raw = assignmentDayDistribution(a.options);
   if (raw && isValidDayDistribution(raw, need)) return raw;
   if (!shouldEnforceDistributionPattern(ctx?.distribution_policy)) return null;
@@ -253,6 +254,7 @@ export function placementPatternForAssignment(
   need: number,
   ctx: SolverContext,
 ): number[] | null {
+  if (ctx.relax_constraints) return null;
   const enforced = effectivePatternForAssignment(a, need, ctx);
   if (enforced) return enforced;
   const mode = ctx.distribution_policy?.mode ?? 'blocks';

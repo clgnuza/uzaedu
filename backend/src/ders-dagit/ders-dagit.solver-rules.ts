@@ -131,12 +131,9 @@ export function applySoftRulePenalties(
       byDay.set(e.day_of_week, arr);
     }
     const effH = a.biweekly ? Math.ceil(a.weekly_hours / 2) : a.weekly_hours;
-    const scorePattern = distributionPatternForScoring(
-      a.weekly_hours,
-      a.options,
-      a.biweekly,
-      ctx.distribution_policy,
-    );
+    const scorePattern = ctx.relax_constraints
+      ? null
+      : distributionPatternForScoring(a.weekly_hours, a.options, a.biweekly, ctx.distribution_policy);
     if (scorePattern) {
       const byDayLessons = assignmentByDayLessons(entries, a.id);
       const placedHours = [...byDayLessons.values()].reduce((s, lessons) => s + lessons.length, 0);
@@ -155,7 +152,12 @@ export function applySoftRulePenalties(
       }
     }
     const blockSpec = assignmentPlacementSpec(a.options, a.weekly_hours, a.biweekly);
-    if (blockSpec.block_size >= 2 && mine.length && !assignmentBlockPlacementOkForAssignment(mine, a.id, blockSpec)) {
+    if (
+      !ctx.relax_constraints &&
+      blockSpec.block_size >= 2 &&
+      mine.length &&
+      !assignmentBlockPlacementOkForAssignment(mine, a.id, blockSpec)
+    ) {
       penalty += 24;
       pushAssignmentViolation(
         violations,

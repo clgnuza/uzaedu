@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
@@ -17,7 +17,17 @@ import {
 import { DdSelectField } from '@/components/ders-dagit/dd-select';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { Download, Upload, FileJson, ArrowRightLeft } from 'lucide-react';
+import {
+  Download,
+  Upload,
+  FileJson,
+  ArrowRightLeft,
+  FileSpreadsheet,
+  FileCode2,
+  CheckCircle2,
+  AlertTriangle,
+  Sparkles,
+} from 'lucide-react';
 
 type TransferFormat = {
   id: string;
@@ -32,6 +42,13 @@ type AssignmentPreview = {
   kind: 'assignments';
   format: string;
   row_count?: number;
+  asc_meta?: {
+    buildings?: number;
+    rooms?: number;
+    classes?: number;
+    groups?: number;
+    timeoffs?: number;
+  };
   rows?: Array<{
     subject_name: string;
     class_sections: string[];
@@ -41,8 +58,8 @@ type AssignmentPreview = {
     match_warning?: string | null;
   }>;
   warnings?: Array<{ code: string; message: string }>;
-  subjects?: number;
-  assignments?: number;
+  format_auto_corrected?: boolean;
+  detected_format?: string | null;
 };
 
 type PackagePreview = {
@@ -53,7 +70,36 @@ type PackagePreview = {
   groups?: number;
   elective_pools?: number;
   counts?: { programs?: number };
+  format_auto_corrected?: boolean;
+  detected_format?: string | null;
 };
+
+const EOKUL_FORMAT_OPTS = [
+  { value: 'auto', label: 'Otomatik (tablo → ızgara)' },
+  { value: 'xlsx', label: 'Tablo XLSX' },
+  { value: 'grid_xlsx', label: 'Program ızgarası (Bilsa/e-Okul)' },
+  { value: 'csv', label: 'CSV' },
+];
+
+const IMPORT_FORMAT_ICONS: Record<string, typeof FileJson> = {
+  ogretmenpro_json: FileJson,
+  asc_xml: FileCode2,
+  eokul_excel: FileSpreadsheet,
+};
+
+function detectFormatFromFile(file: File): string | null {
+  const n = file.name.toLowerCase();
+  if (n.endsWith('.json')) return 'ogretmenpro_json';
+  if (n.endsWith('.xml')) return 'asc_xml';
+  if (n.endsWith('.csv') || n.endsWith('.xlsx') || n.endsWith('.xls')) return 'eokul_excel';
+  return null;
+}
+
+function acceptForFormat(format: string): string {
+  if (format === 'asc_xml') return '.xml';
+  if (format === 'ogretmenpro_json') return '.json';
+  return '.xlsx,.xls,.csv,.xml';
+}
 
 async function fileToBase64(file: File): Promise<string> {
   const buf = await file.arrayBuffer();
@@ -63,23 +109,17 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
-const EOKUL_FORMAT_OPTS = [
-  { value: 'auto', label: 'Otomatik (tablo → ızgara)' },
-  { value: 'xlsx', label: 'Tablo XLSX' },
-  { value: 'grid_xlsx', label: 'Program ızgarası (Bilsa/e-Okul)' },
-  { value: 'csv', label: 'CSV' },
-];
-
 export function StudioTransferPanel() {
   const { token } = useAuth();
   const { studio } = useDersDagitStudio();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [formats, setFormats] = useState<TransferFormat[]>([]);
   const [importFormat, setImportFormat] = useState('eokul_excel');
   const [eokulFormat, setEokulFormat] = useState('auto');
   const [file, setFile] = useState<File | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [preview, setPreview] = useState<AssignmentPreview | PackagePreview | null>(null);
   const [busy, setBusy] = useState(false);
-  const [replace, setReplace] = useState(false);
   const [autoElective, setAutoElective] = useState(true);
   const [mergeSettings, setMergeSettings] = useState(true);
 
@@ -95,7 +135,17 @@ export function StudioTransferPanel() {
     [formats],
   );
 
-  const selectedHint = importFormats.find((f) => f.id === importFormat)?.hint_tr;
+  const selectedMeta = importFormats.find((f) => f.id === importFormat);
+  const showImportPanel =
+    importFormat !== 'assignment_csv' && importFormat !== 'assignment_xlsx';
+
+  const pickFile = useCallback((f: File | null) => {
+    if (!f) return;
+    const detected = detectFormatFromFile(f);
+    if (detected) setImportFormat(detected);
+    setFile(f);
+    setPreview(null);
+  }, []);
 
   const exportJson = useCallback(async () => {
     if (!token || !studio) return;
@@ -138,6 +188,9 @@ export function StudioTransferPanel() {
         },
       );
       setPreview(data);
+      if (data.format_auto_corrected) {
+        toast.info('Dosya türü otomatik algılandı — yanlış format seçilmişti.');
+      }
       if (data.kind === 'assignments' && !data.row_count && !(data as AssignmentPreview).rows?.length) {
         toast.warning('İçe aktarılacak satır bulunamadı');
       } else {
@@ -165,7 +218,6 @@ export function StudioTransferPanel() {
             format: importFormat,
             file_base64: b64,
             eokul_format: importFormat === 'eokul_excel' ? eokulFormat : undefined,
-            replace,
             auto_elective_groups: autoElective,
             merge_settings: mergeSettings,
           },
@@ -186,195 +238,300 @@ export function StudioTransferPanel() {
   }
 
   return (
-    <div className="space-y-4">
-      <DdCard variant="sky" className="overflow-hidden">
-        <CardHeader className={DD_CARD_HEADER}>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Download className="size-4" aria-hidden />
-            Dışa aktar
-          </CardTitle>
-        </CardHeader>
-        <CardContent className={cn(DD_CARD_CONTENT, 'space-y-3 text-xs')}>
-          <p className="text-muted-foreground">
-            Stüdyo yedeği: dersler, atamalar, gruplar, seçmeli havuzlar, dönem ve okul profili. Üretilmiş program
-            çizelgesi dahil değildir — program için{' '}
-            <Link href="/ders-dagit/studyo/raporlar" className="text-primary underline">
-              Raporlar
-            </Link>
-            .
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" disabled={busy || !studio} onClick={() => void exportJson()}>
-              <FileJson className="mr-1 size-3.5" />
+    <div className="space-y-5">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <DdCard variant="sky" className="overflow-hidden">
+          <CardHeader className={DD_CARD_HEADER}>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Download className="size-4 text-sky-600" aria-hidden />
+              Dışa aktar
+            </CardTitle>
+          </CardHeader>
+          <CardContent className={cn(DD_CARD_CONTENT, 'space-y-4')}>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Dersler, atamalar, gruplar ve seçmeli havuzlar JSON yedek olarak indirilir. Üretilmiş program
+              çizelgesi dahil değildir.
+            </p>
+            <Button type="button" className="w-full sm:w-auto" disabled={busy || !studio} onClick={() => void exportJson()}>
+              <FileJson className="mr-2 size-4" />
               JSON yedek indir
             </Button>
-            <Button type="button" size="sm" variant="outline" asChild>
+            <Button type="button" variant="outline" size="sm" asChild>
               <Link href="/ders-dagit/studyo/raporlar">Program → e-Okul / Excel</Link>
             </Button>
-          </div>
-          <ul className="grid gap-1 sm:grid-cols-2">
-            {formats
-              .filter((f) => f.direction === 'export')
-              .map((f) => (
-                <li key={f.id} className="rounded border bg-muted/30 px-2 py-1">
-                  <span className="font-medium">{f.label_tr}</span>
-                  <span className="mt-0.5 block text-[10px] text-muted-foreground">{f.hint_tr}</span>
-                </li>
-              ))}
-          </ul>
-        </CardContent>
-      </DdCard>
+          </CardContent>
+        </DdCard>
 
-      <DdCard variant="lavender" className="overflow-hidden">
-        <CardHeader className={DD_CARD_HEADER}>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Upload className="size-4" aria-hidden />
-            İçe aktar
-          </CardTitle>
-        </CardHeader>
-        <CardContent className={cn(DD_CARD_CONTENT, 'space-y-3')}>
-          <DdSelectField
-            label="Kaynak program / format"
-            value={importFormat}
-            onValueChange={setImportFormat}
-            options={importFormats.map((f) => ({
-              value: f.id,
-              label:
-                f.vendor === 'asc'
-                  ? `aSc — ${f.label_tr}`
-                  : f.vendor === 'bilsa' || f.vendor === 'eokul'
-                    ? `e-Okul / Bilsa — ${f.label_tr}`
-                    : f.label_tr,
-            }))}
-          />
-          {importFormat === 'eokul_excel' && (
-            <DdSelectField
-              label="Excel türü"
-              value={eokulFormat}
-              onValueChange={setEokulFormat}
-              options={EOKUL_FORMAT_OPTS}
-            />
-          )}
-          {importFormat === 'assignment_csv' || importFormat === 'assignment_xlsx' ? (
-            <p className="text-xs text-muted-foreground">
-              Atama şablonu için{' '}
-              <Link href="/ders-dagit/studyo/atamalar" className="text-primary underline">
-                Atamalar
-              </Link>{' '}
-              sayfasındaki toplu içe aktarma kullanılır.
-            </p>
-          ) : null}
-          {selectedHint && importFormat !== 'assignment_csv' && importFormat !== 'assignment_xlsx' ? (
-            <p className="text-xs text-muted-foreground">{selectedHint}</p>
-          ) : null}
+        <DdCard variant="lavender" className="overflow-hidden lg:row-span-2">
+          <CardHeader className={DD_CARD_HEADER}>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Upload className="size-4 text-violet-600" aria-hidden />
+              İçe aktar
+            </CardTitle>
+          </CardHeader>
+          <CardContent className={cn(DD_CARD_CONTENT, 'space-y-4')}>
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Kaynak program</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {importFormats
+                  .filter((f) => f.id !== 'assignment_csv' && f.id !== 'assignment_xlsx')
+                  .map((f) => {
+                    const Icon = IMPORT_FORMAT_ICONS[f.id] ?? FileSpreadsheet;
+                    const active = importFormat === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => {
+                          setImportFormat(f.id);
+                          setPreview(null);
+                        }}
+                        className={cn(
+                          'rounded-xl border p-3 text-left transition-all',
+                          active
+                            ? 'border-primary/50 bg-primary/5 shadow-sm ring-1 ring-primary/20'
+                            : 'border-border/60 bg-background/60 hover:border-primary/30 hover:bg-muted/40',
+                        )}
+                      >
+                        <div className="flex items-start gap-2">
+                          <Icon className={cn('mt-0.5 size-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold leading-snug">
+                              {f.vendor === 'asc' ? 'aSc XML' : f.vendor === 'ogretmenpro' ? 'ÖğretmenPro' : f.label_tr}
+                            </p>
+                            <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">{f.hint_tr}</p>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
 
-          {importFormat !== 'assignment_csv' && importFormat !== 'assignment_xlsx' && (
-            <>
-              <div>
-                <label className="text-xs font-medium">Dosya</label>
-                <input
-                  type="file"
-                  accept={
-                    importFormat === 'asc_xml'
-                      ? '.xml'
-                      : importFormat === 'ogretmenpro_json'
-                        ? '.json'
-                        : '.xlsx,.xls,.csv,.xml'
-                  }
-                  className="mt-1 block w-full text-xs"
-                  onChange={(e) => {
-                    setFile(e.target.files?.[0] ?? null);
-                    setPreview(null);
+            {importFormat === 'eokul_excel' && (
+              <DdSelectField
+                label="Excel türü"
+                value={eokulFormat}
+                onValueChange={setEokulFormat}
+                options={EOKUL_FORMAT_OPTS}
+              />
+            )}
+
+            {showImportPanel && (
+              <>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOver(true);
                   }}
-                />
-              </div>
-              <div className="flex flex-wrap gap-4 text-xs">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
-                  Mevcut veriyi sil (değiştir)
-                </label>
-                {importFormat === 'eokul_excel' && (
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={autoElective}
-                      onChange={(e) => setAutoElective(e.target.checked)}
-                    />
-                    Seçmeli havuzları otomatik oluştur
-                  </label>
-                )}
-                {importFormat === 'ogretmenpro_json' && (
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={mergeSettings}
-                      onChange={(e) => setMergeSettings(e.target.checked)}
-                    />
-                    Dönem / okul profili ayarlarını da yükle
-                  </label>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="outline" disabled={busy || !file} onClick={() => void runPreview()}>
-                  Önizle
-                </Button>
-                <Button type="button" size="sm" disabled={busy || !file || !preview} onClick={() => void runImport()}>
-                  İçe aktar
-                </Button>
-              </div>
-            </>
-          )}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    pickFile(e.dataTransfer.files[0] ?? null);
+                  }}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={cn(
+                    'cursor-pointer rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors',
+                    dragOver
+                      ? 'border-primary bg-primary/5'
+                      : file
+                        ? 'border-emerald-400/50 bg-emerald-500/5'
+                        : 'border-muted-foreground/25 bg-muted/20 hover:border-primary/40 hover:bg-muted/30',
+                  )}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept={acceptForFormat(importFormat)}
+                    className="hidden"
+                    onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+                  />
+                  {file ? (
+                    <>
+                      <CheckCircle2 className="mx-auto size-8 text-emerald-600" />
+                      <p className="mt-2 text-sm font-medium">{file.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Değiştirmek için tıklayın veya sürükleyin</p>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="mx-auto size-8 text-muted-foreground/70" />
+                      <p className="mt-2 text-sm font-medium">Dosyayı sürükleyin veya seçin</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{selectedMeta?.extensions.join(', ')}</p>
+                    </>
+                  )}
+                </div>
 
-          {preview?.kind === 'assignments' && (
-            <div className="rounded-lg border bg-muted/30 p-2 text-xs">
-              <p>
-                <strong>{preview.row_count ?? preview.rows?.length ?? 0}</strong> atama · format: {preview.format}
-              </p>
-              {(preview.warnings ?? []).map((w, i) => (
-                <p key={i} className="text-amber-700 dark:text-amber-300">
-                  {w.message}
+                <p className="text-xs text-amber-800 dark:text-amber-200">
+                  İçe aktarma mevcut stüdyo verisini (atamalar, dersler, şubeler, program, şube saatleri) siler ve
+                  dosyadan yeniden oluşturur.
                 </p>
-              ))}
-              <ul className="mt-2 max-h-32 overflow-y-auto">
-                {(preview.rows ?? []).slice(0, 12).map((r, i) => (
-                  <li key={i}>
-                    {r.subject_name} — {r.class_sections.join(', ')} ({r.weekly_hours} saat)
-                    {r.match_warning ? ` · ${r.match_warning}` : ''}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
 
-          {preview?.kind === 'studio_package' && (
-            <div className="rounded-lg border bg-muted/30 p-2 text-xs">
-              <p className="font-medium">Stüdyo paketi önizleme</p>
-              <p>
-                {preview.subjects} ders · {preview.assignments} atama · {preview.groups} grup ·{' '}
-                {preview.elective_pools} seçmeli havuz
+                <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
+                  {importFormat === 'eokul_excel' && (
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="rounded border-input"
+                        checked={autoElective}
+                        onChange={(e) => setAutoElective(e.target.checked)}
+                      />
+                      Seçmeli havuzları otomatik oluştur
+                    </label>
+                  )}
+                  {importFormat === 'ogretmenpro_json' && (
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="rounded border-input"
+                        checked={mergeSettings}
+                        onChange={(e) => setMergeSettings(e.target.checked)}
+                      />
+                      Dönem / okul profili ayarlarını da yükle
+                    </label>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" disabled={busy || !file} onClick={() => void runPreview()}>
+                    <Sparkles className="mr-1.5 size-3.5" />
+                    Önizle
+                  </Button>
+                  <Button type="button" disabled={busy || !file || !preview} onClick={() => void runImport()}>
+                    İçe aktar
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {(importFormat === 'assignment_csv' || importFormat === 'assignment_xlsx') && (
+              <p className="text-xs text-muted-foreground">
+                Atama şablonu için{' '}
+                <Link href="/ders-dagit/studyo/atamalar" className="text-primary underline">
+                  Atamalar
+                </Link>{' '}
+                sayfasını kullanın.
               </p>
-              {preview.exported_at ? (
-                <p className="text-muted-foreground">Dışa aktarma: {preview.exported_at}</p>
-              ) : null}
-            </div>
-          )}
-        </CardContent>
-      </DdCard>
+            )}
 
-      <DdCard className="overflow-hidden">
-        <CardContent className={cn(DD_CARD_CONTENT, 'flex gap-2 text-xs text-muted-foreground')}>
-          <ArrowRightLeft className="size-4 shrink-0" />
-          <div>
-            <p className="font-medium text-foreground">Program karşılaştırması</p>
-            <p className="mt-1">
-              <strong>aSc:</strong> Dosya → Dışa aktar → aSc Timetables 2012 XML.{' '}
-              <strong>Bilsa:</strong> Haftalık ders dağıtım veya Okulsis’ten Excel çarşaf / merkezi aktarım; burada
-              «e-Okul / çarşaf Excel» ve «Program ızgarası» ile deneyin.{' '}
-              <strong>e-Okul:</strong> Resmî tablo veya ızgara XLS.
-            </p>
-          </div>
-        </CardContent>
-      </DdCard>
+            {preview?.format_auto_corrected && (
+              <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+                <AlertTriangle className="size-4 shrink-0" />
+                <span>Dosya içeriği seçilen formattan farklıydı; doğru okuyucu otomatik uygulandı.</span>
+              </div>
+            )}
+
+            {preview?.kind === 'assignments' && (
+              <div className="overflow-hidden rounded-xl border bg-background/80">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-2">
+                  <p className="text-sm font-medium">
+                    {preview.row_count ?? preview.rows?.length ?? 0} atama
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(preview as AssignmentPreview).asc_meta && (
+                      <span className="text-[10px] text-muted-foreground">
+                        {[
+                          (preview as AssignmentPreview).asc_meta?.rooms
+                            ? `${(preview as AssignmentPreview).asc_meta?.rooms} derslik`
+                            : null,
+                          (preview as AssignmentPreview).asc_meta?.timeoffs
+                            ? `${(preview as AssignmentPreview).asc_meta?.timeoffs} kapalı slot`
+                            : null,
+                          (preview as AssignmentPreview).asc_meta?.groups
+                            ? `${(preview as AssignmentPreview).asc_meta?.groups} grup`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    )}
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {preview.format}
+                    </span>
+                  </div>
+                </div>
+                {(preview.warnings ?? []).map((w, i) => (
+                  <p key={i} className="border-b px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                    {w.message}
+                  </p>
+                ))}
+                <div className="max-h-48 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-muted/50 text-left text-[10px] uppercase tracking-wide text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">Ders</th>
+                        <th className="px-3 py-2 font-medium">Şube</th>
+                        <th className="px-3 py-2 font-medium">Saat</th>
+                        <th className="hidden px-3 py-2 font-medium sm:table-cell">Öğretmen</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(preview.rows ?? []).slice(0, 20).map((r, i) => (
+                        <tr key={i} className="border-t border-border/40">
+                          <td className="px-3 py-1.5 font-medium">{r.subject_name}</td>
+                          <td className="px-3 py-1.5 text-muted-foreground">{r.class_sections.join(', ')}</td>
+                          <td className="px-3 py-1.5 tabular-nums">{r.weekly_hours}</td>
+                          <td className="hidden px-3 py-1.5 text-muted-foreground sm:table-cell">
+                            {r.teacher_name ?? '—'}
+                            {r.match_warning ? (
+                              <span className="block text-[10px] text-amber-600">{r.match_warning}</span>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {preview?.kind === 'studio_package' && (
+              <div className="rounded-xl border bg-background/80 p-4">
+                <p className="text-sm font-semibold">Stüdyo paketi</p>
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {[
+                    { label: 'Ders', n: preview.subjects },
+                    { label: 'Atama', n: preview.assignments },
+                    { label: 'Grup', n: preview.groups },
+                    { label: 'Seçmeli', n: preview.elective_pools },
+                  ].map((s) => (
+                    <div key={s.label} className="rounded-lg bg-muted/40 px-3 py-2 text-center">
+                      <p className="text-lg font-semibold tabular-nums">{s.n ?? 0}</p>
+                      <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+                {preview.exported_at ? (
+                  <p className="mt-2 text-xs text-muted-foreground">Dışa aktarma: {preview.exported_at}</p>
+                ) : null}
+              </div>
+            )}
+          </CardContent>
+        </DdCard>
+
+        <DdCard className="overflow-hidden">
+          <CardContent className={cn(DD_CARD_CONTENT, 'space-y-2 text-sm text-muted-foreground')}>
+            <div className="flex items-center gap-2 font-medium text-foreground">
+              <ArrowRightLeft className="size-4" />
+              Format rehberi
+            </div>
+            <ul className="space-y-1.5 text-xs leading-relaxed">
+              <li>
+                <strong className="text-foreground">aSc:</strong> Dosya → Dışa aktar → aSc Timetables 2012 XML
+              </li>
+              <li>
+                <strong className="text-foreground">ÖğretmenPro:</strong> JSON yedek — ders + atama + grup
+              </li>
+              <li>
+                <strong className="text-foreground">Bilsa / e-Okul:</strong> çarşaf Excel veya program ızgarası XLS
+              </li>
+            </ul>
+          </CardContent>
+        </DdCard>
+      </div>
     </div>
   );
 }

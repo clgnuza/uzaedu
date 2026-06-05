@@ -262,7 +262,7 @@ function collectSections(subjects, assignments, profiles) {
     await api(token, 'POST', `/ders-dagit/studios/${sid}/teachers`, {
       id: t.id,
       user_id: t.user_id,
-      mandatory_weekly_hours: 40,
+      mandatory_weekly_hours: null,
       max_extra_weekly_hours: 30,
       max_lessons_per_day: 9,
     });
@@ -347,6 +347,11 @@ function collectSections(subjects, assignments, profiles) {
       replace: false,
     });
     console.log('Eksik katalog atamaları:', sync.created ?? 0, 'yeni');
+  }
+
+  const slotSync = await api(token, 'POST', `/ders-dagit/studios/${sid}/section-schedules/sync-open-slots`);
+  if (slotSync.opened_cells) {
+    console.log('Kapalı hücre açıldı:', slotSync.opened_cells, '· şube:', (slotSync.sections_adjusted || []).join(', '));
   }
 
   const val = await api(token, 'GET', `/ders-dagit/studios/${sid}/validation`);

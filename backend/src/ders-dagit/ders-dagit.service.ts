@@ -135,6 +135,7 @@ import {
   sectionSchedulesToJson,
   type SectionScheduleConfig,
 } from './ders-dagit.section-schedule';
+import { syncSectionSchedulesOpenSlots } from './ders-dagit.section-schedule-sync';
 import {
   parseDualEducation,
   pmFirstLessonNum,
@@ -148,10 +149,18 @@ import {
   type DistributionPolicy,
 } from './ders-dagit.distribution-policy';
 import {
+  estimateGenerationSearchCap,
+  generationBudgetFor,
+  parsePlacementSearchPolicy,
+  type PlacementSearchPolicy,
+} from './ders-dagit.placement-search';
+import {
   inferDayDistribution,
   isValidDayDistribution,
   remainingPatternChunks,
+  distributionToPlacementHints,
 } from './ders-dagit.day-distribution';
+import { applyGenerateRelaxToContext } from './ders-dagit.generate-relax';
 import { placementPatternForAssignment } from './ders-dagit.solver-distribution';
 import { parseSchoolProfile, type MebSchoolType, type StudioSchoolProfile } from './ders-dagit.school-profile';
 import {
@@ -194,11 +203,14 @@ import {
 } from './ders-dagit.ttkb-seed';
 import { SchoolClass } from '../classes-subjects/entities/school-class.entity';
 import { SchoolSubject } from '../classes-subjects/entities/school-subject.entity';
-import { parseEokulImport, buildEokulImportTemplateXlsx } from './ders-dagit.eokul-import';
-import { parseAscTimetablesXml } from './ders-dagit.asc-import';
+import { parseEokulImport, buildEokulImportTemplateXlsx, type EokulAssignmentDraft } from './ders-dagit.eokul-import';
+import { parseAscTimetablesXml, type AscImportExtras, type AscRoomDraft } from './ders-dagit.asc-import';
+import { findTeacherByImportedName, resolveImportedTeacherIds, resolveImportedTeacherIdsWithAsc } from './ders-dagit.teacher-name-match';
+import { normalizeAvailabilityPeriods } from './ders-dagit-teacher-availability.settings';
 import {
   STUDIO_TRANSFER_VERSION,
   TRANSFER_FORMAT_CATALOG,
+  sniffTransferImportFormat,
   type StudioTransferPackageV1,
 } from './ders-dagit.studio-transfer';
 import {
@@ -2554,6 +2566,70 @@ export class DersDagitService {
     return parseDistributionPolicy(settings.distribution_policy);
   }
 
+  async getPlacementSearchPolicy(studioId: string, schoolId: string): Promise<PlacementSearchPolicy> {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const settings = (studio.settings ?? {}) as Record<string, unknown>;
+    return parsePlacementSearchPolicy(settings.placement_search);
+  }
+
+  async updatePlacementSearchPolicy(
+    studioId: string,
+    schoolId: string,
+    body: Partial<PlacementSearchPolicy>,
+  ): Promise<PlacementSearchPolicy> {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const settings = { ...(studio.settings ?? {}) } as Record<string, unknown>;
+    const prev = parsePlacementSearchPolicy(settings.placement_search);
+    settings.placement_search = parsePlacementSearchPolicy({ ...prev, ...body });
+    studio.settings = settings;
+    await this.studioRepo.save(studio);
+    return parsePlacementSearchPolicy(settings.placement_search);
+  }
+
+  /** Atanan saat kadar açık slot yoksa kapalı hücreleri otomatik açar. */
+  async syncSectionScheduleOpenSlots(studioId: string, schoolId: string) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
+    const school = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: ['duty_max_lessons'],
+    });
+    const settings = { ...(studio.settings ?? {}) } as Record<string, unknown>;
+    const period = parseStudioPeriod(settings.period);
+    const workDays = period.work_days?.length ? period.work_days : [1, 2, 3, 4, 5];
+    const profiles = await this.classProfileRepo.find({ where: { studio_id: studioId } });
+    let maxLesson = school?.duty_max_lessons ?? 8;
+    if (profiles.length) {
+      maxLesson = Math.max(maxLesson, ...profiles.map((p) => p.max_lessons_per_day));
+    }
+    const assignments = await this.assignmentRepo.find({ where: { studio_id: studioId } });
+    const r = syncSectionSchedulesOpenSlots({
+      section_schedules: parseSectionSchedules(settings.section_schedules),
+      assignments: assignments.map((a) => ({
+        weekly_hours: a.weekly_hours,
+        biweekly: a.biweekly,
+        class_sections: a.class_sections ?? [],
+      })),
+      work_days: workDays,
+      max_lesson_per_day: maxLesson,
+      period,
+      school_profile: parseSchoolProfile(settings.school_profile),
+      class_profiles: profiles,
+    });
+    if (r.opened_cells > 0 || r.pruned_cells > 0) {
+      settings.section_schedules = sectionSchedulesToJson(r.map);
+      studio.settings = settings;
+      await this.studioRepo.save(studio);
+    }
+    return {
+      opened_cells: r.opened_cells,
+      pruned_cells: r.pruned_cells,
+      sections_adjusted: r.sections_adjusted,
+    };
+  }
+
   async getSectionSchedules(studioId: string, schoolId: string) {
     const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
     if (!studio) throw new NotFoundException();
@@ -2975,6 +3051,8 @@ export class DersDagitService {
       versions?: number;
       use_csp?: boolean;
       priority?: 'coverage' | 'balanced' | 'fast';
+      /** Bu üretimde desen zorunluluğu ve stüdyo kurallarını gevşetir. */
+      relax_constraints?: boolean;
     },
   ) {
     // Okul hedefine göre çözücü ayarları (UI'daki teknik seçenekleri soyutlar).
@@ -2995,6 +3073,7 @@ export class DersDagitService {
         versions: 1,
       };
     }
+    await this.syncSectionScheduleOpenSlots(studioId, schoolId);
     const validationIssues = await this.runValidation(studioId);
     const errors = filterGenerateBlockingValidationIssues(validationIssues);
     const ruleSet = await this.ruleSetRepo.findOne({ where: { studio_id: studioId } });
@@ -3024,8 +3103,14 @@ export class DersDagitService {
     await this.purgeUnsavedGeneratedPrograms(studioId);
     const studioRow = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
     const genSettings = (studioRow?.settings ?? {}) as Record<string, unknown>;
-    const demoRelax = genSettings.demo_relax_strict_rules === true;
-    const solverCtx = await this.buildSolverContext(studioId, schoolId);
+    const placementSearch = parsePlacementSearchPolicy(genSettings.placement_search);
+    const searchBudget = generationBudgetFor(placementSearch.search_complexity);
+    const relaxGenerate = opts.relax_constraints === true;
+    const demoRelax = genSettings.demo_relax_strict_rules === true || relaxGenerate;
+    let solverCtx = await this.buildSolverContext(studioId, schoolId);
+    if (relaxGenerate) {
+      solverCtx = applyGenerateRelaxToContext(solverCtx);
+    }
     const assignments = await this.listAssignments(studioId);
     solverCtx.assignment_subjects = new Map(
       assignments.map((a) => [a.id, a.subject_id ?? null]),
@@ -3067,16 +3152,33 @@ export class DersDagitService {
     const durationSec = Math.max(
       enforcePattern ? 180 : 60,
       opts.duration_sec ?? 120,
+      searchBudget.minDurationSec,
     );
-    const budgetMsPerVersion = Math.max(
-      15_000,
-      Math.floor((durationSec * 1000) / Math.max(1, versionCount)),
+    const totalBudgetMs = Math.max(30_000, durationSec * 1000);
+    const genEndsAt = Date.now() + totalBudgetMs;
+    const msLeft = () => Math.max(0, genEndsAt - Date.now());
+    const patternRetryMax = enforcePattern ? searchBudget.patternRetryMax : 0;
+    const searchCapEstimate = estimateGenerationSearchCap(
+      placementSearch.search_complexity,
+      targetSlots,
+      durationSec,
     );
+    const dutyRetryMax = 2;
+    let passesLeft =
+      1 + patternRetryMax + dutyRetryMax + Math.max(0, versionCount - 1);
+    const allocSolveBudget = (): number => {
+      const left = msLeft();
+      if (left < 8_000 || passesLeft < 1) return 0;
+      return Math.max(8_000, Math.floor(left / passesLeft));
+    };
     const solvePriority =
       enforcePattern && priority === 'balanced' ? 'coverage' : priority;
     const cspMaxNodes = Math.min(
-      enforcePattern ? 320_000 : 180_000,
-      Math.max(30_000, Math.round(targetSlots * (enforcePattern ? 320 : 240))),
+      searchBudget.cspMaxNodesCap,
+      Math.max(
+        30_000,
+        Math.round(targetSlots * searchBudget.cspPerSlot * (enforcePattern ? 1.25 : 1)),
+      ),
     );
     const solveOnce = (ctx: SolverContext, budgetMs: number) => {
       const useCsp =
@@ -3091,9 +3193,25 @@ export class DersDagitService {
         deadline_ms: budgetMs,
         priority: solvePriority,
         seed,
+        search_complexity: placementSearch.search_complexity,
       });
     };
-    let bestRun = solveOnce(solverCtx, budgetMsPerVersion);
+    type SolveRun = ReturnType<typeof runAscLikeSearch>;
+    const solveTimed = (ctx: SolverContext): SolveRun | null => {
+      const budgetMs = allocSolveBudget();
+      passesLeft = Math.max(0, passesLeft - 1);
+      if (!budgetMs) return null;
+      return solveOnce(ctx, budgetMs);
+    };
+    const firstRun = solveTimed(solverCtx);
+    if (!firstRun) {
+      await this.jobRepo.update(job.id, { status: 'failed', finished_at: new Date() });
+      throw new BadRequestException({
+        code: 'GENERATION_TIMEOUT',
+        message: 'Üretim süresi yetersiz — süreyi artırın veya önceliği Hızlı seçin.',
+      });
+    }
+    let bestRun: SolveRun = firstRun;
     let bestResult = bestRun.result;
     if (enforcePattern) {
       const orders: Array<NonNullable<SolverContext['assignment_order']>> = [
@@ -3102,15 +3220,13 @@ export class DersDagitService {
         'fewest_slots',
         'default',
       ];
-      for (let att = 0; att < 8 && bestResult.failed > 0; att++) {
-        const run = solveOnce(
-          {
-            ...solverCtx,
-            day_order: [...baseDays].sort(() => Math.random() - 0.5),
-            assignment_order: orders[att % orders.length],
-          },
-          budgetMsPerVersion,
-        );
+      for (let att = 0; att < patternRetryMax && bestResult.failed > 0 && msLeft() >= 8_000; att++) {
+        const run = solveTimed({
+          ...solverCtx,
+          day_order: [...baseDays].sort(() => Math.random() - 0.5),
+          assignment_order: orders[att % orders.length],
+        });
+        if (!run) break;
         if (run.result.failed < bestResult.failed || run.result.score > bestResult.score) {
           bestRun = run;
           bestResult = run.result;
@@ -3125,12 +3241,14 @@ export class DersDagitService {
         user_id: u.user_id!,
       }));
     let dutyConflicts = findDutyPlacementConflicts(bestResult.entries, dutySlots);
-    for (let retry = 0; retry < 2 && dutyConflicts.length; retry++) {
-      bestRun = solveOnce(
-        { ...solverCtx, day_order: [...baseDays].sort(() => Math.random() - 0.5) },
-        budgetMsPerVersion,
-      );
-      bestResult = bestRun.result;
+    for (let retry = 0; retry < dutyRetryMax && dutyConflicts.length && msLeft() >= 8_000; retry++) {
+      const run = solveTimed({
+        ...solverCtx,
+        day_order: [...baseDays].sort(() => Math.random() - 0.5),
+      });
+      if (!run) break;
+      bestRun = run;
+      bestResult = run.result;
       dutyConflicts = findDutyPlacementConflicts(bestResult.entries, dutySlots);
     }
     if (dutyConflicts.length) {
@@ -3160,17 +3278,15 @@ export class DersDagitService {
       'fewest_slots',
     ];
     for (let v = 0; v < versionCount; v++) {
-      const run =
-        versionCount === 1
-          ? bestRun
-          : solveOnce(
-              {
-                ...solverCtx,
-                day_order: [...baseDays].sort(() => Math.random() - 0.5),
-                assignment_order: versionStrategies[v % versionStrategies.length],
-              },
-              budgetMsPerVersion,
-            );
+      let run: SolveRun = bestRun;
+      if (versionCount > 1) {
+        const extra = solveTimed({
+          ...solverCtx,
+          day_order: [...baseDays].sort(() => Math.random() - 0.5),
+          assignment_order: versionStrategies[v % versionStrategies.length],
+        });
+        if (extra) run = extra;
+      }
       const result = run.result;
       const versionCheck = applySoftRulePenalties(result.entries, solverInput, solverCtx);
       if (versionCheck.strict_violations.length && !demoRelax && result.entries.length === 0) continue;
@@ -3347,6 +3463,9 @@ export class DersDagitService {
       violation_links: linkGenerationViolations(bestResult.violations.slice(0, 30)),
       score_breakdown: scoreBreakdown,
       unplaced_report,
+      search_complexity: placementSearch.search_complexity,
+      search_iterations: bestRun.meta.iterations,
+      search_cap_estimate: searchCapEstimate,
     };
   }
 
@@ -6018,18 +6137,518 @@ export class DersDagitService {
     tc: string | null,
     name: string | null,
   ): { user_id: string | null; warning?: string } {
-    if (tc) {
-      const hit = teachers.find((u) => u.evrakDefaults?.yolluk_teacher?.tc_kimlik === tc);
-      if (hit) return { user_id: hit.id };
-      return { user_id: null, warning: `TC eşleşmedi: ${tc}` };
+    const names = name?.trim() ? [name.trim()] : [];
+    const { user_ids, warnings } = resolveImportedTeacherIds(teachers, tc, names);
+    return {
+      user_id: user_ids[0] ?? null,
+      warning: warnings[0],
+    };
+  }
+
+  private async findOrCreateBuildingByName(schoolId: string, name: string) {
+    const trimmed = name.trim();
+    const existing = await this.buildingRepo.find({ where: { school_id: schoolId } });
+    const hit = existing.find((b) => b.name.toLocaleLowerCase('tr-TR') === trimmed.toLocaleLowerCase('tr-TR'));
+    if (hit) return hit;
+    return this.upsertBuilding(schoolId, { name: trimmed });
+  }
+
+  private async findOrCreateRoomFromAsc(schoolId: string, draft: AscRoomDraft, buildingId: string | null) {
+    const existing = await this.roomRepo.find({ where: { school_id: schoolId } });
+    const hit = existing.find((r) => r.name.toLocaleLowerCase('tr-TR') === draft.name.toLocaleLowerCase('tr-TR'));
+    if (hit) {
+      const patch: Partial<DersDagitRoom> = {};
+      if (buildingId && !hit.building_id) patch.building_id = buildingId;
+      if (draft.capacity != null && hit.capacity == null) patch.capacity = draft.capacity;
+      if (Object.keys(patch).length) return this.roomRepo.save({ ...hit, ...patch });
+      return hit;
     }
-    if (name?.trim()) {
-      const norm = name.trim().toLocaleUpperCase('tr-TR');
-      const hit = teachers.find((u) => (u.display_name ?? '').trim().toLocaleUpperCase('tr-TR') === norm);
-      if (hit) return { user_id: hit.id };
-      return { user_id: null, warning: `Öğretmen adı eşleşmedi: ${name}` };
+    return this.upsertRoom(schoolId, {
+      name: draft.name,
+      building_id: buildingId,
+      capacity: draft.capacity ?? null,
+      features: [],
+    });
+  }
+
+  private findSectionScheduleKey(map: Map<string, SectionScheduleConfig>, sectionName: string): string {
+    if (map.has(sectionName)) return sectionName;
+    for (const k of map.keys()) {
+      if (sectionsEquivalent(k, sectionName)) return k;
     }
-    return { user_id: null };
+    return sectionName;
+  }
+
+  private async ensureTeacherConfig(studioId: string, userId: string) {
+    let cfg = await this.teacherConfigRepo.findOne({ where: { studio_id: studioId, user_id: userId } });
+    if (!cfg) {
+      cfg = await this.teacherConfigRepo.save({ studio_id: studioId, user_id: userId, constraints: {} });
+    }
+    return cfg;
+  }
+
+  private async applyAscImportInfrastructure(
+    studioId: string,
+    schoolId: string,
+    asc: AscImportExtras,
+    teachers: User[],
+    replace: boolean,
+    usedGroupAscIds: Set<string>,
+    assignmentSections: string[] = [],
+  ): Promise<{ roomIdByAsc: Map<string, string>; groupIdByAsc: Map<string, string>; profiles_created: number }> {
+    const roomIdByAsc = new Map<string, string>();
+    const groupIdByAsc = new Map<string, string>();
+    const buildingIdByAsc = new Map<string, string>();
+
+    for (const b of asc.buildings) {
+      const row = await this.findOrCreateBuildingByName(schoolId, b.name);
+      buildingIdByAsc.set(b.asc_id, row.id);
+    }
+
+    for (const r of asc.rooms) {
+      const buildingId =
+        (r.building_asc_id && buildingIdByAsc.get(r.building_asc_id)) ||
+        (r.building_name ? (await this.findOrCreateBuildingByName(schoolId, r.building_name)).id : null);
+      const row = await this.findOrCreateRoomFromAsc(schoolId, r, buildingId ?? null);
+      roomIdByAsc.set(r.asc_id, row.id);
+    }
+
+    for (const c of asc.classes) {
+      for (const rid of c.classroom_asc_ids) {
+        const roomUuid = roomIdByAsc.get(rid);
+        if (!roomUuid) continue;
+        const room = await this.roomRepo.findOne({ where: { id: roomUuid, school_id: schoolId } });
+        if (!room) continue;
+        const allowed = [...new Set([...(room.allowed_class_sections ?? []), c.name])];
+        await this.roomRepo.save({ ...room, allowed_class_sections: allowed });
+      }
+    }
+
+    for (const tName of Object.values(asc.teacher_by_id)) {
+      const user = findTeacherByImportedName(teachers, tName);
+      if (user) await this.ensureTeacherConfig(studioId, user.id);
+    }
+    for (const ascId of Object.keys(asc.teacher_match_names ?? {})) {
+      const user = this.findTeacherByAscMeta(teachers, ascId, asc);
+      if (user) await this.ensureTeacherConfig(studioId, user.id);
+    }
+
+    const existingGroups = await this.groupRepo.find({ where: { studio_id: studioId } });
+    const groupByAsc = new Map(existingGroups.map((g) => [g.name, g]));
+    for (const g of asc.groups) {
+      if (!usedGroupAscIds.has(g.asc_id)) continue;
+      const memberSection = asc.class_by_id[g.class_asc_id];
+      if (!memberSection) continue;
+      const displayName =
+        g.entire_class && /bütün|butun|tüm|tum/i.test(g.name) ? memberSection : `${memberSection} · ${g.name}`;
+      const saved = await this.upsertGroup(studioId, {
+        name: displayName,
+        abbreviation: displayName.replace(/\s+/g, '').slice(0, 8),
+        member_sections: [memberSection],
+        parallel_mode: g.entire_class ? 'teacher_multi_class' : 'subgroups',
+      });
+      groupIdByAsc.set(g.asc_id, saved.id);
+      groupByAsc.set(displayName, saved);
+    }
+
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (studio) {
+      const settings = { ...(studio.settings ?? {}) } as Record<string, unknown>;
+      const schedMap = new Map<string, SectionScheduleConfig>();
+      for (const c of asc.classes) {
+        schedMap.set(c.name, { lessons_per_day_by_dow: {}, cells: {} });
+      }
+
+      if (asc.timeoffs.length) {
+        const teacherPeriods = new Map<string, Array<{ day_of_week: number; lesson_num?: number }>>();
+        for (const to of asc.timeoffs) {
+          if (to.entity === 'teacher') {
+            const tName = asc.teacher_by_id[to.asc_id];
+            if (!tName) continue;
+            const user = this.findTeacherByAscMeta(teachers, to.asc_id, asc) ?? findTeacherByImportedName(teachers, tName);
+            if (!user) continue;
+            await this.ensureTeacherConfig(studioId, user.id);
+            const arr = teacherPeriods.get(user.id) ?? [];
+            if (to.lesson_num) {
+              arr.push({ day_of_week: to.day_of_week, lesson_num: to.lesson_num });
+            } else {
+              for (let l = 1; l <= 14; l++) arr.push({ day_of_week: to.day_of_week, lesson_num: l });
+            }
+            teacherPeriods.set(user.id, arr);
+          } else if (to.entity === 'class') {
+            const secRaw = asc.class_by_id[to.asc_id];
+            if (!secRaw) continue;
+            const secKey = this.findSectionScheduleKey(schedMap, secRaw);
+            const sched = schedMap.get(secKey) ?? { lessons_per_day_by_dow: {}, cells: {} };
+            const cells = { ...(sched.cells ?? {}) };
+            if (to.lesson_num) {
+              cells[`${to.day_of_week}:${to.lesson_num}`] = 'closed';
+            } else {
+              for (let l = 1; l <= 14; l++) cells[`${to.day_of_week}:${l}`] = 'closed';
+            }
+            schedMap.set(secKey, { ...sched, cells });
+          }
+        }
+        for (const [userId, periods] of teacherPeriods) {
+          const cfg = await this.teacherConfigRepo.findOne({ where: { studio_id: studioId, user_id: userId } });
+          if (!cfg) continue;
+          const merged = normalizeAvailabilityPeriods([...(cfg.unavailable_periods ?? []), ...periods]);
+          await this.teacherConfigRepo.save({ ...cfg, unavailable_periods: merged });
+        }
+      }
+
+      const period = parseStudioPeriod(settings.period);
+      const workDays = period.work_days?.length ? period.work_days : [1, 2, 3, 4, 5];
+      this.applyAscSectionScheduleCaps(schedMap, asc, workDays);
+
+      settings.section_schedules = sectionSchedulesToJson(schedMap);
+      studio.settings = settings;
+      await this.studioRepo.save(studio);
+    }
+
+    const profiles_created = await this.ensureClassProfilesFromAscImport(
+      studioId,
+      schoolId,
+      asc,
+      assignmentSections ?? [],
+    );
+    if (profiles_created) {
+      this.sectionPoolCache.delete(`${studioId}:${schoolId}`);
+      this.invalidateValidationResultCache(studioId);
+    }
+
+    return { roomIdByAsc, groupIdByAsc, profiles_created };
+  }
+
+  /** aSc `<class>` ve atama şubelerinden kurulum profili (1 şube = 1 profil). */
+  private async ensureClassProfilesFromAscImport(
+    studioId: string,
+    schoolId: string,
+    asc: AscImportExtras,
+    assignmentSections: string[],
+  ): Promise<number> {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) return 0;
+
+    const schoolType = parseSchoolProfile((studio.settings ?? {}).school_profile).type as MebSchoolType;
+    const school = await this.schoolRepo.findOne({ where: { id: schoolId }, select: ['duty_max_lessons'] });
+    const dutyMax = school?.duty_max_lessons ?? null;
+    const maxDayDefault = defaultMaxLessonsPerDay(schoolType, dutyMax);
+
+    const sectionNames = sortClassSections(
+      [...new Set([
+        ...asc.classes.map((c) => c.name.trim()).filter(Boolean),
+        ...assignmentSections.map((s) => s.trim()).filter(Boolean),
+      ])].filter((s) => s && s !== 'Genel'),
+    );
+    if (!sectionNames.length) return 0;
+
+    const existing = await this.classProfileRepo.find({ where: { studio_id: studioId } });
+    const covered = new Set<string>();
+    for (const p of existing) {
+      for (const s of p.class_sections ?? []) {
+        if (s?.trim()) covered.add(s.trim());
+      }
+    }
+
+    let created = 0;
+    let sortOrder =
+      existing.reduce((m, p) => Math.max(m, p.sort_order ?? 0), -1) + 1;
+    const newSections: string[] = [];
+
+    for (const sec of sectionNames) {
+      if ([...covered].some((x) => sectionsEquivalent(x, sec))) continue;
+      const fromAsc = asc.section_weekly_hours?.[sec];
+      const weeklyExpected =
+        fromAsc && fromAsc > 0 ? fromAsc : expectedWeeklyHoursForSections([sec], schoolType);
+      const maxDayFromHours = Math.min(
+        maxDayDefault,
+        Math.max(1, Math.ceil(weeklyExpected / 5)),
+      );
+      await this.classProfileRepo.save({
+        studio_id: studioId,
+        name: sec,
+        class_sections: [sec],
+        max_lessons_per_day: maxDayFromHours,
+        max_weekly_lessons: weeklyExpected,
+        min_weekly_lessons: Math.max(1, weeklyExpected - 4),
+        internship_days: [],
+        sort_order: sortOrder++,
+      });
+      covered.add(sec);
+      newSections.push(sec);
+      created++;
+    }
+
+    if (newSections.length) {
+      await this.applyProfileToSectionSchedules(studio, newSections);
+    }
+    return created;
+  }
+
+  private resolveAscTeacherNames(a: { teacher_name?: string | null; teacher_names?: string[] }): string[] {
+    if (a.teacher_names?.length) return a.teacher_names.map((n) => n.trim()).filter(Boolean);
+    return a.teacher_name?.trim() ? [a.teacher_name.trim()] : [];
+  }
+
+  private resolveAscTeacherIds(
+    teachers: User[],
+    a: {
+      teacher_tc?: string | null;
+      teacher_name?: string | null;
+      teacher_names?: string[];
+      teacher_asc_ids?: string[];
+    },
+    asc: AscImportExtras,
+  ) {
+    return resolveImportedTeacherIdsWithAsc(
+      teachers,
+      a.teacher_tc ?? null,
+      this.resolveAscTeacherNames(a),
+      a.teacher_asc_ids ?? [],
+      asc.teacher_match_names ?? {},
+    );
+  }
+
+  private findTeacherByAscMeta(
+    teachers: User[],
+    ascId: string,
+    asc: AscImportExtras,
+  ): User | null {
+    for (const name of asc.teacher_match_names?.[ascId] ?? []) {
+      const hit = findTeacherByImportedName(teachers, name);
+      if (hit) return hit;
+    }
+    const fallback = asc.teacher_by_id[ascId];
+    return fallback ? findTeacherByImportedName(teachers, fallback) : null;
+  }
+
+  private async clearStudioProgramsForImport(studioId: string) {
+    const progs = await this.programRepo.find({ where: { studio_id: studioId }, select: ['id'] });
+    if (!progs.length) return;
+    await this.programEntryRepo.delete({ program_id: In(progs.map((p) => p.id)) });
+    await this.programRepo.delete({ studio_id: studioId });
+  }
+
+  private async clearStudioForTransferImport(
+    studioId: string,
+    schoolId: string,
+    opts?: { deleteRooms?: boolean },
+  ) {
+    await this.clearStudioProgramsForImport(studioId);
+    await this.clearStudioAssignmentsForImport(studioId, { subjects: true });
+    await this.groupRepo.delete({ studio_id: studioId });
+    await this.electivePoolRepo.delete({ studio_id: studioId });
+    await this.classProfileRepo.delete({ studio_id: studioId });
+    await this.preferenceRepo.delete({ studio_id: studioId });
+    await this.requestRepo.delete({ studio_id: studioId });
+    await this.jobRepo.delete({ studio_id: studioId });
+    const configs = await this.teacherConfigRepo.find({ where: { studio_id: studioId } });
+    for (const cfg of configs) {
+      await this.teacherConfigRepo.save({ ...cfg, unavailable_periods: [] });
+    }
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (studio) {
+      const settings = { ...(studio.settings ?? {}) } as Record<string, unknown>;
+      settings.section_schedules = {};
+      settings.excluded_class_sections = [];
+      studio.settings = settings;
+      await this.studioRepo.save(studio);
+    }
+    if (opts?.deleteRooms) {
+      await this.deleteAllRooms(schoolId);
+    }
+    this.sectionPoolCache.delete(`${studioId}:${schoolId}`);
+    this.invalidateValidationResultCache(studioId);
+  }
+
+  /** @deprecated use clearStudioForTransferImport */
+  private async clearStudioForAscImport(studioId: string, schoolId: string) {
+    await this.clearStudioForTransferImport(studioId, schoolId, { deleteRooms: true });
+  }
+
+  /** aSc şube slotları: timeoff sonrası ders sırası üst sınırı + günlük tavan */
+  private applyAscSectionScheduleCaps(
+    schedMap: Map<string, SectionScheduleConfig>,
+    asc: AscImportExtras,
+    workDays: number[] = [1, 2, 3, 4, 5],
+  ) {
+    const maxPeriod = Math.max(1, Math.min(14, asc.max_period_count || 8));
+    const allSections = sortClassSections([
+      ...asc.classes.map((c) => c.name),
+      ...Object.keys(asc.section_weekly_hours ?? {}),
+    ]);
+    for (const secRaw of allSections) {
+      const secKey = this.findSectionScheduleKey(schedMap, secRaw);
+      const sched = schedMap.get(secKey) ?? { lessons_per_day_by_dow: {}, cells: {} };
+      const cells = { ...(sched.cells ?? {}) };
+      for (const d of [1, 2, 3, 4, 5, 6, 7]) {
+        for (let l = maxPeriod + 1; l <= 14; l++) {
+          cells[`${d}:${l}`] = 'closed';
+        }
+      }
+      const weekly = asc.section_weekly_hours?.[secRaw] ?? asc.section_weekly_hours?.[secKey] ?? 0;
+      const lessons_per_day_by_dow = { ...(sched.lessons_per_day_by_dow ?? {}) };
+      if (weekly > 0) {
+        const perDay = Math.min(maxPeriod, Math.max(1, Math.ceil(weekly / Math.max(1, workDays.length))));
+        for (const d of workDays) {
+          lessons_per_day_by_dow[String(d)] = perDay;
+        }
+      }
+      schedMap.set(secKey, {
+        ...sched,
+        lessons_per_day_by_dow,
+        cells: Object.keys(cells).length ? cells : undefined,
+      });
+    }
+  }
+
+  private async ensureSubjectsFromAscCatalog(studioId: string, subjectById: Record<string, string>) {
+    for (const name of Object.values(subjectById)) {
+      const trimmed = name.trim();
+      if (!trimmed) continue;
+      await this.upsertSubject(studioId, { name: trimmed, is_elective: false, class_hours: {} });
+    }
+  }
+
+  private async clearStudioAssignmentsForImport(studioId: string, opts?: { subjects?: boolean }) {
+    const existing = await this.assignmentRepo.find({ where: { studio_id: studioId }, select: ['id'] });
+    if (existing.length) {
+      await this.assignmentTeacherRepo.delete({ assignment_id: In(existing.map((a) => a.id)) });
+      await this.assignmentRepo.delete({ studio_id: studioId });
+    }
+    if (opts?.subjects) {
+      await this.subjectRepo.delete({ studio_id: studioId });
+    }
+    this.invalidateValidationResultCache(studioId);
+  }
+
+  private async ensureSubjectsForImportedNames(
+    studioId: string,
+    rows: Array<{ subject_name: string; class_sections: string[]; weekly_hours: number }>,
+  ) {
+    const existing = await this.subjectRepo.find({ where: { studio_id: studioId } });
+    const byName = new Map(existing.map((s) => [s.name.toLocaleLowerCase('tr-TR'), s]));
+    for (const row of rows) {
+      const name = row.subject_name.trim();
+      if (!name) continue;
+      const key = name.toLocaleLowerCase('tr-TR');
+      if (byName.has(key)) continue;
+      const class_hours: Record<string, number> = {};
+      for (const sec of row.class_sections ?? []) {
+        const t = sec.trim();
+        if (t) class_hours[t] = row.weekly_hours;
+      }
+      const sub = await this.upsertSubject(studioId, {
+        name,
+        is_elective: false,
+        class_hours,
+      });
+      byName.set(key, sub);
+    }
+    const assignments = await this.assignmentRepo.find({ where: { studio_id: studioId } });
+    for (const a of assignments) {
+      if (a.subject_id) continue;
+      const key = (a.subject_name ?? '').toLocaleLowerCase('tr-TR');
+      const sub = byName.get(key);
+      if (sub) await this.assignmentRepo.save({ ...a, subject_id: sub.id });
+    }
+  }
+
+  private async persistImportedAssignmentRows(
+    studioId: string,
+    rows: Array<
+      EokulAssignmentDraft & {
+        resolved_teacher_ids?: string[];
+        resolved_teacher_id?: string | null;
+        room_asc_ids?: string[];
+        group_asc_id?: string | null;
+        day_distribution?: number[];
+        periods_per_card?: number;
+      }
+    >,
+    roomIdByAsc?: Map<string, string>,
+    groupIdByAsc?: Map<string, string>,
+  ): Promise<number> {
+    const merge = new Map<
+      string,
+      {
+        subject_name: string;
+        class_sections: string[];
+        weekly_hours: number;
+        teacher_ids: string[];
+        room_ids: string[];
+        group_id?: string | null;
+        day_distribution?: number[];
+        periods_per_card?: number;
+      }
+    >();
+    for (const r of rows) {
+      const secs = sortClassSections(r.class_sections).join(',');
+      const teacherIds =
+        r.resolved_teacher_ids ??
+        (r.resolved_teacher_id ? [r.resolved_teacher_id] : []);
+      const roomIds = [...new Set((r.room_asc_ids ?? []).map((id) => roomIdByAsc?.get(id)).filter(Boolean))] as string[];
+      const groupId = r.group_asc_id ? (groupIdByAsc?.get(r.group_asc_id) ?? null) : null;
+      const tid = teacherIds.join('|');
+      const rid = roomIds.join('|');
+      const gid = groupId ?? '';
+      const k = `${r.subject_name}\0${secs}\0${tid}\0${rid}\0${gid}`;
+      const prev = merge.get(k);
+      if (prev) {
+        prev.weekly_hours = Math.max(prev.weekly_hours, r.weekly_hours);
+        if (r.day_distribution?.length) {
+          prev.day_distribution = [...(prev.day_distribution ?? []), ...r.day_distribution];
+          prev.weekly_hours = prev.day_distribution.reduce((s, n) => s + n, 0);
+        }
+        prev.periods_per_card = Math.max(prev.periods_per_card ?? 1, r.periods_per_card ?? 1);
+      } else {
+        merge.set(k, {
+          subject_name: r.subject_name,
+          class_sections: r.class_sections,
+          weekly_hours: r.weekly_hours,
+          teacher_ids: teacherIds,
+          room_ids: roomIds,
+          group_id: groupId,
+          day_distribution: r.day_distribution,
+          periods_per_card: r.periods_per_card,
+        });
+      }
+    }
+    let imported = 0;
+    for (const row of merge.values()) {
+      const dist =
+        row.day_distribution?.length &&
+        isValidDayDistribution(row.day_distribution, row.weekly_hours)
+          ? row.day_distribution
+          : null;
+      const hints = dist ? distributionToPlacementHints(dist) : null;
+      const blockLessons = hints?.block_lessons ?? (row.periods_per_card && row.periods_per_card >= 2 ? row.periods_per_card : 0);
+      await this.upsertAssignment(
+        studioId,
+        {
+          subject_name: row.subject_name,
+          class_sections: row.class_sections,
+          weekly_hours: row.weekly_hours,
+          teacher_ids: row.teacher_ids,
+          max_per_day: hints?.max_per_day ?? Math.min(6, row.weekly_hours),
+          min_days_per_week: hints?.min_days_per_week ?? defaultMinDaysFromWeeklyHours(row.weekly_hours),
+          room_ids: row.room_ids,
+          group_id: row.group_id ?? undefined,
+          options:
+            dist || blockLessons >= 2
+              ? {
+                  ...(dist ? { day_distribution: dist } : {}),
+                  ...(blockLessons >= 2 ? { block_lessons: blockLessons } : {}),
+                }
+              : undefined,
+        },
+        { skip_capacity_check: true },
+      );
+      imported++;
+    }
+    await this.ensureSubjectsForImportedNames(studioId, [...merge.values()]);
+    return imported;
   }
 
   /** Faz 34 — e-Okul önizleme */
@@ -6041,14 +6660,18 @@ export class DersDagitService {
     const parsed = parseEokulImport({ csv: body.csv, buffer, format: body.format ?? 'auto' });
     const teachers = await this.listSchoolTeachers(schoolId);
     const rows = parsed.assignments.map((a) => {
-      const match = this.resolveEokulTeacher(teachers, a.teacher_tc, a.teacher_name);
+      const names = a.teacher_name?.trim() ? [a.teacher_name.trim()] : [];
+      const resolved = resolveImportedTeacherIds(teachers, a.teacher_tc, names);
       return {
         ...a,
-        resolved_teacher_id: match.user_id,
-        match_warning: match.warning ?? null,
+        resolved_teacher_id: resolved.user_ids[0] ?? null,
+        resolved_teacher_ids: resolved.user_ids,
+        match_warning: resolved.warnings[0] ?? null,
       };
     });
-    const unmatched = rows.filter((r) => (r.teacher_tc || r.teacher_name) && !r.resolved_teacher_id).length;
+    const unmatched = rows.filter(
+      (r) => (r.teacher_tc || r.teacher_name) && !(r.resolved_teacher_ids?.length || r.resolved_teacher_id),
+    ).length;
     if (unmatched > 0) {
       parsed.warnings.push({
         code: 'TEACHER_UNMATCHED',
@@ -6079,46 +6702,9 @@ export class DersDagitService {
       throw new BadRequestException({ code: 'EOKUL_EMPTY', message: 'İçe aktarılacak atama yok.', warnings: preview.warnings });
     }
     if (body.replace) {
-      const existing = await this.assignmentRepo.find({ where: { studio_id: studioId }, select: ['id'] });
-      if (existing.length) {
-        await this.assignmentTeacherRepo.delete({ assignment_id: In(existing.map((a) => a.id)) });
-        await this.assignmentRepo.delete({ studio_id: studioId });
-      }
+      await this.clearStudioAssignmentsForImport(studioId, { subjects: true });
     }
-    const merge = new Map<
-      string,
-      { subject_name: string; class_sections: string[]; weekly_hours: number; teacher_ids: string[] }
-    >();
-    for (const r of preview.rows) {
-      const secs = sortClassSections(r.class_sections).join(',');
-      const tid = r.resolved_teacher_id ?? '';
-      const k = `${r.subject_name}\0${secs}\0${tid}`;
-      const prev = merge.get(k);
-      if (prev) {
-        prev.weekly_hours = Math.max(prev.weekly_hours, r.weekly_hours);
-      } else {
-        merge.set(k, {
-          subject_name: r.subject_name,
-          class_sections: r.class_sections,
-          weekly_hours: r.weekly_hours,
-          teacher_ids: r.resolved_teacher_id ? [r.resolved_teacher_id] : [],
-        });
-      }
-    }
-    const created: DersDagitAssignment[] = [];
-    for (const row of merge.values()) {
-      created.push(
-        await this.upsertAssignment(studioId, {
-          subject_name: row.subject_name,
-          class_sections: row.class_sections,
-          weekly_hours: row.weekly_hours,
-          teacher_ids: row.teacher_ids,
-          max_per_day: Math.min(6, row.weekly_hours),
-          min_days_per_week: defaultMinDaysFromWeeklyHours(row.weekly_hours),
-          room_ids: [],
-        }),
-      );
-    }
+    const imported = await this.persistImportedAssignmentRows(studioId, preview.rows);
     let elective_pools_created = 0;
     if (body.auto_elective_groups) {
       const pools = await this.ensureElectivePoolsFromImport(studioId, preview.rows);
@@ -6127,12 +6713,12 @@ export class DersDagitService {
     }
     await this.audit(studioId, userId, 'assignments.imported_eokul', {
       format: preview.format,
-      count: created.length,
+      count: imported,
       replace: !!body.replace,
       elective_pools: elective_pools_created,
     });
     return {
-      imported: created.length,
+      imported,
       format: preview.format,
       warnings: preview.warnings,
       rows_previewed: preview.rows.length,
@@ -6245,23 +6831,66 @@ export class DersDagitService {
       throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'Dosya gerekli.' });
     }
     const buffer = Buffer.from(body.file_base64, 'base64');
-    if (body.format === 'asc_xml') {
+    const sniffed = sniffTransferImportFormat(buffer);
+    const format =
+      sniffed && sniffed !== body.format && body.format === 'eokul_excel' ? sniffed : body.format;
+    const formatAutoCorrected = sniffed != null && format !== body.format;
+    if (format === 'asc_xml') {
       const parsed = parseAscTimetablesXml(buffer);
       const teachers = await this.listSchoolTeachers(schoolId);
       const rows = parsed.assignments.map((a) => {
-        const match = this.resolveEokulTeacher(teachers, a.teacher_tc, a.teacher_name);
-        return { ...a, resolved_teacher_id: match.user_id, match_warning: match.warning ?? null };
+        const resolved = this.resolveAscTeacherIds(teachers, a, parsed.asc);
+        return {
+          ...a,
+          resolved_teacher_id: resolved.user_ids[0] ?? null,
+          resolved_teacher_ids: resolved.user_ids,
+          match_warning: resolved.warnings[0] ?? null,
+        };
       });
-      return { kind: 'assignments', ...parsed, rows, teacher_pool_size: teachers.length };
+      const unmatched = rows.filter((r) => {
+        const a = r as typeof parsed.assignments[number] & typeof r;
+        return (
+          (a.teacher_tc ||
+            this.resolveAscTeacherNames(a).length ||
+            (a.teacher_asc_ids?.length ?? 0) > 0) &&
+          !(r.resolved_teacher_ids?.length || r.resolved_teacher_id)
+        );
+      }).length;
+      if (unmatched > 0) {
+        parsed.warnings.push({
+          code: 'TEACHER_UNMATCHED',
+          message: `${unmatched} satırda öğretmen okul listesiyle eşleşmedi.`,
+        });
+      }
+      return {
+        kind: 'assignments',
+        ...parsed,
+        rows,
+        teacher_pool_size: teachers.length,
+        asc_meta: {
+          buildings: parsed.asc.buildings.length,
+          rooms: parsed.asc.rooms.length,
+          classes: parsed.asc.classes.length,
+          groups: parsed.asc.groups.length,
+          timeoffs: parsed.asc.timeoffs.length,
+        },
+        detected_format: sniffed,
+        format_auto_corrected: formatAutoCorrected,
+      };
     }
-    if (body.format === 'eokul_excel') {
+    if (format === 'eokul_excel') {
       const preview = await this.previewEokulImport(schoolId, {
         file_base64: body.file_base64,
         format: body.eokul_format ?? 'auto',
       });
-      return { kind: 'assignments', ...preview };
+      return {
+        kind: 'assignments',
+        ...preview,
+        detected_format: sniffed,
+        format_auto_corrected: formatAutoCorrected,
+      };
     }
-    if (body.format === 'ogretmenpro_json') {
+    if (format === 'ogretmenpro_json') {
       let pkg: StudioTransferPackageV1;
       try {
         pkg = JSON.parse(buffer.toString('utf8')) as StudioTransferPackageV1;
@@ -6284,6 +6913,8 @@ export class DersDagitService {
         groups: pkg.groups?.length ?? 0,
         elective_pools: pkg.elective_pools?.length ?? 0,
         warnings: [] as { code: string; message: string }[],
+        detected_format: sniffed,
+        format_auto_corrected: formatAutoCorrected,
       };
     }
     throw new BadRequestException({ code: 'FORMAT_UNSUPPORTED', message: 'Bu içe aktarma türü desteklenmiyor.' });
@@ -6305,16 +6936,26 @@ export class DersDagitService {
     if (!body.file_base64?.trim()) {
       throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'Dosya gerekli.' });
     }
-    if (body.format === 'eokul_excel') {
+    const buffer = Buffer.from(body.file_base64, 'base64');
+    const sniffed = sniffTransferImportFormat(buffer);
+    const format =
+      sniffed && sniffed !== body.format && body.format === 'eokul_excel' ? sniffed : body.format;
+
+    await this.clearStudioForTransferImport(studioId, schoolId, {
+      deleteRooms: format === 'asc_xml',
+    });
+
+    if (format === 'eokul_excel') {
       const r = await this.importEokulAssignments(studioId, schoolId, userId, {
         file_base64: body.file_base64,
         format: body.eokul_format ?? 'auto',
-        replace: body.replace,
+        replace: false,
         auto_elective_groups: body.auto_elective_groups,
       });
-      return { kind: 'assignments', ...r };
+      await this.syncSectionScheduleOpenSlots(studioId, schoolId);
+      return { kind: 'assignments', ...r, replace: true, format_auto_corrected: sniffed != null && format !== body.format };
     }
-    if (body.format === 'ogretmenpro_json') {
+    if (format === 'ogretmenpro_json') {
       const buffer = Buffer.from(body.file_base64, 'base64');
       let pkg: StudioTransferPackageV1;
       try {
@@ -6327,17 +6968,6 @@ export class DersDagitService {
       }
       const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
       if (!studio) throw new NotFoundException();
-      if (body.replace) {
-        await this.assignmentTeacherRepo.delete({
-          assignment_id: In(
-            (await this.assignmentRepo.find({ where: { studio_id: studioId }, select: ['id'] })).map((a) => a.id),
-          ),
-        });
-        await this.assignmentRepo.delete({ studio_id: studioId });
-        await this.subjectRepo.delete({ studio_id: studioId });
-        await this.groupRepo.delete({ studio_id: studioId });
-        await this.electivePoolRepo.delete({ studio_id: studioId });
-      }
       let subjects_saved = 0;
       for (const s of pkg.subjects ?? []) {
         await this.upsertSubject(studioId, {
@@ -6377,6 +7007,11 @@ export class DersDagitService {
           weekly_hours_per_track: p.weekly_hours_per_track,
         });
       }
+      for (const cp of pkg.class_profiles ?? []) {
+        const row = cp as Partial<DersDagitClassProfile>;
+        if (!row.name?.trim()) continue;
+        await this.upsertClassProfile(studioId, schoolId, row);
+      }
       if (body.merge_settings !== false) {
         const settings = (studio.settings ?? {}) as Record<string, unknown>;
         if (pkg.school_profile != null) settings.school_profile = pkg.school_profile;
@@ -6390,62 +7025,88 @@ export class DersDagitService {
       await this.audit(studioId, userId, 'studio.imported_package', {
         subjects_saved,
         assignments_saved,
-        replace: !!body.replace,
+        replace: true,
       });
+      await this.syncSectionScheduleOpenSlots(studioId, schoolId);
       return {
         kind: 'studio_package',
         subjects_saved,
         assignments_saved,
         groups: pkg.groups?.length ?? 0,
         elective_pools: pkg.elective_pools?.length ?? 0,
+        replace: true,
       };
     }
-    if (body.format === 'asc_xml') {
-      const buffer = Buffer.from(body.file_base64, 'base64');
+    if (format === 'asc_xml') {
       const parsed = parseAscTimetablesXml(buffer);
+      if (!parsed.assignments.length) {
+        throw new BadRequestException({
+          code: 'ASC_EMPTY',
+          message: 'İçe aktarılacak atama yok.',
+          warnings: parsed.warnings,
+        });
+      }
+      const replace = true;
       const teachers = await this.listSchoolTeachers(schoolId);
       const rows = parsed.assignments.map((a) => {
-        const match = this.resolveEokulTeacher(teachers, a.teacher_tc, a.teacher_name);
-        return { ...a, resolved_teacher_id: match.user_id, class_sections: a.class_sections, weekly_hours: a.weekly_hours, subject_name: a.subject_name, teacher_tc: a.teacher_tc, teacher_name: a.teacher_name };
+        const resolved = this.resolveAscTeacherIds(teachers, a, parsed.asc);
+        return {
+          ...a,
+          resolved_teacher_id: resolved.user_ids[0] ?? null,
+          resolved_teacher_ids: resolved.user_ids,
+        };
+      }) as Array<
+        (typeof parsed.assignments)[number] & {
+          resolved_teacher_id: string | null;
+          resolved_teacher_ids: string[];
+        }
+      >;
+      const usedGroupAscIds = new Set(
+        rows.map((r) => r.group_asc_id).filter((id): id is string => !!id),
+      );
+      const assignmentSections = [
+        ...new Set(rows.flatMap((r) => r.class_sections ?? []).map((s) => s.trim()).filter(Boolean)),
+      ];
+      const { roomIdByAsc, groupIdByAsc, profiles_created } = await this.applyAscImportInfrastructure(
+        studioId,
+        schoolId,
+        parsed.asc,
+        teachers,
+        replace,
+        usedGroupAscIds,
+        assignmentSections,
+      );
+      await this.ensureSubjectsFromAscCatalog(studioId, parsed.asc.subject_by_id);
+      const imported = await this.persistImportedAssignmentRows(studioId, rows, roomIdByAsc, groupIdByAsc);
+      const slotSync = await this.syncSectionScheduleOpenSlots(studioId, schoolId);
+      const withTeacher = rows.filter((r) => r.resolved_teacher_ids?.length).length;
+      const withRoom = rows.filter((r) => (r.room_asc_ids ?? []).length).length;
+      await this.audit(studioId, userId, 'assignments.imported_asc', {
+        count: imported,
+        replace,
+        rooms: parsed.asc.rooms.length,
+        classes: parsed.asc.classes.length,
+        groups: groupIdByAsc.size,
+        class_profiles: profiles_created,
+        subjects: Object.keys(parsed.asc.subject_by_id).length,
+        teachers_matched: withTeacher,
       });
-      if (body.replace) {
-        const existing = await this.assignmentRepo.find({ where: { studio_id: studioId }, select: ['id'] });
-        if (existing.length) {
-          await this.assignmentTeacherRepo.delete({ assignment_id: In(existing.map((a) => a.id)) });
-          await this.assignmentRepo.delete({ studio_id: studioId });
-        }
-      }
-      const merge = new Map<string, { subject_name: string; class_sections: string[]; weekly_hours: number; teacher_ids: string[] }>();
-      for (const r of rows) {
-        const secs = sortClassSections(r.class_sections).join(',');
-        const tid = r.resolved_teacher_id ?? '';
-        const k = `${r.subject_name}\0${secs}\0${tid}`;
-        const prev = merge.get(k);
-        if (prev) prev.weekly_hours = Math.max(prev.weekly_hours, r.weekly_hours);
-        else {
-          merge.set(k, {
-            subject_name: r.subject_name,
-            class_sections: r.class_sections,
-            weekly_hours: r.weekly_hours,
-            teacher_ids: r.resolved_teacher_id ? [r.resolved_teacher_id] : [],
-          });
-        }
-      }
-      let imported = 0;
-      for (const row of merge.values()) {
-        await this.upsertAssignment(studioId, {
-          subject_name: row.subject_name,
-          class_sections: row.class_sections,
-          weekly_hours: row.weekly_hours,
-          teacher_ids: row.teacher_ids,
-          max_per_day: Math.min(6, row.weekly_hours),
-          min_days_per_week: defaultMinDaysFromWeeklyHours(row.weekly_hours),
-          room_ids: [],
-        });
-        imported++;
-      }
-      await this.audit(studioId, userId, 'assignments.imported_asc', { count: imported });
-      return { kind: 'assignments', imported, format: 'asc_xml', warnings: parsed.warnings };
+      return {
+        kind: 'assignments',
+        imported,
+        format: 'asc_xml',
+        warnings: parsed.warnings,
+        rooms_saved: parsed.asc.rooms.length,
+        classes_saved: parsed.asc.classes.length,
+        class_profiles_saved: profiles_created,
+        groups_saved: groupIdByAsc.size,
+        subjects_saved: Object.keys(parsed.asc.subject_by_id).length,
+        teachers_matched: withTeacher,
+        rooms_linked: withRoom,
+        timeoffs_applied: parsed.asc.timeoffs.length,
+        section_slots_opened: slotSync.opened_cells,
+        replace: true,
+      };
     }
     throw new BadRequestException({ code: 'FORMAT_UNSUPPORTED', message: 'Desteklenmeyen format.' });
   }

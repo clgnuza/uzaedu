@@ -126,6 +126,8 @@ export type SolverContext = {
   planning_relations?: import('./ders-dagit.planning-relations').PlanningRelationRow[];
   assignment_subjects?: Map<string, string | null>;
   distribution_policy?: DistributionPolicy;
+  /** Tek üretimde desen + kurallar gevşetildi (kalıcı ayar değil). */
+  relax_constraints?: boolean;
 };
 
 export function rulesForSection(ctx: SolverContext, section: string): RuleState {

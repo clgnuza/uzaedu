@@ -2,6 +2,23 @@
 
 export const STUDIO_TRANSFER_VERSION = 1;
 
+/** Dosya içeriğinden içe aktarma formatını tahmin et */
+export function sniffTransferImportFormat(buffer: Buffer): TransferFormatId | null {
+  const head = buffer.slice(0, 4096).toString('utf8').replace(/^\uFEFF/, '').trimStart();
+  if (!head) return null;
+  if (head.startsWith('{') || head.includes('"ogretmenpro_studio_v1"')) return 'ogretmenpro_json';
+  if (
+    head.startsWith('<?xml') &&
+    (/<timetable[\s>]/i.test(head) || /<Timetable[\s>]/i.test(head))
+  ) {
+    return 'asc_xml';
+  }
+  if (head.startsWith('PK')) return 'eokul_excel';
+  const lower = head.slice(0, 512).toLowerCase();
+  if (lower.includes('ders') && (lower.includes(';') || lower.includes('\t'))) return 'eokul_excel';
+  return null;
+}
+
 export type TransferFormatId =
   | 'ogretmenpro_json'
   | 'asc_xml'
