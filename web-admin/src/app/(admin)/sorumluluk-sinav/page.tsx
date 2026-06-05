@@ -99,7 +99,8 @@ export default function SorumlulukGroupsPage() {
 
   if (loading) return <div className="flex justify-center py-16"><LoadingSpinner /></div>;
 
-  const groupLink = (id: string) => `/sorumluluk-sinav/ogrenciler${schoolQ ? schoolQ + '&' : '?'}group_id=${id}`;
+  const groupLink = (id: string) =>
+    `/sorumluluk-sinav/${isAdmin ? 'takvim' : 'ogrenciler'}${schoolQ ? schoolQ + '&' : '?'}group_id=${id}`;
   const totalStudents = groups.reduce((a, g) => a + (g.studentCount ?? 0), 0);
   const totalSessions = groups.reduce((a, g) => a + (g.sessionCount ?? 0), 0);
   const activeGroups  = groups.filter((g) => g.status === 'active').length;

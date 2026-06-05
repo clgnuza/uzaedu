@@ -18,16 +18,35 @@ export function pushSupported(): boolean {
   );
 }
 
+export function getNotificationPermission(): NotificationPermission {
+  if (typeof window === 'undefined' || !('Notification' in window)) return 'denied';
+  return Notification.permission;
+}
+
+export async function requestNotificationPermission(): Promise<NotificationPermission> {
+  if (!pushSupported()) return 'denied';
+  if (Notification.permission === 'granted') return 'granted';
+  if (Notification.permission === 'denied') return 'denied';
+  return Notification.requestPermission();
+}
+
 export async function fetchVapidPublicKey(): Promise<string | null> {
   const res = await apiFetch<{ publicKey: string | null; enabled: boolean }>('/push/vapid-public-key');
   if (!res.enabled || !res.publicKey) return null;
   return res.publicKey;
 }
 
-export async function subscribeWebPush(token: string): Promise<{ ok: boolean; reason?: string }> {
+export async function subscribeWebPush(
+  token: string,
+  opts?: { skipPermissionRequest?: boolean },
+): Promise<{ ok: boolean; reason?: string }> {
   if (!pushSupported()) return { ok: false, reason: 'unsupported' };
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') return { ok: false, reason: 'denied' };
+  if (!opts?.skipPermissionRequest) {
+    const permission = await requestNotificationPermission();
+    if (permission !== 'granted') return { ok: false, reason: 'denied' };
+  } else if (getNotificationPermission() !== 'granted') {
+    return { ok: false, reason: 'denied' };
+  }
 
   const publicKey = await fetchVapidPublicKey();
   if (!publicKey) return { ok: false, reason: 'server' };

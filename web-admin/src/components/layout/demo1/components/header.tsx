@@ -23,6 +23,7 @@ import { useLayout } from '@/components/layout/context';
 import { Sheet, SheetTrigger, SheetContent, SheetBody } from '@/components/ui/sheet';
 import { Container } from '@/components/common/container';
 import { SidebarMenu } from './sidebar-menu';
+import { sidebarShellClassName } from './sidebar';
 import type { WebAdminRole } from '@/config/types';
 import { cn } from '@/lib/utils';
 import { UserAvatarBubble } from '@/components/user-avatar';
@@ -423,9 +424,12 @@ export function Header({
               </SheetTrigger>
               <SheetContent
                 side="left"
-                className="!w-[min(88vw,280px)] !max-w-[280px] gap-0 border-r p-0"
+                className={cn(
+                  '!w-[min(88vw,280px)] !max-w-[280px] gap-0 border-r p-0',
+                  sidebarShellClassName(sidebarTheme, 'flex min-h-0 flex-col'),
+                )}
               >
-                <SheetBody className="min-h-0 p-0">
+                <SheetBody className="min-h-0 flex-1 p-0">
                   <SidebarMenu
                     role={role}
                     moderatorModules={moderatorModules}

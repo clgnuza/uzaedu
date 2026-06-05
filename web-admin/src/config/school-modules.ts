@@ -29,7 +29,7 @@ export const SCHOOL_MODULE_LABELS: Record<SchoolModuleKey, string> = {
   tv: 'Duyuru TV',
   extra_lesson: 'Ek Ders',
   document: 'Evrak & Plan',
-  outcome: 'Kazanım Cebimde',
+  outcome: 'Kazanım Mobil',
   optical: 'Optik Okuma',
   smart_board: 'Akıllı Tahta',
   teacher_agenda: 'Öğretmen Ajandası',

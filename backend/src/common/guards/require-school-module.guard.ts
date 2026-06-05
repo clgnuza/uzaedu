@@ -66,7 +66,7 @@ export class RequireSchoolModuleGuard implements CanActivate {
       duty: 'Bu okulda Nöbet modülü kapalı.',
       tv: 'Bu okulda Duyuru TV modülü kapalı.',
       document: 'Bu okulda Evrak & Plan modülü kapalı.',
-      outcome: 'Bu okulda Kazanım Takip modülü kapalı.',
+      outcome: 'Bu okulda Kazanım Mobil modülü kapalı.',
       optical: 'Bu okulda Optik Okuma modülü kapalı.',
       smart_board: 'Bu okulda Akıllı Tahta modülü kapalı.',
       teacher_agenda: 'Bu okulda Öğretmen Ajandası modülü kapalı.',

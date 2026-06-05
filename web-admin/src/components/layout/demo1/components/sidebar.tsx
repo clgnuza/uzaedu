@@ -13,14 +13,23 @@ interface SidebarProps {
   schoolEnabledModules?: string[] | null;
 }
 
+/** Masaüstü kenar çubuğu + mobil Sheet menüsü — koyu tema `dark` kapsayıcısı */
+export function sidebarShellClassName(sidebarTheme: 'light' | 'dark', extra?: string) {
+  return cn(
+    'sidebar bg-background text-foreground',
+    sidebarTheme === 'dark' && 'dark bg-zinc-900 border-zinc-800',
+    extra,
+  );
+}
+
 export function Sidebar({ role, moderatorModules, schoolEnabledModules }: SidebarProps) {
   const { sidebarTheme } = useLayout();
 
   return (
     <div
-      className={cn(
-        'sidebar bg-background lg:border-e lg:border-border lg:fixed lg:top-0 lg:bottom-0 lg:z-40 flex min-h-0 flex-col items-stretch print:hidden lg:max-h-dvh lg:shrink-0',
-        sidebarTheme === 'dark' && 'dark',
+      className={sidebarShellClassName(
+        sidebarTheme,
+        'lg:border-e lg:border-border lg:fixed lg:top-0 lg:bottom-0 lg:z-40 flex min-h-0 flex-col items-stretch print:hidden lg:max-h-dvh lg:shrink-0',
       )}
     >
       <SidebarHeader />

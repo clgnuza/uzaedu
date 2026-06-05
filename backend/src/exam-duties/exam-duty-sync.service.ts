@@ -2903,6 +2903,8 @@ export class ExamDutySyncService {
     if (/auzef|auzefgis\.istanbul|iüauzef|istanbul üniversitesi açık/i.test(t)) return 'auzef';
     if (/ataaof|ata-aöf|atı üniversitesi/i.test(t)) return 'ataaof';
     if (/(?:aöf|açık öğretim|augis\.anadolu|anadolu üniversitesi)/i.test(t)) return 'aof';
+    if (/\blgs\b|liselere\s*geçiş|merkez[iî]\s*sınav/i.test(t) && /meb|mebbis|mill[iî]\s*eğitim/i.test(t))
+      return 'meb';
     if (/ösym|osym/i.test(t)) return 'osym';
     if (/mebbis/i.test(t)) return 'meb';
     if (/meb|milli eğitim/i.test(t)) return 'meb';

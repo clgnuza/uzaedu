@@ -122,16 +122,29 @@ export class ExamDutiesService {
     return { draft_count, published_count };
   }
 
+  /** Öğretmen API: haber/agregatör kaynağı gösterilmez */
+  private sanitizeExamDutyForTeacher(item: ExamDuty): ExamDuty {
+    return Object.assign(Object.create(Object.getPrototypeOf(item)), item, {
+      sourceUrl: null,
+      sourceKey: null,
+    });
+  }
+
   /** Teacher: sadece published. Admin: tümü. */
   async list(dto: ListExamDutiesDto, isAdmin: boolean) {
     const page = dto.page ?? 1;
     const limit = dto.limit ?? 20;
 
     const qb = this.buildExamDutyListQuery(dto, isAdmin);
-    qb.orderBy('e.created_at', 'DESC').skip((page - 1) * limit).take(limit);
+    qb
+      .orderBy('e.application_start', 'DESC', 'NULLS LAST')
+      .addOrderBy('e.created_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
 
     const [items, total] = await qb.getManyAndCount();
-    const base = paginate(items, total, page, limit);
+    const visible = isAdmin ? items : items.map((i) => this.sanitizeExamDutyForTeacher(i));
+    const base = paginate(visible, total, page, limit);
     if (isAdmin) {
       const counts = await this.adminListStatusCounts(dto);
       return { ...base, ...counts };
@@ -145,7 +158,7 @@ export class ExamDutiesService {
     if (!isAdmin && item.status !== 'published') {
       throw new ForbiddenException({ code: 'SCOPE_VIOLATION', message: 'Bu veriye erişim yetkiniz yok.' });
     }
-    return item;
+    return isAdmin ? item : this.sanitizeExamDutyForTeacher(item);
   }
 
   /** Öğretmen: bu sınavda görev çıktığını işaretler; sınav günü sabah hatırlatması alır. preferredExamDate: çok günlü sınavda sadece o güne bildirim. */

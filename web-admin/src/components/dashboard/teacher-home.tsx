@@ -62,6 +62,7 @@ import {
   Quote,
   LayoutGrid,
   Compass,
+  BookUser,
 } from 'lucide-react';
 import {
   useWelcomeMotivationQuote,
@@ -560,8 +561,20 @@ export function TeacherHome({
     items.push(
       { href: '/ders-programi/programlarim', label: 'Program', icon: CalendarRange, ring: 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-100' },
       { href: '/bildirimler', label: 'Bildirim', icon: BellRing, ring: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-100' },
+      {
+        href: '/sinav-gorevlerim',
+        label: 'Sınav görevi',
+        icon: ClipboardList,
+        ring: 'bg-slate-100 text-slate-800 dark:bg-slate-950/60 dark:text-slate-200',
+      },
       { href: '/haberler', label: 'Haber', icon: Megaphone, ring: 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-100' },
       { href: '/support', label: 'Destek', icon: LifeBuoy, ring: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-100' },
+      {
+        href: '/sinav-gorev-ucretleri',
+        label: 'Görev ücr.',
+        icon: Coins,
+        ring: 'bg-yellow-100 text-yellow-900 dark:bg-yellow-950/50 dark:text-yellow-200',
+      },
     );
 
     const moduleStrip: TeacherHomeTopShortcut[] = [];
@@ -599,6 +612,15 @@ export function TeacherHome({
         marketKey: 'outcome',
       });
     }
+    if (isSchoolModuleEnabled(enabledModules, 'optical')) {
+      moduleStrip.push({
+        href: '/optik-oturumlar',
+        label: 'Optik',
+        icon: ScanLine,
+        ring: 'bg-fuchsia-100 text-fuchsia-900 dark:bg-fuchsia-950/50 dark:text-fuchsia-100',
+        marketKey: 'optical',
+      });
+    }
     if (isSchoolModuleEnabled(enabledModules, 'teacher_agenda')) {
       moduleStrip.push({
         href: '/ogretmen-ajandasi',
@@ -617,6 +639,15 @@ export function TeacherHome({
         marketKey: 'smart_board',
       });
     }
+    if (isSchoolModuleEnabled(enabledModules, 'bilsem')) {
+      moduleStrip.push({
+        href: '/bilsem/takvim',
+        label: 'Bilsem',
+        icon: Sparkles,
+        ring: 'bg-purple-100 text-purple-900 dark:bg-purple-950/50 dark:text-purple-100',
+        marketKey: 'bilsem',
+      });
+    }
     if (isSchoolModuleEnabled(enabledModules, 'school_reviews')) {
       moduleStrip.push({
         href: '/okul-degerlendirmeleri',
@@ -629,18 +660,18 @@ export function TeacherHome({
     if (isSchoolModuleEnabled(enabledModules, 'butterfly_exam')) {
       moduleStrip.push({
         href: '/kelebek-sinav/ogrenci-sorgu',
-        label: 'Kertenkele',
-        icon: Bug,
-        ring: 'bg-slate-200 text-slate-900 dark:bg-slate-800 dark:text-slate-100',
+        label: 'Kelebek',
+        icon: LayoutGrid,
+        ring: 'bg-pink-100 text-pink-900 dark:bg-pink-950/50 dark:text-pink-100',
         marketKey: 'butterfly_exam',
       });
     }
     if (isSchoolModuleEnabled(enabledModules, 'sorumluluk_sinav')) {
       moduleStrip.push({
         href: '/sorumluluk-sinav/bilgilendirme',
-        label: 'Beceri',
-        icon: Medal,
-        ring: 'bg-yellow-100 text-yellow-900 dark:bg-yellow-950/50 dark:text-yellow-100',
+        label: 'Sorumluluk',
+        icon: GraduationCap,
+        ring: 'bg-red-100 text-red-900 dark:bg-red-950/50 dark:text-red-100',
         marketKey: 'sorumluluk_sinav',
       });
     }
@@ -653,34 +684,16 @@ export function TeacherHome({
         marketKey: 'messaging',
       });
     }
-
-    const tail: TeacherHomeTopShortcut[] = [];
-    if (isSchoolModuleEnabled(enabledModules, 'optical')) {
-      tail.push({
-        href: '/optik-formlar',
-        label: 'Optik',
-        icon: ScanBarcode,
-        ring: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-950/60 dark:text-fuchsia-100',
-        marketKey: 'optical',
+    if (isSchoolModuleEnabled(enabledModules, 'ders_dagit')) {
+      moduleStrip.push({
+        href: '/ders-dagit/tercihler',
+        label: 'DersDağıt',
+        icon: BookUser,
+        ring: 'bg-cyan-100 text-cyan-900 dark:bg-cyan-950/50 dark:text-cyan-100',
+        marketKey: 'ders_dagit',
       });
     }
-    if (isSchoolModuleEnabled(enabledModules, 'bilsem')) {
-      tail.push({
-        href: '/bilsem/takvim',
-        label: 'Bilsem',
-        icon: GraduationCap,
-        ring: 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-100',
-        marketKey: 'bilsem',
-      });
-    }
-    tail.push({
-      href: '/market',
-      label: 'Market',
-      icon: ShoppingBag,
-      ring: 'bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-100',
-    });
-
-    return [...items, ...moduleStrip, ...tail];
+    return [...items, ...moduleStrip];
   }, [dutyEnabled, enabledModules]);
 
   return (

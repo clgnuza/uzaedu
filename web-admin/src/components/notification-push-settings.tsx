@@ -29,6 +29,11 @@ import {
 } from '@/lib/notification-push-prefs';
 import { isIosSafari } from '@/lib/pwa-display';
 import { PwaOfflineQueueBadge } from '@/components/pwa-offline-queue-badge';
+import {
+  NotificationPermissionDeniedHelp,
+  NotificationPermissionPrompt,
+} from '@/components/notification-permission-prompt';
+import { getNotificationPermission } from '@/lib/web-push';
 type ChannelDef = { id: string; label: string };
 type Pref = { channel: string; push_enabled: boolean; critical?: boolean };
 
@@ -161,6 +166,9 @@ export function NotificationPushSettings() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [iosHint, setIosHint] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  const [permissionPromptOpen, setPermissionPromptOpen] = useState(false);
+  const [enablingPush, setEnablingPush] = useState(false);
+  const [permissionDenied, setPermissionDenied] = useState(false);
 
   useEffect(() => {
     setIosHint(isIosSafari());
@@ -261,18 +269,47 @@ export function NotificationPushSettings() {
     }
   };
 
-  const enableDevice = async () => {
+  const finishSubscribe = async (skipPermissionRequest: boolean) => {
     if (!token) return;
-    const r = await subscribeWebPush(token);
-    if (r.ok) {
-      toast.success('Telefon bildirimleri açıldı');
-      setSubscribed(true);
-      emitNotificationsUpdated();
+    setEnablingPush(true);
+    try {
+      const r = await subscribeWebPush(token, { skipPermissionRequest });
+      if (r.ok) {
+        toast.success('Telefon bildirimleri açıldı');
+        setSubscribed(true);
+        setPermissionDenied(false);
+        setPermissionPromptOpen(false);
+        emitNotificationsUpdated();
+        return;
+      }
+      if (r.reason === 'denied') {
+        setPermissionDenied(true);
+        toast.error('Bildirim izni verilmedi');
+      } else if (r.reason === 'server') toast.error('Sunucuda push henüz yapılandırılmamış');
+      else toast.error('Bildirim açılamadı');
+    } finally {
+      setEnablingPush(false);
+    }
+  };
+
+  const openEnableFlow = () => {
+    const perm = getNotificationPermission();
+    if (perm === 'granted') {
+      void finishSubscribe(true);
       return;
     }
-    if (r.reason === 'denied') toast.error('Bildirim izni reddedildi — tarayıcı ayarlarından açın');
-    else if (r.reason === 'server') toast.error('Sunucuda push henüz yapılandırılmamış');
-    else toast.error('Bildirim açılamadı');
+    if (perm === 'denied') {
+      setPermissionDenied(true);
+      setPermissionPromptOpen(true);
+      return;
+    }
+    setPermissionDenied(false);
+    setPermissionPromptOpen(true);
+  };
+
+  const confirmPermissionPrompt = async () => {
+    await finishSubscribe(false);
+    if (getNotificationPermission() === 'denied') setPermissionDenied(true);
   };
 
   const disableDevice = async () => {
@@ -286,6 +323,12 @@ export function NotificationPushSettings() {
 
   return (
     <>
+      <NotificationPermissionPrompt
+        open={permissionPromptOpen}
+        onOpenChange={setPermissionPromptOpen}
+        onConfirm={confirmPermissionPrompt}
+        busy={enablingPush}
+      />
       <section className="mb-3 overflow-hidden rounded-xl border border-teal-500/20 bg-card/80 shadow-sm">
         <div className="flex items-center gap-2 px-2.5 py-2 sm:px-3">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-teal-600 to-cyan-600 text-white">
@@ -322,8 +365,8 @@ export function NotificationPushSettings() {
               type="button"
               size="sm"
               className="h-7 shrink-0 px-2 text-[11px] bg-teal-600 hover:bg-teal-700"
-              disabled={!pushServer || loading}
-              onClick={() => void enableDevice()}
+              disabled={!pushServer || loading || enablingPush}
+              onClick={openEnableFlow}
             >
               <BellRing className="mr-1 size-3" />
               Aç
@@ -339,6 +382,12 @@ export function NotificationPushSettings() {
             <ChevronDown className={cn('size-4 transition-transform', expanded && 'rotate-180')} />
           </button>
         </div>
+
+        {permissionDenied && !subscribed ? (
+          <div className="border-t border-border/40 px-2.5 py-2 sm:px-3">
+            <NotificationPermissionDeniedHelp onRetry={openEnableFlow} />
+          </div>
+        ) : null}
 
         {iosHint ? (
           <p className="border-t border-border/40 px-2.5 py-1.5 text-[10px] leading-snug text-amber-800 dark:text-amber-200">

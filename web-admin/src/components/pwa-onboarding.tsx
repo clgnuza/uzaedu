@@ -7,7 +7,8 @@ import { UzaeduAppIcon } from '@/components/brand/uzaedu-app-icon';
 import { useAuthOptional } from '@/providers/auth-provider';
 import { Button } from '@/components/ui/button';
 import { isPwaDisplayMode } from '@/lib/pwa-display';
-import { pushSupported, subscribeWebPush } from '@/lib/web-push';
+import { getNotificationPermission, pushSupported, subscribeWebPush } from '@/lib/web-push';
+import { NotificationPermissionPrompt } from '@/components/notification-permission-prompt';
 import { fetchWebAuthnSupported, registerPasskey } from '@/lib/webauthn';
 import { suggestPasskeyDeviceName } from '@/lib/passkey-device-label';
 import { trackPwaEvent } from '@/lib/pwa-analytics';
@@ -40,6 +41,7 @@ export function PwaOnboarding() {
   const [busy, setBusy] = useState(false);
   const [pushOk, setPushOk] = useState(false);
   const [passkeyOk, setPasskeyOk] = useState(false);
+  const [pushPermOpen, setPushPermOpen] = useState(false);
 
   const steps = useMemo((): StepId[] => {
     const s: StepId[] = ['welcome'];
@@ -82,13 +84,14 @@ export function PwaOnboarding() {
 
   const next = () => setIdx((i) => Math.min(i + 1, steps.length - 1));
 
-  const enablePush = async () => {
+  const enablePush = async (skipPermissionRequest = false) => {
     if (!token) return;
     setBusy(true);
     try {
-      const r = await subscribeWebPush(token);
+      const r = await subscribeWebPush(token, { skipPermissionRequest });
       if (r.ok) {
         setPushOk(true);
+        setPushPermOpen(false);
         toast.success('Bildirimler açıldı');
         next();
       } else if (r.reason === 'denied') toast.error('Bildirim izni reddedildi');
@@ -96,6 +99,15 @@ export function PwaOnboarding() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const startPushFlow = () => {
+    const perm = getNotificationPermission();
+    if (perm === 'granted') {
+      void enablePush(true);
+      return;
+    }
+    setPushPermOpen(true);
   };
 
   const enablePasskey = async () => {
@@ -157,6 +169,13 @@ export function PwaOnboarding() {
           : 'ring-emerald-500/30';
 
   return (
+    <>
+      <NotificationPermissionPrompt
+        open={pushPermOpen}
+        onOpenChange={setPushPermOpen}
+        onConfirm={() => enablePush(false)}
+        busy={busy}
+      />
     <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/55 p-4 backdrop-blur-[2px] sm:items-center">
       <div
         className={cn(
@@ -226,7 +245,7 @@ export function PwaOnboarding() {
             ) : null}
             {step === 'push' ? (
               <>
-                <Button type="button" className="flex-1" disabled={busy} onClick={() => void enablePush()}>
+                <Button type="button" className="flex-1" disabled={busy} onClick={startPushFlow}>
                   Bildirimleri aç
                 </Button>
                 <Button type="button" variant="outline" onClick={next}>
@@ -260,5 +279,6 @@ export function PwaOnboarding() {
         </div>
       </div>
     </div>
+    </>
   );
 }

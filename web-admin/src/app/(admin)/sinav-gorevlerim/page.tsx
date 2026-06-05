@@ -360,16 +360,14 @@ function daysUntil(s: string | null | undefined): number | null {
   } catch { return null; }
 }
 
+/** Superadmin Sınav Görevleri listesi ile aynı: Bşv. Açılış yeniden eskiye; tarihsiz en altta */
 function compareForTeacher(a: ExamDutyItem, b: ExamDutyItem): number {
-  const pastA = isDatePast(a.application_end ?? a.applicationEnd) || isDatePast(a.exam_date ?? a.examDate);
-  const pastB = isDatePast(b.application_end ?? b.applicationEnd) || isDatePast(b.exam_date ?? b.examDate);
-  if (pastA !== pastB) return pastA ? 1 : -1;
-  const ts = (i: ExamDutyItem) => { const r = i.exam_date ?? i.examDate ?? i.application_end ?? i.applicationEnd; const t = r ? new Date(r).getTime() : 0; return Number.isNaN(t) ? 0 : t; };
-  if (pastA) return ts(b) - ts(a);
-  const soonA = isWithinDays(a.application_end ?? a.applicationEnd, 7) || isWithinDays(a.application_approval_end ?? a.applicationApprovalEnd, 7);
-  const soonB = isWithinDays(b.application_end ?? b.applicationEnd, 7) || isWithinDays(b.application_approval_end ?? b.applicationApprovalEnd, 7);
-  if (soonA !== soonB) return soonA ? -1 : 1;
-  return ts(a) - ts(b);
+  const dA = a.application_start ?? a.applicationStart ?? '';
+  const dB = b.application_start ?? b.applicationStart ?? '';
+  if (!dA && !dB) return 0;
+  if (!dA) return 1;
+  if (!dB) return -1;
+  return new Date(dB).getTime() - new Date(dA).getTime();
 }
 
 function getStatus(i: ExamDutyItem): 'past' | 'soon' | 'active' {
@@ -380,11 +378,23 @@ function getStatus(i: ExamDutyItem): 'past' | 'soon' | 'active' {
 
 const URL_SPLIT_RE = /(https?:\/\/[^\s<]+)/g;
 
+function isHiddenExamDutySourceUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    return host === 'guncelegitim.com' || host === 'ogretmenx.com';
+  } catch {
+    return false;
+  }
+}
+
 function linkifyPlain(text: string, keyPrefix: string): ReactNode {
   if (!text) return null;
   const parts = text.split(URL_SPLIT_RE);
   return parts.map((part, i) => {
     if (/^https?:\/\//.test(part)) {
+      if (isHiddenExamDutySourceUrl(part)) {
+        return <span key={`${keyPrefix}-${i}`} className="break-all text-muted-foreground">{part}</span>;
+      }
       return (
         <a
           key={`${keyPrefix}-${i}`}
@@ -515,14 +525,20 @@ function ExamDutyExpandedContent({
 
       {parsed.rows.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {parsed.rows.map((r, idx) => (
+          {parsed.rows
+            .filter((r) => {
+              if (r.label.toLowerCase().includes('kaynak')) return false;
+              if (/^https?:\/\//i.test(r.value) && isHiddenExamDutySourceUrl(r.value)) return false;
+              return true;
+            })
+            .map((r, idx) => (
             <div
               key={`${r.label}-${idx}`}
               className="min-w-[140px] max-w-full rounded-md border border-border/45 bg-muted/30 px-2 py-1.5 shadow-sm dark:bg-muted/20"
             >
               <span className="block text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{r.label}</span>
               <span className="mt-0.5 block text-[11px] font-medium leading-tight text-foreground wrap-anywhere">
-                {/^https?:\/\//i.test(r.value) ? (
+                {/^https?:\/\//i.test(r.value) && !isHiddenExamDutySourceUrl(r.value) ? (
                   <a
                     href={r.value}
                     target="_blank"
@@ -939,7 +955,6 @@ function DutyRow({
   const cat = i.category_slug ?? i.categorySlug ?? '';
   const accent = CAT[cat] ?? CAT_DEFAULT;
   const appUrl = i.application_url ?? i.applicationUrl;
-  const srcUrl = i.source_url ?? i.sourceUrl;
   const appEndRaw = i.application_end ?? i.applicationEnd;
   const appApprovalEndRaw = i.application_approval_end ?? i.applicationApprovalEnd;
   const examDateRaw = i.exam_date ?? i.examDate;
@@ -1141,16 +1156,6 @@ function DutyRow({
                 className="inline-flex h-7 items-center gap-0.5 rounded-md bg-primary px-2 text-[10px] font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 touch-manipulation sm:text-xs"
               >
                 <ExternalLink className="size-3 shrink-0" /> Başvuru
-              </a>
-            )}
-            {srcUrl && (
-              <a
-                href={srcUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-7 items-center gap-0.5 rounded-md border border-border bg-background px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground touch-manipulation sm:text-xs"
-              >
-                <ExternalLink className="size-3 shrink-0" /> Kaynak
               </a>
             )}
             </div>
