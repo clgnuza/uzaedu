@@ -82,6 +82,7 @@ export function NotificationPermissionDeniedHelp({
   onRetry?: () => void;
 }) {
   const browser = browserLabel();
+  const isChrome = /Chrome/i.test(typeof navigator !== 'undefined' ? navigator.userAgent : '');
   return (
     <div
       className={cn(
@@ -89,11 +90,25 @@ export function NotificationPermissionDeniedHelp({
         className,
       )}
     >
-      <p className="font-semibold">Bildirim izni kapalı</p>
-      <p className="mt-1 text-xs opacity-90">
-        {browser} adres çubuğundaki kilit / site bilgisi simgesine dokunun → Bildirimler → İzin ver.
-        Sonra buradan tekrar deneyin.
-      </p>
+      <p className="font-semibold">Bildirim izni verilemedi</p>
+      {isChrome ? (
+        <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-xs opacity-95">
+          <li>
+            Adres çubuğunun solundaki <strong>“Bildirimler engellendi”</strong> kutusunda{' '}
+            <strong>“Bu site için izin ver”</strong> seçeneğine tıklayın.
+          </li>
+          <li>
+            Kutu yoksa kilit / site bilgisi simgesi → <strong>Bildirimler</strong> →{' '}
+            <strong>İzin ver</strong>.
+          </li>
+          <li>Sayfayı yenileyip tekrar <strong>Aç</strong> düğmesine basın.</li>
+        </ol>
+      ) : (
+        <p className="mt-1 text-xs opacity-90">
+          {browser} adres çubuğundaki kilit / site bilgisi simgesine dokunun → Bildirimler → İzin ver.
+          Sonra buradan tekrar deneyin.
+        </p>
+      )}
       {onRetry ? (
         <Button type="button" size="sm" variant="outline" className="mt-3 h-8 text-xs" onClick={onRetry}>
           Tekrar dene
@@ -108,19 +123,22 @@ export function NotificationPermissionPrompt({
   onOpenChange,
   onConfirm,
   busy = false,
+  showDeniedHelp = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void | Promise<void>;
   busy?: boolean;
+  showDeniedHelp?: boolean;
 }) {
   const [permission, setPermission] = useState<NotificationPermission>('default');
 
   useEffect(() => {
     if (open) setPermission(getNotificationPermission());
-  }, [open]);
+  }, [open, busy]);
 
-  const denied = permission === 'denied';
+  const denied = permission === 'denied' || showDeniedHelp;
+  const isChrome = typeof navigator !== 'undefined' && /Chrome/i.test(navigator.userAgent);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -137,6 +155,13 @@ export function NotificationPermissionPrompt({
                 ? 'Daha önce engellediyseniz tarayıcı ayarından açmanız gerekir.'
                 : 'Önemli okul uyarılarını kaçırmayın — bir sonraki adımda tarayıcı izin penceresi açılır.'}
             </p>
+
+            {!denied && isChrome ? (
+              <div className="mt-4 rounded-xl border border-amber-400/40 bg-amber-50/80 px-3 py-2.5 text-[11px] leading-relaxed text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100">
+                Chrome’da üstte <strong>“Bildirimler engellendi”</strong> görüyorsanız önce{' '}
+                <strong>“Bu site için izin ver”</strong> deyin; ardından aşağıdaki düğmeye basın.
+              </div>
+            ) : null}
 
             {!denied ? (
               <>

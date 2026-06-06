@@ -32,15 +32,21 @@ import {
   passkeyDeviceTypeLabel,
   suggestPasskeyDeviceName,
 } from '@/lib/passkey-device-label';
+import { getWebAuthnErrorMessage } from '@/lib/webauthn-error-message';
 
 type SupportState = 'loading' | 'ready' | 'browser' | 'server';
 
+const sectionShell =
+  'rounded-lg border border-border/60 bg-linear-to-br from-muted/20 via-muted/10 to-muted/20 p-2.5 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/20 dark:to-zinc-800/40 sm:rounded-xl sm:p-4';
+
+const iconBox = 'flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 sm:size-8 sm:rounded-lg';
+
 function DeviceIcon({ type }: { type: string | null }) {
-  if (type === 'multiDevice') return <Cloud className="size-4 text-sky-400" aria-hidden />;
+  if (type === 'multiDevice') return <Cloud className="size-3.5 text-sky-600 dark:text-sky-400" aria-hidden />;
   if (typeof window !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
-    return <Smartphone className="size-4 text-red-400" aria-hidden />;
+    return <Smartphone className="size-3.5 text-primary" aria-hidden />;
   }
-  return <Laptop className="size-4 text-red-400" aria-hidden />;
+  return <Laptop className="size-3.5 text-primary" aria-hidden />;
 }
 
 function CredentialRow({
@@ -68,9 +74,9 @@ function CredentialRow({
   };
 
   return (
-    <li className="rounded-2xl border border-white/8 bg-zinc-900/55 p-3.5 shadow-sm sm:p-4">
-      <div className="flex items-start gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-red-950/50 ring-1 ring-red-800/35">
+    <li className="rounded-lg border border-border/60 bg-card/80 p-2.5 shadow-sm sm:rounded-xl sm:p-3">
+      <div className="flex items-start gap-2.5 sm:gap-3">
+        <span className={cn(iconBox, 'mt-0.5')}>
           <DeviceIcon type={row.device_type} />
         </span>
         <div className="min-w-0 flex-1">
@@ -80,7 +86,7 @@ function CredentialRow({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 maxLength={120}
-                className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm"
+                className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-sm sm:h-9 sm:rounded-lg sm:px-3"
                 autoFocus
               />
               <Button type="button" size="sm" className="h-8" disabled={busy} onClick={saveRename}>
@@ -103,15 +109,15 @@ function CredentialRow({
           ) : (
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-zinc-50">
+                <p className="truncate text-xs font-semibold text-foreground sm:text-sm">
                   {row.name?.trim() || passkeyDeviceTypeLabel(row.device_type)}
                 </p>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  <span className="rounded-full border border-red-900/50 bg-red-950/40 px-2 py-0.5 text-[10px] font-medium text-red-200/90">
+                <div className="mt-1 flex flex-wrap gap-1">
+                  <span className="rounded-full border border-border/60 bg-muted/40 px-1.5 py-px text-[10px] font-medium text-muted-foreground">
                     {passkeyDeviceTypeLabel(row.device_type)}
                   </span>
                   {row.backed_up ? (
-                    <span className="rounded-full border border-sky-800/40 bg-sky-950/30 px-2 py-0.5 text-[10px] font-medium text-sky-200/90">
+                    <span className="rounded-full border border-sky-200/70 bg-sky-50/80 px-1.5 py-px text-[10px] font-medium text-sky-800 dark:border-sky-800/50 dark:bg-sky-950/40 dark:text-sky-200">
                       Yedekli
                     </span>
                   ) : null}
@@ -122,7 +128,7 @@ function CredentialRow({
                   type="button"
                   disabled={busy}
                   onClick={() => setEditing(true)}
-                  className="rounded-lg p-2 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-100"
+                  className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
                   aria-label="Yeniden adlandır"
                 >
                   <Pencil className="size-3.5" />
@@ -131,7 +137,7 @@ function CredentialRow({
                   type="button"
                   disabled={busy}
                   onClick={() => onRemove(row.id)}
-                  className="rounded-lg p-2 text-zinc-400 transition hover:bg-destructive/10 hover:text-destructive"
+                  className="rounded-md p-1.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
                   aria-label="Kaldır"
                 >
                   <Trash2 className="size-3.5" />
@@ -139,14 +145,14 @@ function CredentialRow({
               </div>
             </div>
           )}
-          <dl className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-zinc-500 sm:text-[11px]">
+          <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground sm:text-[11px]">
             <div>
-              <dt className="uppercase tracking-wide">Eklendi</dt>
-              <dd className="text-zinc-300">{formatPasskeyDate(row.created_at)}</dd>
+              <dt>Eklendi</dt>
+              <dd className="font-medium text-foreground/80">{formatPasskeyDate(row.created_at)}</dd>
             </div>
             <div>
-              <dt className="uppercase tracking-wide">Son giriş</dt>
-              <dd className="text-zinc-300">{formatPasskeyDate(row.last_used_at)}</dd>
+              <dt>Son giriş</dt>
+              <dd className="font-medium text-foreground/80">{formatPasskeyDate(row.last_used_at)}</dd>
             </div>
           </dl>
         </div>
@@ -249,7 +255,7 @@ export function PasskeySettingsPanel({
       setAddName('');
       await reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Kayıt başarısız.');
+      toast.error(getWebAuthnErrorMessage(e, 'register'));
     } finally {
       setBusy(false);
     }
@@ -286,61 +292,63 @@ export function PasskeySettingsPanel({
 
   const statusBadge =
     support === 'ready' && loginEnabled && rows.length > 0
-      ? { label: 'Aktif', cls: 'bg-emerald-500/15 text-emerald-300 ring-emerald-500/25' }
+      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
       : support === 'ready' && loginEnabled
-        ? { label: 'Hazır', cls: 'bg-amber-500/15 text-amber-200 ring-amber-500/25' }
-        : { label: 'Kapalı', cls: 'bg-zinc-800 text-zinc-400 ring-white/10' };
+        ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200'
+        : 'bg-muted text-muted-foreground';
+
+  const statusLabel =
+    support === 'ready' && loginEnabled && rows.length > 0
+      ? 'Aktif'
+      : support === 'ready' && loginEnabled
+        ? 'Hazır'
+        : 'Kapalı';
+
+  const alertBox =
+    'flex gap-2 rounded-lg border border-amber-200/80 bg-amber-50/80 px-2.5 py-2 text-[11px] leading-snug text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100 sm:gap-2.5 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-xs';
 
   return (
-    <section
-      className={cn(
-        'overflow-hidden rounded-2xl border border-red-500/20 bg-linear-to-br from-zinc-950/95 via-card/90 to-red-950/15 shadow-sm',
-        compact ? 'p-3 sm:p-4' : 'p-4 sm:p-5',
-        className,
-      )}
-    >
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-red-700 to-red-900 text-white shadow-lg shadow-red-950/40">
-            <Fingerprint className="size-5" aria-hidden />
+    <section className={cn(sectionShell, compact && 'sm:p-3', className)}>
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-2 sm:mb-3">
+        <div className="flex min-w-0 items-start gap-2 sm:gap-2.5">
+          <span className={iconBox}>
+            <Fingerprint className="size-3.5 text-primary sm:size-4" aria-hidden />
           </span>
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-bold tracking-tight text-foreground sm:text-base">Biyometrik giriş</h3>
-              <span
-                className={cn(
-                  'rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1',
-                  statusBadge.cls,
-                )}
-              >
-                {statusBadge.label}
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <h3 className="text-xs font-semibold text-foreground sm:text-sm">Biyometrik giriş</h3>
+              <span className={cn('rounded-full px-1.5 py-px text-[10px] font-semibold', statusBadge)}>
+                {statusLabel}
               </span>
             </div>
-            <p className="mt-1 max-w-lg text-xs leading-relaxed text-muted-foreground sm:text-[13px]">
-              Parmak izi veya yüz tanıma ile hızlı giriş. Şifreniz geçerlidir; PWA ve desteklenen tarayıcılarda çalışır.
+            <p className="mt-0.5 max-w-lg text-[11px] leading-snug text-muted-foreground sm:text-xs">
+              Parmak izi veya yüz tanıma ile hızlı giriş. PWA ve desteklenen tarayıcılarda çalışır.
             </p>
           </div>
         </div>
       </div>
 
       {support === 'loading' ? (
-        <LoadingDots className="py-6" />
+        <LoadingDots className="py-4" />
       ) : support === 'browser' ? (
-        <div className="flex gap-3 rounded-xl border border-amber-500/25 bg-amber-500/8 px-3.5 py-3 text-xs leading-relaxed text-amber-100/95">
-          <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <div className={alertBox}>
+          <ShieldAlert className="mt-0.5 size-3.5 shrink-0 sm:size-4" aria-hidden />
           Bu tarayıcı veya bağlantı biyometrik girişi desteklemiyor. HTTPS ve güncel Chrome / Safari / Edge kullanın.
         </div>
       ) : support === 'server' ? (
-        <div className="flex gap-3 rounded-xl border border-amber-500/25 bg-amber-500/8 px-3.5 py-3 text-xs leading-relaxed text-amber-100/95">
-          <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-          Sunucuda WebAuthn yapılandırması eksik. Yöneticiye <code className="text-[10px]">WEBAUTHN_RP_ID</code> bildirin.
+        <div className={alertBox}>
+          <ShieldAlert className="mt-0.5 size-3.5 shrink-0 sm:size-4" aria-hidden />
+          Sunucuda WebAuthn yapılandırması eksik. Yöneticiye{' '}
+          <code className="text-[10px]">WEBAUTHN_RP_ID</code> bildirin.
         </div>
       ) : (
         <>
-          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-zinc-900/45 px-3.5 py-3">
+          <div className="mb-2.5 flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/70 px-2.5 py-2 sm:mb-3 sm:rounded-xl sm:px-3 sm:py-2.5">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">Biyometrik girişe izin ver</p>
-              <p className="text-[11px] text-muted-foreground">Kapalıyken giriş ekranında parmak izi / yüz seçeneği görünmez.</p>
+              <p className="text-xs font-medium text-foreground sm:text-sm">Biyometrik girişe izin ver</p>
+              <p className="text-[10px] text-muted-foreground sm:text-[11px]">
+                Kapalıyken giriş ekranında parmak izi / yüz seçeneği görünmez.
+              </p>
             </div>
             <Switch
               checked={loginEnabled}
@@ -352,11 +360,11 @@ export function PasskeySettingsPanel({
           {loginEnabled ? (
             <>
               {loading ? (
-                <LoadingDots className="py-4" />
+                <LoadingDots className="py-3" />
               ) : (
-                <ul className={cn('space-y-2.5', !compact && 'sm:space-y-3')}>
+                <ul className="space-y-2">
                   {rows.length === 0 ? (
-                    <li className="rounded-xl border border-dashed border-zinc-700/80 bg-zinc-900/35 px-4 py-5 text-center text-xs text-muted-foreground">
+                    <li className="rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-4 text-center text-[11px] text-muted-foreground sm:text-xs">
                       Henüz kayıtlı cihaz yok. Aşağıdan bu cihazı ekleyin.
                     </li>
                   ) : (
@@ -368,17 +376,17 @@ export function PasskeySettingsPanel({
               )}
 
               {showAdd ? (
-                <div className="mt-3 space-y-2 rounded-xl border border-red-800/30 bg-red-950/15 p-3">
-                  <label className="block text-[11px] font-medium text-muted-foreground">Cihaz adı</label>
+                <div className="mt-2.5 space-y-2 rounded-lg border border-border/60 bg-muted/15 p-2.5 sm:mt-3 sm:rounded-xl sm:p-3">
+                  <label className="block text-[11px] font-medium text-foreground sm:text-xs">Cihaz adı</label>
                   <input
                     value={addName}
                     onChange={(e) => setAddName(e.target.value)}
                     maxLength={120}
-                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm"
+                    className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm sm:h-9 sm:rounded-lg sm:px-3"
                     placeholder={suggestPasskeyDeviceName()}
                   />
                   <div className="flex flex-wrap gap-2">
-                    <Button type="button" size="sm" className="h-9 gap-1.5" disabled={busy} onClick={() => void add()}>
+                    <Button type="button" size="sm" className="h-8 gap-1.5 sm:h-9" disabled={busy} onClick={() => void add()}>
                       <Fingerprint className="size-3.5" />
                       {busy ? 'Kaydediliyor…' : 'Doğrula ve ekle'}
                     </Button>
@@ -386,7 +394,7 @@ export function PasskeySettingsPanel({
                       type="button"
                       size="sm"
                       variant="ghost"
-                      className="h-9"
+                      className="h-8 sm:h-9"
                       disabled={busy}
                       onClick={() => {
                         setShowAdd(false);
@@ -402,7 +410,7 @@ export function PasskeySettingsPanel({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="mt-3 h-9 w-full gap-1.5 border-red-800/35 bg-transparent hover:bg-red-950/25 sm:w-auto"
+                  className="mt-2.5 h-8 w-full gap-1.5 sm:mt-3 sm:h-9 sm:w-auto"
                   disabled={!token || busy}
                   onClick={() => setShowAdd(true)}
                 >
@@ -412,7 +420,7 @@ export function PasskeySettingsPanel({
               )}
             </>
           ) : (
-            <p className="rounded-xl border border-white/8 bg-zinc-900/35 px-3.5 py-3 text-xs text-muted-foreground">
+            <p className="rounded-lg border border-border/60 bg-muted/15 px-2.5 py-2 text-[11px] text-muted-foreground sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-xs">
               Biyometrik giriş kapalı. Kayıtlı cihazlar silinmez; tekrar açtığınızda kullanılabilir.
             </p>
           )}

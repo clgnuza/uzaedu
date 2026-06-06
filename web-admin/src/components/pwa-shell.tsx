@@ -27,6 +27,24 @@ export function PwaShell() {
         ),
       )
       .catch(() => undefined);
+    if (PWA_DEV) {
+      void navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) =>
+          Promise.all(
+            regs
+              .filter((r) => {
+                const url = r.active?.scriptURL ?? r.waiting?.scriptURL ?? r.installing?.scriptURL ?? '';
+                return !url.includes('sw-push.js');
+              })
+              .map((r) => r.unregister()),
+          ),
+        )
+        .then(() =>
+          navigator.serviceWorker.register('/sw-push.js', { scope: '/', updateViaCache: 'none' }),
+        )
+        .catch(() => undefined);
+    }
   }, []);
 
   const chrome = (

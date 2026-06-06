@@ -6,7 +6,6 @@ import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { useSchoolTimetableSettings } from '@/hooks/use-school-timetable-settings';
 import { TeacherAvailabilityAdminSettings } from '@/components/ders-dagit/teacher-availability-admin-settings';
 import { TeacherAvailabilityAdminQueue } from '@/components/ders-dagit/teacher-availability-admin-queue';
-import { DersDagitStudioNav } from '@/components/ders-dagit/studio-nav';
 import { DdPageHeader, DD_PAGE } from '@/components/ders-dagit/dd-ui';
 
 const WORK_DAYS = [1, 2, 3, 4, 5];
@@ -31,7 +30,6 @@ export default function OgretmenTercihleriPage() {
         title="Öğretmen müsaitlik onayı"
         description="Öğretmen talebini ızgarada görün; tam veya kısmi onaylayın."
       />
-      <DersDagitStudioNav />
       <TeacherAvailabilityAdminSettings
         token={token}
         studioId={studio.id}

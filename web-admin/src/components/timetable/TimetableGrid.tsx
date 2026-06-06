@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useMemo, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -457,7 +457,7 @@ const DropSlot = memo(function DropSlot({
   const forb = effectiveStatus === 'forbidden';
   const { isOver, setNodeRef } = useDroppable({
     id: slotId(day, lesson),
-    disabled: disabled || forb,
+    disabled: disabled || forb || !isDragging,
   });
   const hint =
     isDragging && effectiveStatus
@@ -663,9 +663,18 @@ export function TimetableGrid({
   );
 
   const isDragging = !!(draggingEntry || poolClassSection);
+  const [dropZonesLive, setDropZonesLive] = useState(false);
+  useEffect(() => {
+    if (!isDragging) {
+      setDropZonesLive(false);
+      return;
+    }
+    const id = requestAnimationFrame(() => setDropZonesLive(true));
+    return () => cancelAnimationFrame(id);
+  }, [isDragging, draggingEntry, poolClassSection, blockDragIds]);
   const dropStatusGrid = useMemo(
     () =>
-      isDragging
+      isDragging && dropZonesLive
         ? buildDropStatusGrid({
             dragging: draggingEntry,
             poolClassSection,
@@ -680,6 +689,7 @@ export function TimetableGrid({
         : null,
     [
       isDragging,
+      dropZonesLive,
       draggingEntry,
       poolClassSection,
       blockDragIds,
@@ -691,6 +701,7 @@ export function TimetableGrid({
       group_modes,
     ],
   );
+  const showDropHints = isDragging && dropZonesLive;
   const tableView = filter?.mode ?? displayMode ?? 'all';
   const chipView = tableView;
   const tableMinWidth = 52 + days.length * 68;
@@ -871,7 +882,7 @@ export function TimetableGrid({
                       disabled={!editable || busy}
                       closure={closure}
                       dropStatus={dropStatus}
-                      isDragging={isDragging}
+                      isDragging={showDropHints}
                       empty={cells.length === 0}
                       flash={highlightSlotKey === domKey}
                       placementMode={placementMode}

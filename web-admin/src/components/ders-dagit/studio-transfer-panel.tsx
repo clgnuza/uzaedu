@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
 import { apiFetch } from '@/lib/api';
+import { resolveLongRunningApiBase } from '@/lib/resolve-api-base';
 import { Button } from '@/components/ui/button';
 import {
   DdCard,
@@ -122,6 +123,12 @@ export function StudioTransferPanel() {
   const [busy, setBusy] = useState(false);
   const [autoElective, setAutoElective] = useState(true);
   const [mergeSettings, setMergeSettings] = useState(true);
+  const transferApiBase = resolveLongRunningApiBase();
+
+  const effectiveImportFormat = useMemo(() => {
+    if (preview?.format_auto_corrected && preview.detected_format) return preview.detected_format;
+    return importFormat;
+  }, [preview, importFormat]);
 
   useEffect(() => {
     if (!token) return;
@@ -179,6 +186,7 @@ export function StudioTransferPanel() {
         `/ders-dagit/studios/${studio.id}/transfer/import/preview`,
         {
           token,
+          apiBase: transferApiBase,
           method: 'POST',
           body: {
             format: importFormat,
@@ -213,11 +221,12 @@ export function StudioTransferPanel() {
         `/ders-dagit/studios/${studio.id}/transfer/import`,
         {
           token,
+          apiBase: transferApiBase,
           method: 'POST',
           body: {
-            format: importFormat,
+            format: effectiveImportFormat,
             file_base64: b64,
-            eokul_format: importFormat === 'eokul_excel' ? eokulFormat : undefined,
+            eokul_format: effectiveImportFormat === 'eokul_excel' ? eokulFormat : undefined,
             auto_elective_groups: autoElective,
             merge_settings: mergeSettings,
           },

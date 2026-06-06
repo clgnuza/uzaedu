@@ -209,7 +209,7 @@ function getNotificationLink(item: NotificationItem): string {
       item.event_type === 'timetable.availability_submitted' ||
       item.event_type === 'ders_dagit.availability_submitted'
     ) {
-      return '/ders-dagit/studyo/ayarlar#ogretmen-musaitlik';
+      return '/ders-dagit/studyo/ogretmen-tercihleri';
     }
     return '/ders-dagit/tercihler';
   }

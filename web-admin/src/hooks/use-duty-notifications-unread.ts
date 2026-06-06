@@ -5,6 +5,7 @@ import { apiFetch, shouldSkipOptionalApiCalls } from '@/lib/api';
 import { readStaleJson, staleCacheKey, writeStaleJson } from '@/lib/pwa-read-cache';
 
 const NOTIFICATIONS_UPDATED = 'notifications-updated';
+const PUSH_RECEIVED_MESSAGE = 'uzaedu-push-received';
 
 /** Aynı path + token için eşzamanlı tek fetch (sidebar + dashboard çift isteği önlenir). */
 const unreadInflight = new Map<string, Promise<number>>();
@@ -66,9 +67,14 @@ export function useDutyNotificationsUnread(token: string | null, role: string | 
       if (document.visibilityState === 'visible') fetchCount();
     };
     document.addEventListener('visibilitychange', onVis);
+    const onSwMessage = (e: MessageEvent) => {
+      if (e.data?.type === PUSH_RECEIVED_MESSAGE) fetchCount();
+    };
+    navigator.serviceWorker?.addEventListener('message', onSwMessage);
     return () => {
       window.removeEventListener(NOTIFICATIONS_UPDATED, handler);
       document.removeEventListener('visibilitychange', onVis);
+      navigator.serviceWorker?.removeEventListener('message', onSwMessage);
     };
   }, [fetchCount]);
 
@@ -99,9 +105,14 @@ export function useAllNotificationsUnread(token: string | null, role: string | n
       if (document.visibilityState === 'visible') fetchCount();
     };
     document.addEventListener('visibilitychange', onVis);
+    const onSwMessage = (e: MessageEvent) => {
+      if (e.data?.type === PUSH_RECEIVED_MESSAGE) fetchCount();
+    };
+    navigator.serviceWorker?.addEventListener('message', onSwMessage);
     return () => {
       window.removeEventListener(NOTIFICATIONS_UPDATED, handler);
       document.removeEventListener('visibilitychange', onVis);
+      navigator.serviceWorker?.removeEventListener('message', onSwMessage);
     };
   }, [fetchCount]);
 

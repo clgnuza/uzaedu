@@ -3,6 +3,7 @@ import type { PrecacheEntry, SerwistGlobalConfig } from 'serwist';
 import { NetworkOnly, Serwist } from 'serwist';
 
 const OFFLINE_FLUSH = 'uzaedu-flush-offline-queue';
+const PUSH_RECEIVED = 'uzaedu-push-received';
 const SYNC_TAG = 'uzaedu-api-retry';
 const PERIODIC_TAG = 'uzaedu-periodic-retry';
 
@@ -55,7 +56,31 @@ type PushPayload = {
   silent?: boolean;
   vibrate?: boolean;
   requireInteraction?: boolean;
+  unreadCount?: number;
 };
+
+async function syncAppBadgeFromPush(unreadCount: number | undefined): Promise<void> {
+  if (typeof unreadCount !== 'number' || unreadCount < 0) return;
+  const nav = self.navigator as Navigator & {
+    setAppBadge?: (n: number) => Promise<void>;
+    clearAppBadge?: () => Promise<void>;
+  };
+  if (!nav.setAppBadge) return;
+  try {
+    if (unreadCount > 0) await nav.setAppBadge(Math.min(99, unreadCount));
+    else await nav.clearAppBadge?.();
+  } catch {
+    /* ignore */
+  }
+}
+
+function notifyClientsPushReceived(): Promise<void> {
+  return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    for (const client of clients) {
+      client.postMessage({ type: PUSH_RECEIVED });
+    }
+  });
+}
 
 const PUSH_ICON: Record<string, string> = {
   nobet: '/push-icons/nobet.svg',
@@ -97,17 +122,21 @@ self.addEventListener('push', (event) => {
   const vibrate: number[] | undefined =
     data.vibrate === false ? undefined : [120, 60, 120];
   event.waitUntil(
-    self.registration.showNotification(channelLabel ? `Uzaedu · ${channelLabel}` : title, {
-      body: body || title,
-      icon,
-      badge: '/icon-192.png',
-      tag: data.tag || data.id || `uzaedu-${channel}`,
-      data: { url: data.url || '/bildirimler', notificationId: data.id, channel },
-      requireInteraction: data.requireInteraction === true,
-      silent,
-      ...(vibrate ? { vibrate } : {}),
-      actions: [{ action: 'open', title: 'Aç' }],
-    } as NotificationOptions),
+    Promise.all([
+      self.registration.showNotification(channelLabel ? `Uzaedu · ${channelLabel}` : title, {
+        body: body || title,
+        icon,
+        badge: '/icon-192.png',
+        tag: data.tag || data.id || `uzaedu-${channel}`,
+        data: { url: data.url || '/bildirimler', notificationId: data.id, channel },
+        requireInteraction: data.requireInteraction === true,
+        silent,
+        ...(vibrate ? { vibrate } : {}),
+        actions: [{ action: 'open', title: 'Aç' }],
+      } as NotificationOptions),
+      syncAppBadgeFromPush(data.unreadCount),
+      notifyClientsPushReceived(),
+    ]),
   );
 });
 

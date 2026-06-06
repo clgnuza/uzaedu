@@ -110,7 +110,7 @@ export default function DashboardPage() {
 
   if (me.role === 'school_admin') {
     return (
-      <div className="max-sm:-mt-2">
+      <div className="max-sm:-mx-1">
         <SchoolAdminHome
           me={me}
           displayName={displayName}

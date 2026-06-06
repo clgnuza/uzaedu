@@ -6,6 +6,7 @@ import { formatClassSectionsList } from '@/lib/class-section-sort';
 import {
   assignmentCardBadgeLabels,
   assignmentDistributionLabel,
+  ascImportTeacherHint,
   type LessonAssignmentRow,
 } from '@/lib/lesson-assignment';
 import {
@@ -148,8 +149,10 @@ export function AssignedLessonsPanel({
           <tbody>
             {rows.map((r) => {
               const code = shortCode(r, subjects);
-              const teacher =
-                r.teacher_ids?.map((id) => teacherNames?.get(id) ?? '—').join(', ') || '—';
+              const teacherLinked =
+                r.teacher_ids?.map((id) => teacherNames?.get(id) ?? '—').join(', ') || '';
+              const teacherHint = !teacherLinked ? ascImportTeacherHint(r) : null;
+              const teacher = teacherLinked || (teacherHint ? `${teacherHint} (eşleşmedi)` : '—');
               const room =
                 r.room_ids?.map((id) => roomNames?.get(id) ?? '—').join(', ') || '—';
               const pattern = assignmentDistributionLabel(r);
@@ -178,7 +181,7 @@ export function AssignedLessonsPanel({
                   <td className={cn('max-w-[10rem] truncate px-2 py-2 text-xs text-muted-foreground', colSection)}>
                     {formatClassSectionsList(r.class_sections) || '—'}
                   </td>
-                  <td className={cn('max-w-[9rem] truncate px-2 py-2 text-xs', colTeacher)}>{teacher}</td>
+                  <td className={cn('max-w-[9rem] truncate px-2 py-2 text-xs', colTeacher, teacherHint && 'text-amber-700 dark:text-amber-300')}>{teacher}</td>
                   <td className="px-2 py-2 text-right">
                     <span className="tabular-nums font-semibold">{r.weekly_hours}</span>
                     {!wideTable ? (

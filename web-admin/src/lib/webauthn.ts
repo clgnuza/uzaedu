@@ -4,6 +4,15 @@ import {
   startRegistration,
 } from '@simplewebauthn/browser';
 import { apiFetch } from './api';
+import { getWebAuthnErrorMessage, type WebAuthnErrorContext } from './webauthn-error-message';
+
+async function wrapWebAuthn<T>(context: WebAuthnErrorContext, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    throw new Error(getWebAuthnErrorMessage(e, context));
+  }
+}
 
 export type AuthPortal = 'teacher' | 'school';
 
@@ -56,36 +65,40 @@ export async function loginWithPasskey(
   portal: AuthPortal,
   rememberMe?: boolean,
 ): Promise<{ token: string }> {
-  const options = await apiFetch('/auth/webauthn/login/options', {
-    method: 'POST',
-    body: JSON.stringify({ email: email.trim(), portal }),
-  });
-  const assertion = await startAuthentication({
-    optionsJSON: options as Parameters<typeof startAuthentication>[0]['optionsJSON'],
-  });
-  return apiFetch('/auth/webauthn/login/verify', {
-    method: 'POST',
-    body: JSON.stringify({
-      email: email.trim(),
-      portal,
-      response: assertion,
-      remember_me: rememberMe === true,
-    }),
+  return wrapWebAuthn('login', async () => {
+    const options = await apiFetch('/auth/webauthn/login/options', {
+      method: 'POST',
+      body: JSON.stringify({ email: email.trim(), portal }),
+    });
+    const assertion = await startAuthentication({
+      optionsJSON: options as Parameters<typeof startAuthentication>[0]['optionsJSON'],
+    });
+    return apiFetch('/auth/webauthn/login/verify', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: email.trim(),
+        portal,
+        response: assertion,
+        remember_me: rememberMe === true,
+      }),
+    });
   });
 }
 
 export async function registerPasskey(token: string, name?: string): Promise<void> {
-  const options = await apiFetch('/auth/webauthn/register/options', {
-    method: 'POST',
-    token,
-  });
-  const attestation = await startRegistration({
-    optionsJSON: options as Parameters<typeof startRegistration>[0]['optionsJSON'],
-  });
-  await apiFetch('/auth/webauthn/register/verify', {
-    method: 'POST',
-    token,
-    body: JSON.stringify({ response: attestation, name }),
+  return wrapWebAuthn('register', async () => {
+    const options = await apiFetch('/auth/webauthn/register/options', {
+      method: 'POST',
+      token,
+    });
+    const attestation = await startRegistration({
+      optionsJSON: options as Parameters<typeof startRegistration>[0]['optionsJSON'],
+    });
+    await apiFetch('/auth/webauthn/register/verify', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ response: attestation, name }),
+    });
   });
 }
 

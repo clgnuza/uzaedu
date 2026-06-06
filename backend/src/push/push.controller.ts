@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -27,10 +27,13 @@ export class PushController {
   @Get('status')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.teacher, UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
-  async status(@CurrentUser('userId') userId: string) {
+  async status(@CurrentUser('userId') userId: string, @Query('endpoint') endpoint?: string) {
     const count = await this.webPush.countSubscriptions(userId);
+    const endpointTrim = endpoint?.trim();
+    const thisDevice = endpointTrim ? await this.webPush.hasSubscription(userId, endpointTrim) : false;
     return {
       subscribed: count > 0,
+      thisDevice,
       deviceCount: count,
       pushEnabled: this.webPush.isEnabled(),
     };

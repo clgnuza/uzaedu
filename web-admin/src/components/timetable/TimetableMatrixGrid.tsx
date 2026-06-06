@@ -124,6 +124,8 @@ function MatrixMiniCell({
   return (
     <div
       ref={setNodeRef}
+      data-entry-id={entry.id}
+      data-slot-key={`${entry.day_of_week}-${entry.lesson_num}`}
       className={cn(
         'relative min-w-0 max-w-full overflow-hidden rounded-md border px-1 py-0.5 leading-tight',
         useToneClass ? toneClass : 'shadow-sm',

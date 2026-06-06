@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import * as webpush from 'web-push';
 import { PushSubscription } from './entities/push-subscription.entity';
 import { NotificationPreference } from './entities/notification-preference.entity';
 import { NotificationPushSettings } from './entities/notification-push-settings.entity';
 import { isQuietHoursActive } from './notification-quiet-hours';
-import type { Notification } from './entities/notification.entity';
+import { Notification } from './entities/notification.entity';
 import { eventTypeToChannel, NOTIFICATION_CHANNELS } from './notification-channels';
 import { notificationDeepLink } from './notification-push-link';
 import { notificationEventLabel } from './notification-event-labels';
@@ -30,6 +30,8 @@ export class WebPushService {
     private readonly prefRepo: Repository<NotificationPreference>,
     @InjectRepository(NotificationPushSettings)
     private readonly pushSettingsRepo: Repository<NotificationPushSettings>,
+    @InjectRepository(Notification)
+    private readonly notificationRepo: Repository<Notification>,
   ) {}
 
   private ensureVapid(): boolean {
@@ -84,6 +86,11 @@ export class WebPushService {
     return this.subRepo.count({ where: { user_id: userId } });
   }
 
+  async hasSubscription(userId: string, endpoint: string): Promise<boolean> {
+    if (!endpoint?.trim()) return false;
+    return (await this.subRepo.count({ where: { user_id: userId, endpoint: endpoint.trim() } })) > 0;
+  }
+
   private async getChannelPref(userId: string, channel: string): Promise<NotificationPreference | null> {
     return this.prefRepo.findOne({ where: { user_id: userId, channel } });
   }
@@ -115,7 +122,7 @@ export class WebPushService {
 
   /** Inbox kaydı sonrası cihaz bildirimi (kanal tercihi + abonelik). */
   async sendForInboxNotification(n: Notification): Promise<void> {
-    if (!this.configured) return;
+    if (!this.ensureVapid()) return;
     const channel = eventTypeToChannel(n.event_type);
     if (!(await this.isChannelPushEnabled(n.user_id, channel))) return;
 
@@ -142,6 +149,9 @@ export class WebPushService {
       NOTIFICATION_CHANNELS.find((c) => c.id === channel)?.label ?? label;
     const soundOn = settings.sound_enabled !== false;
     const vibrateOn = settings.vibration_enabled !== false;
+    const unreadCount = await this.notificationRepo.count({
+      where: { user_id: n.user_id, read_at: IsNull() },
+    });
     const payload = JSON.stringify({
       id: n.id,
       title: n.title || label,
@@ -153,6 +163,7 @@ export class WebPushService {
       silent: !soundOn,
       vibrate: vibrateOn,
       requireInteraction: critical,
+      unreadCount,
     });
 
     for (const sub of subs) {

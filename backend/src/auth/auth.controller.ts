@@ -350,20 +350,20 @@ export class AuthController {
   @Post('webauthn/register/options')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async webauthnRegisterOptions(@CurrentUser() user: User, @Req() req: Request) {
-    return this.webauthnService.registrationOptions(user.id, req.headers.origin ?? '');
+  async webauthnRegisterOptions(@CurrentUser('userId') userId: string, @Req() req: Request) {
+    return this.webauthnService.registrationOptions(userId, req.headers.origin ?? '');
   }
 
   @Post('webauthn/register/verify')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async webauthnRegisterVerify(
-    @CurrentUser() user: User,
+    @CurrentUser('userId') userId: string,
     @Req() req: Request,
     @Body() dto: WebauthnRegisterVerifyDto,
   ) {
     return this.webauthnService.registrationVerify(
-      user.id,
+      userId,
       req.headers.origin ?? '',
       dto.response as unknown as RegistrationResponseJSON,
       dto.name,
@@ -372,15 +372,15 @@ export class AuthController {
 
   @Get('webauthn/credentials')
   @UseGuards(JwtAuthGuard)
-  async webauthnListCredentials(@CurrentUser() user: User) {
-    return this.webauthnService.listCredentials(user.id);
+  async webauthnListCredentials(@CurrentUser('userId') userId: string) {
+    return this.webauthnService.listCredentials(userId);
   }
 
   @Post('webauthn/credentials/:id/delete')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async webauthnDeleteCredential(@CurrentUser() user: User, @Param('id') id: string) {
-    await this.webauthnService.deleteCredential(user.id, id);
+  async webauthnDeleteCredential(@CurrentUser('userId') userId: string, @Param('id') id: string) {
+    await this.webauthnService.deleteCredential(userId, id);
     return { ok: true };
   }
 
@@ -388,11 +388,11 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async webauthnRenameCredential(
-    @CurrentUser() user: User,
+    @CurrentUser('userId') userId: string,
     @Param('id') id: string,
     @Body() dto: WebauthnRenameCredentialDto,
   ) {
-    return this.webauthnService.renameCredential(user.id, id, dto.name);
+    return this.webauthnService.renameCredential(userId, id, dto.name);
   }
 
   @Post('webauthn/login/options')

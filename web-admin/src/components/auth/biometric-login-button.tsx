@@ -11,6 +11,7 @@ import {
   loginWithPasskey,
   rememberLoginEmail,
 } from '@/lib/webauthn';
+import { getWebAuthnErrorMessage } from '@/lib/webauthn-error-message';
 import { LoadingDots } from '@/components/ui/loading-spinner';
 
 export function BiometricLoginButton({
@@ -82,7 +83,7 @@ export function BiometricLoginButton({
       rememberLoginEmail(e);
       await onSuccess(token);
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Biyometrik giriş başarısız.');
+      onError(getWebAuthnErrorMessage(err, 'login'));
     } finally {
       setLoading(false);
     }

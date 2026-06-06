@@ -2,7 +2,11 @@
 
 import { useEffect, useRef } from 'react';
 import { useAuthOptional } from '@/providers/auth-provider';
-import { pushSupported, subscribeWebPush } from '@/lib/web-push';
+import {
+  subscribeWebPush,
+  repairPushSubscriptionIfNeeded,
+  canSubscribePushOnDevice,
+} from '@/lib/web-push';
 
 const STORAGE_KEY = 'pwa-push-auto-requested';
 
@@ -13,15 +17,21 @@ export function PwaPushRegister() {
 
   useEffect(() => {
     if (!token || tried.current || process.env.NODE_ENV === 'development') return;
-    if (!pushSupported()) return;
+    const gate = canSubscribePushOnDevice();
+    if (!gate.ok) return;
     try {
-      if (localStorage.getItem(STORAGE_KEY) === '1') return;
+      if (localStorage.getItem(STORAGE_KEY) === '1') {
+        if (Notification.permission === 'granted') {
+          void repairPushSubscriptionIfNeeded(token).catch(() => undefined);
+        }
+        return;
+      }
     } catch {
       /* ignore */
     }
     if (Notification.permission === 'denied') return;
     if (Notification.permission === 'granted') {
-      void subscribeWebPush(token).catch(() => undefined);
+      void repairPushSubscriptionIfNeeded(token).catch(() => undefined);
       return;
     }
 
@@ -33,13 +43,6 @@ export function PwaPushRegister() {
             localStorage.setItem(STORAGE_KEY, '1');
           } catch {
             /* ignore */
-          }
-          if (!r.ok && r.reason === 'denied') {
-            try {
-              localStorage.setItem(STORAGE_KEY, '1');
-            } catch {
-              /* ignore */
-            }
           }
         })
         .catch(() => undefined);

@@ -11,6 +11,7 @@ import { getNotificationPermission, pushSupported, subscribeWebPush } from '@/li
 import { NotificationPermissionPrompt } from '@/components/notification-permission-prompt';
 import { fetchWebAuthnSupported, registerPasskey } from '@/lib/webauthn';
 import { suggestPasskeyDeviceName } from '@/lib/passkey-device-label';
+import { getWebAuthnErrorMessage } from '@/lib/webauthn-error-message';
 import { trackPwaEvent } from '@/lib/pwa-analytics';
 import { hapticSuccess } from '@/lib/pwa-haptic';
 import { cn } from '@/lib/utils';
@@ -119,7 +120,7 @@ export function PwaOnboarding() {
       toast.success('Biyometrik giriş eklendi');
       next();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Eklenemedi');
+      toast.error(getWebAuthnErrorMessage(e, 'register'));
     } finally {
       setBusy(false);
     }

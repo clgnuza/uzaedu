@@ -34,7 +34,7 @@ export function notificationDeepLink(n: Pick<Notification, 'event_type' | 'targe
     return '/akilli-tahta';
   }
   if (et.includes('availability')) {
-    if (et.endsWith('.availability_submitted')) return '/ders-dagit/studyo/ayarlar#ogretmen-musaitlik';
+    if (et.endsWith('.availability_submitted')) return '/ders-dagit/studyo/ogretmen-tercihleri';
     return '/ders-dagit/tercihler';
   }
   if (et.startsWith('timetable.') || n.target_screen === 'ders-programi') return '/ders-programi/programlarim';

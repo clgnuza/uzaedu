@@ -17,7 +17,7 @@ export default function TercihlerPage() {
   const { maxLessons } = useSchoolTimetableSettings();
 
   useEffect(() => {
-    if (me?.role === 'school_admin') router.replace('/ders-dagit/studyo/ayarlar#ogretmen-musaitlik');
+    if (me?.role === 'school_admin') router.replace('/ders-dagit/studyo/ogretmen-tercihleri');
   }, [me?.role, router]);
 
   if (me?.role === 'school_admin') return null;

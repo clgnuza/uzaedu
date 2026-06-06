@@ -16,8 +16,9 @@ import {
   Building2,
   Calendar,
   CalendarClock,
-  ClipboardList,
+  ChevronRight,
   ClipboardCheck,
+  ClipboardList,
   GraduationCap,
   Headphones,
   Inbox,
@@ -43,208 +44,6 @@ import { WelcomeMotivationBanner } from '@/components/dashboard/welcome-motivati
 import type { SchoolAdminStatsPayload, StatsResponse } from '@/lib/stats-response';
 import type { SchoolModuleKey } from '@/config/school-modules';
 
-/** Üst KPI’larda olmayan: toplam hesap + hesap durumu kırılımı (öğretmen sayısı yok) */
-function SchoolAccountHealthStrip({
-  stats,
-  sa,
-  loading,
-  error,
-}: {
-  stats: StatsResponse | null;
-  sa: SchoolAdminStatsPayload | undefined;
-  loading: boolean;
-  error: boolean;
-}) {
-  if (error) return null;
-  if (loading) {
-    return (
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-[4.5rem] rounded-xl sm:h-20" />
-        ))}
-      </div>
-    );
-  }
-  if (!sa) {
-    return <p className="text-sm text-muted-foreground">Özet verisi yok.</p>;
-  }
-  const us = sa.users_by_status;
-  const cells = [
-    { label: 'Toplam hesap', value: stats?.users ?? 0 },
-    { label: 'Aktif', value: us?.active ?? 0 },
-    { label: 'Pasif', value: us?.passive ?? 0 },
-    { label: 'Askıda', value: us?.suspended ?? 0 },
-  ];
-  return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
-      {cells.map((c) => (
-        <div
-          key={c.label}
-          className="rounded-xl border border-border/50 bg-muted/20 px-2.5 py-2.5 text-center sm:px-3 sm:py-3"
-        >
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{c.label}</p>
-          <p className="mt-0.5 text-xl font-bold tabular-nums tracking-tight text-foreground sm:text-2xl">{c.value}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-type SuggestedAction = { href: string; title: string; hint: string; icon: LucideIcon; emphasis?: boolean };
-
-function SchoolSuggestedActionsCard({
-  sa,
-  loading,
-  error,
-  enabledModules,
-}: {
-  sa: SchoolAdminStatsPayload | undefined;
-  loading: boolean;
-  error: boolean;
-  enabledModules: string[] | null;
-}) {
-  if (error) return null;
-  if (loading) {
-    return <Skeleton className="h-36 w-full rounded-xl sm:h-32" />;
-  }
-  if (!sa) {
-    return null;
-  }
-
-  const pending = sa.teachers_pending_approval ?? 0;
-  const suspended = sa.users_by_status?.suspended ?? 0;
-
-  const dynamic: SuggestedAction[] = [];
-  if (pending > 0) {
-    dynamic.push({
-      href: '/school-join-queue',
-      title: `${pending} öğretmen onayı bekliyor`,
-      hint: 'Başvuruları inceleyin',
-      icon: ClipboardCheck,
-      emphasis: true,
-    });
-  }
-  if (suspended > 0) {
-    dynamic.push({
-      href: '/teachers',
-      title: `${suspended} askıda hesap`,
-      hint: 'Kullanıcı listesinden kontrol edin',
-      icon: AlertTriangle,
-      emphasis: true,
-    });
-  }
-
-  const pool: SuggestedAction[] = [
-    { href: '/akademik-takvim', title: 'Akademik takvimi aç', hint: 'Tatil ve dönem tarihleri', icon: Calendar },
-    { href: '/announcements', title: 'Duyuru hazırla veya düzenle', hint: 'Okul panosu', icon: Megaphone },
-    { href: '/classes-subjects', title: 'Sınıf ve ders yapısı', hint: 'Şubeleri güncel tutun', icon: BookOpen },
-    { href: '/ders-programi', title: 'Ders programı', hint: 'Günlük tablo ve planlar', icon: Table2 },
-  ];
-  if (isModuleEnabled(enabledModules, 'messaging')) {
-    pool.push({
-      href: '/mesaj-merkezi',
-      title: 'Mesaj merkezi',
-      hint: 'Veli / şablon gönderimleri',
-      icon: MessageSquare,
-    });
-  }
-  if (isModuleEnabled(enabledModules, 'smart_board')) {
-    pool.push({
-      href: '/akilli-tahta?tab=kurulum',
-      title: 'Akıllı tahta kurulumu',
-      hint: 'Okul kodu, QR etiket, USB / .deb',
-      icon: Monitor,
-    });
-  }
-
-  const seen = new Set<string>();
-  const merged: SuggestedAction[] = [];
-  for (const a of [...dynamic, ...pool]) {
-    if (seen.has(a.href)) continue;
-    seen.add(a.href);
-    merged.push(a);
-    if (merged.length >= 5) break;
-  }
-
-  return (
-    <div className="rounded-xl border border-border/50 bg-gradient-to-br from-muted/20 to-muted/5 p-3.5 sm:p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="flex size-8 items-center justify-center rounded-lg bg-primary/12 text-primary">
-          <Sparkles className="size-4" strokeWidth={2} />
-        </span>
-        <div>
-          <p className="text-xs font-semibold text-foreground">Önerilen kontroller</p>
-          <p className="text-[10px] text-muted-foreground">Veriye göre sıralanır; tıklayarak gidin</p>
-        </div>
-      </div>
-      <ul className="space-y-1.5">
-        {merged.map((a) => {
-          const Icon = a.icon;
-          return (
-            <li key={a.href}>
-              <Link
-                href={a.href}
-                className={cn(
-                  'flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors sm:px-3',
-                  a.emphasis
-                    ? 'border-amber-500/35 bg-amber-500/8 hover:bg-amber-500/12'
-                    : 'border-transparent bg-background/60 hover:bg-muted/50',
-                )}
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <Icon className="size-4 shrink-0 text-muted-foreground" strokeWidth={2} />
-                  <span className="min-w-0">
-                    <span className="block text-[13px] font-medium leading-snug text-foreground">{a.title}</span>
-                    <span className="block text-[11px] text-muted-foreground">{a.hint}</span>
-                  </span>
-                </span>
-                <ArrowRight className="size-4 shrink-0 text-muted-foreground/70" />
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
-/** Tüm okul modül anahtarları + okul yöneticisi rotaları (ROUTE_ROLES ile uyumlu). */
-const MODULE_CATALOG: { key: SchoolModuleKey; label: string; href: string; icon: LucideIcon }[] = [
-  { key: 'duty', label: 'Nöbet', href: '/duty', icon: CalendarClock },
-  { key: 'tv', label: 'Duyuru TV', href: '/tv', icon: Tv },
-  { key: 'extra_lesson', label: 'Hesaplamalar', href: '/hesaplamalar', icon: Calculator },
-  { key: 'optical', label: 'Optik formlar', href: '/optik-formlar', icon: ScanLine },
-  { key: 'smart_board', label: 'Akıllı tahta', href: '/akilli-tahta', icon: Monitor },
-  { key: 'teacher_agenda', label: 'Öğretmen ajandası', href: '/ogretmen-ajandasi', icon: ClipboardList },
-  { key: 'bilsem', label: 'Bilsem', href: '/bilsem/takvim', icon: School },
-  { key: 'school_reviews', label: 'Okul değerlendirmesi', href: '/school-reviews-report', icon: BarChart3 },
-  { key: 'messaging', label: 'Mesaj merkezi', href: '/mesaj-merkezi', icon: MessageSquare },
-  { key: 'butterfly_exam', label: 'Kertenkele sınav', href: '/kelebek-sinav', icon: LayoutGrid },
-  { key: 'sorumluluk_sinav', label: 'Sorumluluk sınavı', href: '/sorumluluk-sinav', icon: GraduationCap },
-  { key: 'ders_dagit', label: 'DersDağıt', href: '/ders-dagit/studyo', icon: Sparkles },
-];
-
-type CoreLink = { label: string; href: string; icon: LucideIcon; hint: string; moduleKey?: SchoolModuleKey };
-
-/** Tek liste: menüdeki okul yöneticisi ihtiyaçları, modül kapısı gerekenler işaretli */
-const QUICK_LINKS: CoreLink[] = [
-  { label: 'Öğretmenler', href: '/teachers', icon: Users, hint: 'Liste ve roller' },
-  { label: 'Onay kuyruğu', href: '/school-join-queue', icon: ClipboardCheck, hint: 'Başvuru bekleyenler' },
-  { label: 'Sınıflar ve dersler', href: '/classes-subjects', icon: BookOpen, hint: 'Şube ve ders yapısı' },
-  { label: 'Duyurular', href: '/announcements', icon: Megaphone, hint: 'Okul içi yayınlar' },
-  { label: 'Ders programı', href: '/ders-programi', icon: Table2, hint: 'Plan ve günlük tablo' },
-  { label: 'Akademik takvim', href: '/akademik-takvim', icon: Calendar, hint: 'Yıllık görünüm' },
-  { label: 'Takvim ayarları', href: '/akademik-takvim-ayarlar', icon: CalendarClock, hint: 'Resmi tatil ve dönemler' },
-  { label: 'Okul değerlendirmesi', href: '/school-reviews-report', icon: BarChart3, hint: 'Veli geri bildirimi' },
-  { label: 'Sistem mesajları', href: '/system-messages', icon: Mail, hint: 'Merkez duyuruları' },
-  { label: 'Bildirimler', href: '/bildirimler', icon: Bell, hint: 'Uyarılar' },
-  { label: 'Mesaj merkezi', href: '/mesaj-merkezi', icon: MessageSquare, hint: 'WhatsApp şablonları', moduleKey: 'messaging' },
-  { label: 'Destek kutusu', href: '/support/inbox', icon: Inbox, hint: 'Gelen talepler' },
-  { label: 'Haberler', href: '/haberler', icon: Newspaper, hint: 'Okul haber vitrini' },
-  { label: 'Market', href: '/market', icon: ShoppingBag, hint: 'Jeton ve içerik' },
-  { label: 'Hesap ayarları', href: '/settings', icon: Settings, hint: 'Profil ve güvenlik' },
-];
-
 function isModuleEnabled(enabledModules: string[] | null | undefined, moduleKey: string): boolean {
   if (!enabledModules || enabledModules.length === 0) return true;
   return enabledModules.includes(moduleKey);
@@ -263,124 +62,240 @@ function formatTodayTr(): string {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
-    year: 'numeric',
   }).format(new Date());
 }
 
-const KPI_ACCENTS = {
-  emerald: {
-    glow: 'from-emerald-400/35 via-teal-400/15 to-transparent',
-    bar: 'from-emerald-500 to-teal-400',
-    icon: 'bg-emerald-500/20 text-emerald-700 ring-emerald-500/25 dark:text-emerald-300',
-    border: 'border-emerald-500/25 hover:border-emerald-400/45',
+const MODULE_CATALOG: {
+  key: SchoolModuleKey;
+  label: string;
+  href: string;
+  icon: LucideIcon;
+  ring: string;
+}[] = [
+  { key: 'duty', label: 'Nöbet', href: '/duty', icon: CalendarClock, ring: 'bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-200' },
+  { key: 'tv', label: 'Duyuru TV', href: '/tv', icon: Tv, ring: 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200' },
+  { key: 'extra_lesson', label: 'Hesaplamalar', href: '/hesaplamalar', icon: Calculator, ring: 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-200' },
+  { key: 'optical', label: 'Optik', href: '/optik-formlar', icon: ScanLine, ring: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-950/60 dark:text-fuchsia-200' },
+  { key: 'smart_board', label: 'Akıllı tahta', href: '/akilli-tahta', icon: Monitor, ring: 'bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200' },
+  { key: 'teacher_agenda', label: 'Ajanda', href: '/ogretmen-ajandasi', icon: ClipboardList, ring: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200' },
+  { key: 'bilsem', label: 'Bilsem', href: '/bilsem/takvim', icon: School, ring: 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-200' },
+  { key: 'school_reviews', label: 'Değerlendirme', href: '/school-reviews-report', icon: BarChart3, ring: 'bg-orange-100 text-orange-800 dark:bg-orange-950/60 dark:text-orange-200' },
+  { key: 'messaging', label: 'Mesaj', href: '/mesaj-merkezi', icon: MessageSquare, ring: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200' },
+  { key: 'butterfly_exam', label: 'Kelebek', href: '/kelebek-sinav', icon: LayoutGrid, ring: 'bg-pink-100 text-pink-800 dark:bg-pink-950/60 dark:text-pink-200' },
+  { key: 'sorumluluk_sinav', label: 'Sorumluluk', href: '/sorumluluk-sinav', icon: GraduationCap, ring: 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-200' },
+  { key: 'ders_dagit', label: 'DersDağıt', href: '/ders-dagit/studyo', icon: Sparkles, ring: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-200' },
+];
+
+const SECTION_THEMES = [
+  {
+    nav: 'overflow-hidden rounded-2xl border border-cyan-200/60 bg-gradient-to-br from-cyan-50/95 via-white to-sky-50/45 shadow-[0_10px_32px_-18px_rgba(6,182,212,0.25)] ring-1 ring-cyan-400/15 dark:border-cyan-500/35 dark:from-cyan-950/50 dark:via-zinc-950 dark:to-sky-950/25',
+    header:
+      'border-b border-cyan-200/55 bg-gradient-to-r from-cyan-100/95 via-sky-50/65 to-transparent px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-950 sm:px-4 sm:py-3 sm:text-[11px] dark:border-cyan-500/30 dark:from-cyan-950/85 dark:text-cyan-50',
+    itemHover: 'border-slate-200/75 hover:border-cyan-400/45 hover:shadow-[0_12px_28px_-12px_rgba(6,182,212,0.2)] dark:border-zinc-700/70 dark:hover:border-cyan-500/40',
   },
-  violet: {
-    glow: 'from-violet-400/35 via-fuchsia-400/15 to-transparent',
-    bar: 'from-violet-600 to-fuchsia-500',
-    icon: 'bg-violet-500/20 text-violet-700 ring-violet-500/25 dark:text-violet-300',
-    border: 'border-violet-500/25 hover:border-violet-400/45',
+  {
+    nav: 'overflow-hidden rounded-2xl border border-violet-200/60 bg-gradient-to-br from-violet-50/95 via-white to-fuchsia-50/40 shadow-[0_10px_32px_-18px_rgba(139,92,246,0.22)] ring-1 ring-violet-400/15 dark:border-violet-500/35 dark:from-violet-950/45 dark:via-zinc-950 dark:to-fuchsia-950/25',
+    header:
+      'border-b border-violet-200/55 bg-gradient-to-r from-violet-100/95 via-fuchsia-50/60 to-transparent px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-violet-950 sm:px-4 sm:py-3 sm:text-[11px] dark:border-violet-500/30 dark:from-violet-950/85 dark:text-violet-50',
+    itemHover: 'border-slate-200/75 hover:border-violet-400/45 hover:shadow-[0_12px_28px_-12px_rgba(139,92,246,0.18)] dark:border-zinc-700/70 dark:hover:border-violet-500/40',
+  },
+  {
+    nav: 'overflow-hidden rounded-2xl border border-emerald-200/60 bg-gradient-to-br from-emerald-50/95 via-white to-teal-50/40 shadow-[0_10px_32px_-18px_rgba(16,185,129,0.22)] ring-1 ring-emerald-400/15 dark:border-emerald-500/35 dark:from-emerald-950/45 dark:via-zinc-950 dark:to-teal-950/25',
+    header:
+      'border-b border-emerald-200/55 bg-gradient-to-r from-emerald-100/95 via-teal-50/60 to-transparent px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-950 sm:px-4 sm:py-3 sm:text-[11px] dark:border-emerald-500/30 dark:from-emerald-950/85 dark:text-emerald-50',
+    itemHover: 'border-slate-200/75 hover:border-emerald-400/45 hover:shadow-[0_12px_28px_-12px_rgba(16,185,129,0.18)] dark:border-zinc-700/70 dark:hover:border-emerald-500/40',
+  },
+  {
+    nav: 'overflow-hidden rounded-2xl border border-amber-200/60 bg-gradient-to-br from-amber-50/95 via-white to-orange-50/40 shadow-[0_10px_32px_-18px_rgba(245,158,11,0.2)] ring-1 ring-amber-400/15 dark:border-amber-500/35 dark:from-amber-950/40 dark:via-zinc-950 dark:to-orange-950/25',
+    header:
+      'border-b border-amber-200/55 bg-gradient-to-r from-amber-100/95 via-orange-50/60 to-transparent px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-amber-950 sm:px-4 sm:py-3 sm:text-[11px] dark:border-amber-500/30 dark:from-amber-950/85 dark:text-amber-50',
+    itemHover: 'border-slate-200/75 hover:border-amber-400/45 hover:shadow-[0_12px_28px_-12px_rgba(245,158,11,0.16)] dark:border-zinc-700/70 dark:hover:border-amber-500/40',
+  },
+  {
+    nav: 'overflow-hidden rounded-2xl border border-rose-200/60 bg-gradient-to-br from-rose-50/95 via-white to-pink-50/40 shadow-[0_10px_32px_-18px_rgba(244,63,94,0.16)] ring-1 ring-rose-400/15 dark:border-rose-500/35 dark:from-rose-950/40 dark:via-zinc-950 dark:to-pink-950/25',
+    header: 'border-b border-rose-200/55 bg-gradient-to-r from-rose-100/95 via-pink-50/60 to-transparent px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-rose-950 sm:px-4 sm:py-3 sm:text-[11px] dark:border-rose-500/30 dark:from-rose-950/85 dark:text-rose-50',
+    itemHover: 'border-slate-200/75 hover:border-rose-400/45 dark:border-zinc-700/70 dark:hover:border-rose-500/40',
+  },
+  {
+    nav: 'overflow-hidden rounded-2xl border border-indigo-200/60 bg-gradient-to-br from-indigo-50/95 via-white to-blue-50/40 shadow-[0_10px_32px_-18px_rgba(99,102,241,0.22)] ring-1 ring-indigo-400/15 dark:border-indigo-500/35 dark:from-indigo-950/45 dark:via-zinc-950 dark:to-blue-950/25',
+    header:
+      'border-b border-indigo-200/55 bg-gradient-to-r from-indigo-100/95 via-blue-50/60 to-transparent px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-indigo-950 sm:px-4 sm:py-3 sm:text-[11px] dark:border-indigo-500/30 dark:from-indigo-950/85 dark:text-indigo-50',
+    itemHover: 'border-slate-200/75 hover:border-indigo-400/45 hover:shadow-[0_12px_28px_-12px_rgba(99,102,241,0.18)] dark:border-zinc-700/70 dark:hover:border-indigo-500/40',
+  },
+] as const;
+
+type CoreLink = { label: string; href: string; icon: LucideIcon; hint: string; accent: string; moduleKey?: SchoolModuleKey };
+
+const QUICK_SECTIONS: { label: string; theme: (typeof SECTION_THEMES)[number]; items: CoreLink[] }[] = [
+  {
+    label: 'Okul yönetimi',
+    theme: SECTION_THEMES[2]!,
+    items: [
+      { label: 'Öğretmenler', href: '/teachers', icon: Users, hint: 'Liste ve roller', accent: 'from-emerald-500 to-teal-600' },
+      { label: 'Onay kuyruğu', href: '/school-join-queue', icon: ClipboardCheck, hint: 'Başvuru bekleyenler', accent: 'from-amber-500 to-orange-600' },
+      { label: 'Sınıflar ve dersler', href: '/classes-subjects', icon: BookOpen, hint: 'Şube yapısı', accent: 'from-blue-500 to-indigo-600' },
+      { label: 'Duyurular', href: '/announcements', icon: Megaphone, hint: 'Okul panosu', accent: 'from-violet-500 to-purple-600' },
+      { label: 'Okul değerlendirmesi', href: '/school-reviews-report', icon: BarChart3, hint: 'Veli geri bildirimi', accent: 'from-orange-500 to-rose-600' },
+    ],
+  },
+  {
+    label: 'Takvim ve program',
+    theme: SECTION_THEMES[0]!,
+    items: [
+      { label: 'Ders programı', href: '/ders-programi', icon: Table2, hint: 'Günlük tablo', accent: 'from-cyan-500 to-sky-600' },
+      { label: 'Akademik takvim', href: '/akademik-takvim', icon: Calendar, hint: 'Yıllık görünüm', accent: 'from-sky-500 to-blue-600' },
+      { label: 'Takvim ayarları', href: '/akademik-takvim-ayarlar', icon: CalendarClock, hint: 'Tatil ve dönemler', accent: 'from-teal-500 to-emerald-600' },
+    ],
+  },
+  {
+    label: 'İletişim ve hesap',
+    theme: SECTION_THEMES[5]!,
+    items: [
+      { label: 'Sistem mesajları', href: '/system-messages', icon: Mail, hint: 'Merkez duyuruları', accent: 'from-indigo-500 to-violet-600' },
+      { label: 'Bildirimler', href: '/bildirimler', icon: Bell, hint: 'Uyarılar', accent: 'from-violet-500 to-fuchsia-600' },
+      { label: 'Mesaj merkezi', href: '/mesaj-merkezi', icon: MessageSquare, hint: 'WhatsApp şablonları', accent: 'from-green-500 to-emerald-600', moduleKey: 'messaging' },
+      { label: 'Destek kutusu', href: '/support/inbox', icon: Inbox, hint: 'Gelen talepler', accent: 'from-sky-500 to-cyan-600' },
+      { label: 'Haberler', href: '/haberler', icon: Newspaper, hint: 'Okul vitrini', accent: 'from-amber-500 to-yellow-600' },
+      { label: 'Market', href: '/market', icon: ShoppingBag, hint: 'Jeton ve içerik', accent: 'from-emerald-500 to-green-600' },
+      { label: 'Hesap ayarları', href: '/settings', icon: Settings, hint: 'Profil ve güvenlik', accent: 'from-slate-500 to-zinc-600' },
+    ],
+  },
+];
+
+const KPI_THEMES = {
+  emerald: {
+    card: 'border-emerald-200/60 bg-gradient-to-br from-emerald-50/95 via-white to-teal-50/50 shadow-[0_8px_28px_-14px_rgba(16,185,129,0.28)] ring-1 ring-emerald-400/15 dark:border-emerald-500/35 dark:from-emerald-950/50 dark:via-zinc-950 dark:to-teal-950/30',
+    glow: 'from-emerald-400/30 to-teal-400/10',
+    icon: 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md ring-2 ring-white/50 dark:ring-emerald-400/20',
+    label: 'text-emerald-800/90 dark:text-emerald-300/90',
   },
   amber: {
-    glow: 'from-amber-400/35 via-orange-400/15 to-transparent',
-    bar: 'from-amber-500 to-orange-500',
-    icon: 'bg-amber-500/20 text-amber-800 ring-amber-500/25 dark:text-amber-300',
-    border: 'border-amber-500/25 hover:border-amber-400/45',
+    card: 'border-amber-200/60 bg-gradient-to-br from-amber-50/95 via-white to-orange-50/45 shadow-[0_8px_28px_-14px_rgba(245,158,11,0.25)] ring-1 ring-amber-400/15 dark:border-amber-500/35 dark:from-amber-950/45 dark:via-zinc-950 dark:to-orange-950/30',
+    glow: 'from-amber-400/30 to-orange-400/10',
+    icon: 'bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md ring-2 ring-white/50 dark:ring-amber-400/20',
+    label: 'text-amber-800/90 dark:text-amber-300/90',
   },
-  cyan: {
-    glow: 'from-cyan-400/35 via-sky-400/15 to-transparent',
-    bar: 'from-sky-500 to-cyan-400',
-    icon: 'bg-sky-500/20 text-sky-800 ring-sky-500/25 dark:text-sky-300',
-    border: 'border-sky-500/25 hover:border-sky-400/45',
+  violet: {
+    card: 'border-violet-200/60 bg-gradient-to-br from-violet-50/95 via-white to-fuchsia-50/45 shadow-[0_8px_28px_-14px_rgba(139,92,246,0.22)] ring-1 ring-violet-400/15 dark:border-violet-500/35 dark:from-violet-950/45 dark:via-zinc-950 dark:to-fuchsia-950/30',
+    glow: 'from-violet-400/30 to-fuchsia-400/10',
+    icon: 'bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white shadow-md ring-2 ring-white/50 dark:ring-violet-400/20',
+    label: 'text-violet-800/90 dark:text-violet-300/90',
+  },
+  indigo: {
+    card: 'border-indigo-200/60 bg-gradient-to-br from-indigo-50/95 via-white to-blue-50/45 shadow-[0_8px_28px_-14px_rgba(99,102,241,0.22)] ring-1 ring-indigo-400/15 dark:border-indigo-500/35 dark:from-indigo-950/45 dark:via-zinc-950 dark:to-blue-950/30',
+    glow: 'from-indigo-400/30 to-blue-400/10',
+    icon: 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white shadow-md ring-2 ring-white/50 dark:ring-indigo-400/20',
+    label: 'text-indigo-800/90 dark:text-indigo-300/90',
   },
 } as const;
 
-function KpiBentoTile({
+type SuggestedAction = { href: string; title: string; hint: string; icon: LucideIcon; emphasis?: boolean };
+
+function buildSuggestedActions(
+  sa: SchoolAdminStatsPayload | undefined,
+  enabledModules: string[] | null,
+): SuggestedAction[] {
+  if (!sa) return [];
+  const pending = sa.teachers_pending_approval ?? 0;
+  const suspended = sa.users_by_status?.suspended ?? 0;
+  const dynamic: SuggestedAction[] = [];
+  if (pending > 0) {
+    dynamic.push({ href: '/school-join-queue', title: `${pending} öğretmen onayı bekliyor`, hint: 'Başvuruları inceleyin', icon: ClipboardCheck, emphasis: true });
+  }
+  if (suspended > 0) {
+    dynamic.push({ href: '/teachers', title: `${suspended} askıda hesap`, hint: 'Kullanıcı listesinden kontrol edin', icon: AlertTriangle, emphasis: true });
+  }
+  const pool: SuggestedAction[] = [
+    { href: '/akademik-takvim', title: 'Akademik takvimi aç', hint: 'Tatil ve dönem tarihleri', icon: Calendar },
+    { href: '/announcements', title: 'Duyuru hazırla', hint: 'Okul panosu', icon: Megaphone },
+    { href: '/classes-subjects', title: 'Sınıf ve ders yapısı', hint: 'Şubeleri güncel tutun', icon: BookOpen },
+    { href: '/ders-programi', title: 'Ders programı', hint: 'Günlük tablo', icon: Table2 },
+  ];
+  if (isModuleEnabled(enabledModules, 'messaging')) {
+    pool.push({ href: '/mesaj-merkezi', title: 'Mesaj merkezi', hint: 'Veli iletişimi', icon: MessageSquare });
+  }
+  if (isModuleEnabled(enabledModules, 'smart_board')) {
+    pool.push({ href: '/akilli-tahta?tab=kurulum', title: 'Akıllı tahta kurulumu', hint: 'QR etiket, USB', icon: Monitor });
+  }
+  const seen = new Set<string>();
+  const merged: SuggestedAction[] = [];
+  for (const a of [...dynamic, ...pool]) {
+    if (seen.has(a.href)) continue;
+    seen.add(a.href);
+    merged.push(a);
+    if (merged.length >= 4) break;
+  }
+  return merged;
+}
+
+function KpiTile({
   href,
   label,
-  sub,
   value,
   icon: Icon,
-  accent,
+  theme,
   loading,
-  statsError,
+  error,
 }: {
   href: string;
   label: string;
-  sub: string;
   value: ReactNode;
   icon: LucideIcon;
-  accent: keyof typeof KPI_ACCENTS;
+  theme: (typeof KPI_THEMES)[keyof typeof KPI_THEMES];
   loading: boolean;
-  statsError: boolean;
+  error: boolean;
 }) {
-  const a = KPI_ACCENTS[accent];
   return (
     <Link
       href={href}
       className={cn(
-        'group relative flex min-h-[7.5rem] flex-col justify-between overflow-hidden rounded-3xl border bg-card/40 p-3.5 shadow-lg backdrop-blur-md transition-all duration-300 sm:min-h-0 sm:p-5',
-        'hover:-translate-y-1 hover:shadow-2xl active:scale-[0.99]',
-        a.border,
+        'group relative flex min-h-[5.25rem] flex-col justify-between overflow-hidden rounded-2xl border p-2.5 transition-all duration-200',
+        'hover:-translate-y-0.5 active:scale-[0.99] sm:min-h-[6rem] sm:p-3.5',
+        theme.card,
       )}
     >
-      <div className={cn('pointer-events-none absolute -right-8 -top-10 size-36 rounded-full bg-gradient-to-br opacity-90 blur-3xl transition-opacity duration-500 group-hover:opacity-100', a.glow)} />
-      <div className={cn('pointer-events-none absolute bottom-0 left-0 h-1 w-full bg-gradient-to-r opacity-80', a.bar)} />
-      <div className="relative flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground sm:text-xs">{label}</p>
-          <p className="mt-0.5 line-clamp-2 text-[10px] font-medium leading-snug text-muted-foreground/90 sm:text-[11px]">{sub}</p>
-        </div>
-        <span className={cn('flex size-11 shrink-0 items-center justify-center rounded-2xl ring-1 transition-transform duration-300 group-hover:scale-110 sm:size-12', a.icon)}>
-          <Icon className="size-5 sm:size-6" strokeWidth={2} />
+      <div className={cn('pointer-events-none absolute -right-6 -top-6 size-24 rounded-full bg-gradient-to-br blur-2xl', theme.glow)} aria-hidden />
+      <div className="relative flex items-start justify-between gap-1.5">
+        <p className={cn('text-[10px] font-bold uppercase tracking-wide sm:text-[11px]', theme.label)}>{label}</p>
+        <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-xl sm:size-9', theme.icon)}>
+          <Icon className="size-3.5 sm:size-4" strokeWidth={2} />
         </span>
       </div>
-      <div className="relative mt-3 sm:mt-4">
+      <div className="relative mt-1">
         {loading ? (
-          <Skeleton className="h-9 w-16 sm:h-10 sm:w-20" />
+          <Skeleton className="h-7 w-12 sm:h-8 sm:w-14" />
         ) : (
-          <p
-            className={cn(
-              'text-3xl font-black tabular-nums tracking-tight sm:text-4xl',
-              'bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent dark:from-white dark:to-white/75',
-            )}
-          >
-            {statsError ? '—' : value}
-          </p>
+          <p className="text-2xl font-black tabular-nums tracking-tight text-foreground sm:text-3xl">{error ? '—' : value}</p>
         )}
       </div>
     </Link>
   );
 }
 
-function SectionLinkCard({
-  link,
-  enabledModules,
+function TopShortcut({
+  href,
+  label,
+  icon: Icon,
+  ring,
+  badge,
 }: {
-  link: CoreLink;
-  enabledModules: string[] | null;
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  ring: string;
+  badge?: number;
 }) {
-  const gated = link.moduleKey && !isModuleEnabled(enabledModules, link.moduleKey);
-  if (gated) return null;
-  const Icon = link.icon;
   return (
-    <Link
-      href={link.href}
-      className={cn(
-        'group relative flex min-h-[4.25rem] flex-col justify-between overflow-hidden rounded-2xl border border-border/60 bg-card/90 p-3 shadow-sm',
-        'transition-all duration-300 ease-out hover:-translate-y-1 hover:border-primary/35 hover:shadow-lg hover:shadow-primary/5',
-        'active:scale-[0.99] sm:min-h-0 sm:flex-row sm:items-center sm:justify-between sm:p-3.5',
-      )}
-    >
-      <div className="flex min-w-0 items-start gap-3 sm:items-center">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 text-primary ring-1 ring-primary/15 transition-transform duration-300 group-hover:scale-105">
-          <Icon className="size-[1.15rem] sm:size-5" strokeWidth={2} />
-        </span>
-        <div className="min-w-0 pt-0.5 sm:pt-0">
-          <p className="text-sm font-semibold leading-tight text-foreground">{link.label}</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">{link.hint}</p>
-        </div>
-      </div>
-      <ArrowRight className="mt-2 size-4 shrink-0 self-end text-muted-foreground/60 transition-all duration-300 group-hover:translate-x-1 group-hover:text-primary sm:mt-0 sm:self-center" />
+    <Link href={href} className="relative flex min-w-[4rem] shrink-0 snap-start flex-col items-center gap-1 text-center">
+      <span className={cn('relative flex size-12 items-center justify-center rounded-full shadow-md ring-2 ring-white/80 dark:ring-zinc-800 sm:size-14', ring)}>
+        <Icon className="size-5 sm:size-6" strokeWidth={1.75} />
+        {badge != null && badge > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex min-w-[1rem] justify-center rounded-full bg-indigo-600 px-0.5 text-[9px] font-bold leading-4 text-white shadow">
+            {badge > 99 ? '99+' : badge}
+          </span>
+        )}
+      </span>
+      <span className="max-w-[4.5rem] text-[10px] font-semibold leading-tight text-foreground sm:text-[11px]">{label}</span>
     </Link>
   );
 }
@@ -405,159 +320,83 @@ export function SchoolAdminHome({
   allNotificationsUnread,
 }: SchoolAdminHomeProps) {
   const enabledModules = me.school?.enabled_modules ?? null;
-  const moduleKeysUnique = [...new Set(MODULE_CATALOG.map((m) => m.key))];
-  const totalModules = moduleKeysUnique.length;
-  const activeCount = moduleKeysUnique.filter((k) => isModuleEnabled(enabledModules, k)).length;
-  const allOpen = !enabledModules || enabledModules.length === 0;
-
   const sa = stats?.school_admin;
   const schoolName = me.school?.name;
+  const moduleKeysUnique = [...new Set(MODULE_CATALOG.map((m) => m.key))];
+  const activeCount = moduleKeysUnique.filter((k) => isModuleEnabled(enabledModules, k)).length;
+  const allOpen = !enabledModules || enabledModules.length === 0;
+  const suggested = buildSuggestedActions(sa, enabledModules);
+  const visibleModules = MODULE_CATALOG.filter((m) => isModuleEnabled(enabledModules, m.key));
+  const us = sa?.users_by_status;
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-5 px-3 pb-8 pt-1 sm:space-y-8 sm:px-4 sm:pb-10 lg:px-2">
-      <section
-        className={cn(
-          'relative w-full min-w-0 overflow-hidden rounded-3xl border-2 border-indigo-200/60 bg-indigo-50/20',
-          'shadow-[0_24px_60px_-20px_rgba(99,102,241,0.22)] transition-all duration-500 hover:shadow-[0_28px_64px_-18px_rgba(99,102,241,0.28)]',
-          'dark:border-indigo-500/35 dark:bg-indigo-950/20 dark:shadow-[0_24px_50px_-20px_rgba(0,0,0,0.55)] sm:rounded-[1.85rem]',
-        )}
-      >
-        <div
-          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-100/90 via-sky-50/50 to-violet-100/75 dark:from-indigo-950/45 dark:via-zinc-950 dark:to-violet-950/40"
-          aria-hidden
-        />
-        <div
-          className="pointer-events-none absolute -right-24 -top-28 h-[20rem] w-[20rem] rounded-full bg-gradient-to-br from-violet-400/35 to-indigo-400/25 blur-3xl transition-all duration-700 dark:from-violet-600/15 dark:to-indigo-600/10"
-          aria-hidden
-        />
-        <div
-          className="pointer-events-none absolute -bottom-28 -left-24 h-[18rem] w-[18rem] rounded-full bg-gradient-to-tr from-cyan-300/25 to-sky-400/20 blur-3xl dark:from-cyan-700/12 dark:to-sky-700/10"
-          aria-hidden
-        />
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.28] dark:opacity-[0.1]"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%236366f1' fill-opacity='0.07'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-          }}
-          aria-hidden
-        />
-        <div className="relative z-10 px-4 pb-5 pt-5 sm:px-8 sm:pb-7 sm:pt-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
-            <div className="flex min-w-0 flex-1 gap-4 sm:gap-5">
-              <div
-                className="relative flex size-[4.5rem] shrink-0 items-center justify-center overflow-hidden rounded-[1.25rem] bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-700 text-white shadow-lg shadow-indigo-500/35 ring-2 ring-white/45 sm:size-[5rem] dark:ring-white/10"
-                aria-hidden
-              >
-                <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/15 to-white/25 opacity-90" aria-hidden />
-                <Building2 className="relative z-[1] size-9 text-white drop-shadow-md sm:size-11" strokeWidth={2} />
-              </div>
-              <div className="min-w-0 flex-1 pt-0.5">
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-800/90 dark:text-indigo-300/90 sm:text-[11px]">
-                  {greetingTr()}
-                </p>
-                <h1 className="mt-1.5 break-words text-balance bg-gradient-to-r from-indigo-800 via-violet-800 to-fuchsia-800 bg-clip-text text-xl font-extrabold leading-tight tracking-tight text-transparent dark:from-indigo-100 dark:via-violet-100 dark:to-fuchsia-100 sm:mt-2 sm:text-3xl">
-                  {displayName}
-                </h1>
-                <div className="mt-3 flex flex-wrap items-center gap-2 sm:mt-3.5 sm:gap-2.5">
-                  <time
-                    dateTime={new Date().toISOString()}
-                    className="inline-flex max-w-full items-center rounded-full border border-white/60 bg-white/55 px-2.5 py-1 text-[10px] font-medium leading-tight text-foreground/85 shadow-sm backdrop-blur-md sm:text-[11px] dark:border-white/10 dark:bg-white/5 dark:text-zinc-200"
-                  >
-                    <span className="line-clamp-2 sm:line-clamp-none">{formatTodayTr()}</span>
-                  </time>
-                  {schoolName ? (
-                    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-indigo-200/70 bg-indigo-500/12 px-2.5 py-1 text-[10px] font-semibold leading-tight text-indigo-950 backdrop-blur-sm dark:border-indigo-500/35 dark:bg-indigo-500/15 dark:text-indigo-100 sm:text-[11px]">
-                      <Building2 className="size-3.5 shrink-0 opacity-85" />
-                      <span className="min-w-0 truncate">{schoolName}</span>
-                    </span>
-                  ) : null}
-                  <span className="inline-flex items-center rounded-full border border-violet-300/55 bg-violet-500/12 px-2.5 py-1 text-[10px] font-semibold text-violet-950 dark:border-violet-500/35 dark:bg-violet-500/15 dark:text-violet-100 sm:text-[11px]">
-                    Okul yönetimi
-                  </span>
-                </div>
-              </div>
+    <div className="mx-auto w-full max-w-7xl space-y-3 px-3 pb-6 pt-0 sm:space-y-5 sm:px-4 sm:pb-8 lg:px-2">
+      {/* Hero */}
+      <section className="relative w-full min-w-0 overflow-hidden rounded-2xl border border-indigo-200/55 shadow-[0_16px_40px_-18px_rgba(99,102,241,0.28)] dark:border-indigo-500/35 dark:shadow-[0_16px_40px_-18px_rgba(0,0,0,0.5)] sm:rounded-[1.5rem]">
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-100/90 via-sky-50/50 to-violet-100/75 dark:from-indigo-950/45 dark:via-zinc-950 dark:to-violet-950/40" aria-hidden />
+        <div className="pointer-events-none absolute -right-16 -top-16 size-40 rounded-full bg-gradient-to-br from-violet-400/30 to-indigo-400/20 blur-3xl dark:from-violet-600/15" aria-hidden />
+        <div className="relative z-10 flex items-center gap-3 px-3.5 py-3 sm:gap-4 sm:px-6 sm:py-5">
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-blue-700 text-white shadow-lg shadow-indigo-500/30 ring-2 ring-white/40 sm:size-14">
+            <Building2 className="size-6 sm:size-7" strokeWidth={2} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-700/90 dark:text-indigo-300/90 sm:text-[11px]">
+              {greetingTr()}
+            </p>
+            <h1 className="truncate text-base font-extrabold tracking-tight text-indigo-950 dark:text-indigo-50 sm:text-xl">
+              {displayName}
+            </h1>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <time dateTime={new Date().toISOString()} className="rounded-full border border-white/60 bg-white/50 px-2 py-0.5 text-[10px] font-medium text-foreground/80 backdrop-blur-sm dark:border-white/10 dark:bg-white/5 sm:text-[11px]">
+                {formatTodayTr()}
+              </time>
+              {schoolName && (
+                <span className="inline-flex max-w-[10rem] items-center gap-1 truncate rounded-full border border-indigo-300/50 bg-indigo-500/10 px-2 py-0.5 text-[10px] font-semibold text-indigo-900 dark:border-indigo-500/30 dark:text-indigo-100 sm:max-w-none sm:text-[11px]">
+                  <Building2 className="size-3 shrink-0" />
+                  {schoolName}
+                </span>
+              )}
             </div>
-            <nav
-              aria-label="Hızlı bağlantılar"
-              className="flex w-full min-w-0 shrink-0 justify-stretch gap-1.5 rounded-2xl border border-white/45 bg-white/40 p-2 shadow-inner shadow-indigo-500/10 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/45 sm:w-auto sm:justify-end sm:gap-2 sm:self-center sm:p-2"
-            >
-              <Link
-                href="/bildirimler"
-                title="Bildirimler"
-                className={cn(
-                  'relative inline-flex min-h-12 min-w-12 flex-1 items-center justify-center rounded-xl text-muted-foreground transition-all duration-300 hover:scale-[1.04] hover:bg-white/85 active:scale-95 dark:hover:bg-zinc-800/85',
-                  allNotificationsUnread > 0 &&
-                    'bg-indigo-500/18 text-indigo-950 ring-1 ring-indigo-400/45 dark:bg-indigo-500/22 dark:text-indigo-50 dark:ring-indigo-500/35',
-                )}
-              >
-                <Bell className="size-5" strokeWidth={2} />
-                <span className="sr-only">Bildirimler</span>
-                {allNotificationsUnread > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex min-w-[1.125rem] justify-center rounded-full bg-indigo-600 px-1 text-[10px] font-bold leading-none text-white shadow-md dark:bg-indigo-500">
-                    {allNotificationsUnread > 99 ? '99+' : allNotificationsUnread}
-                  </span>
-                )}
-              </Link>
-              <Link
-                href="/market"
-                title="Market"
-                className="inline-flex min-h-12 min-w-12 flex-1 items-center justify-center rounded-xl text-emerald-700 transition-all duration-300 hover:scale-[1.04] hover:bg-emerald-500/18 active:scale-95 dark:text-emerald-400 dark:hover:bg-emerald-500/22"
-              >
-                <ShoppingBag className="size-5" strokeWidth={2} />
-                <span className="sr-only">Market</span>
-              </Link>
-              <Link
-                href="/profile"
-                title="Profil"
-                className="inline-flex min-h-12 min-w-12 flex-1 items-center justify-center rounded-xl text-foreground transition-all duration-300 hover:scale-[1.04] hover:bg-white/85 active:scale-95 dark:hover:bg-zinc-800/85"
-              >
-                <Settings className="size-5" strokeWidth={2} />
-                <span className="sr-only">Profil</span>
-              </Link>
-              <Link
-                href="/support"
-                title="Destek"
-                className="inline-flex min-h-12 min-w-12 flex-1 items-center justify-center rounded-xl text-sky-700 transition-all duration-300 hover:scale-[1.04] hover:bg-sky-500/18 active:scale-95 dark:text-sky-400 dark:hover:bg-sky-500/22"
-              >
-                <Headphones className="size-5" strokeWidth={2} />
-                <span className="sr-only">Destek</span>
-              </Link>
-            </nav>
           </div>
         </div>
       </section>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
-        <KpiBentoTile
-          href="/teachers"
-          label="Öğretmen"
-          sub="Kayıtlı öğretmen sayısı"
-          value={sa?.users_by_role?.teacher ?? 0}
-          icon={Users}
-          accent="emerald"
-          loading={isLoadingStats}
-          statsError={Boolean(statsError)}
-        />
-        <KpiBentoTile
-          href="/school-join-queue"
-          label="Onay bekleyen"
-          sub="Öğretmen başvurusu"
-          value={sa?.teachers_pending_approval ?? 0}
-          icon={UserPlus}
-          accent="amber"
-          loading={isLoadingStats}
-          statsError={Boolean(statsError)}
-        />
-        <KpiBentoTile
-          href="/announcements"
-          label="Duyurular"
-          sub="Toplam yayın"
-          value={stats?.announcements ?? 0}
-          icon={Megaphone}
-          accent="violet"
-          loading={isLoadingStats}
-          statsError={Boolean(statsError)}
-        />
+      {/* KPI */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+        <KpiTile href="/teachers" label="Öğretmen" value={sa?.users_by_role?.teacher ?? 0} icon={Users} theme={KPI_THEMES.emerald} loading={isLoadingStats} error={Boolean(statsError)} />
+        <KpiTile href="/school-join-queue" label="Onay bekleyen" value={sa?.teachers_pending_approval ?? 0} icon={UserPlus} theme={KPI_THEMES.amber} loading={isLoadingStats} error={Boolean(statsError)} />
+        <KpiTile href="/announcements" label="Duyuru" value={stats?.announcements ?? 0} icon={Megaphone} theme={KPI_THEMES.violet} loading={isLoadingStats} error={Boolean(statsError)} />
+        <KpiTile href="/teachers" label="Toplam hesap" value={stats?.users ?? 0} icon={Users} theme={KPI_THEMES.indigo} loading={isLoadingStats} error={Boolean(statsError)} />
+      </div>
+
+      {/* Hesap durumu */}
+      {!statsError && !isLoadingStats && sa && (
+        <div className="flex flex-wrap gap-2">
+          {[
+            { label: 'Aktif', value: us?.active ?? 0, cls: 'border-emerald-200/70 bg-emerald-50/80 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-100' },
+            { label: 'Pasif', value: us?.passive ?? 0, cls: 'border-slate-200/70 bg-slate-50/80 text-slate-700 dark:border-zinc-600/30 dark:bg-zinc-900/50 dark:text-zinc-200' },
+            { label: 'Askıda', value: us?.suspended ?? 0, cls: 'border-amber-200/70 bg-amber-50/80 text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100' },
+          ].map((c) => (
+            <span key={c.label} className={cn('rounded-full border px-2.5 py-1 text-[11px] font-medium sm:text-xs', c.cls)}>
+              {c.label}: <strong className="font-bold tabular-nums">{c.value}</strong>
+            </span>
+          ))}
+        </div>
+      )}
+      {isLoadingStats && <Skeleton className="h-7 w-48 rounded-full" />}
+
+      {/* Kısayol şeridi */}
+      <div className="-mx-1 overflow-x-auto px-1 pb-0.5 [-webkit-overflow-scrolling:touch]">
+        <div className="flex snap-x snap-mandatory gap-3 sm:justify-center sm:gap-4">
+          <TopShortcut href="/bildirimler" label="Bildirim" icon={Bell} ring="bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200" badge={allNotificationsUnread} />
+          <TopShortcut href="/teachers" label="Öğretmen" icon={Users} ring="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200" />
+          <TopShortcut href="/school-join-queue" label="Onay" icon={ClipboardCheck} ring="bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-200" />
+          <TopShortcut href="/announcements" label="Duyuru" icon={Megaphone} ring="bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200" />
+          <TopShortcut href="/ders-programi" label="Program" icon={Table2} ring="bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-200" />
+          <TopShortcut href="/market" label="Market" icon={ShoppingBag} ring="bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-200" />
+          <TopShortcut href="/settings" label="Ayarlar" icon={Settings} ring="bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-200" />
+          <TopShortcut href="/support" label="Destek" icon={Headphones} ring="bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200" />
+        </div>
       </div>
 
       <WelcomeMotivationBanner />
@@ -565,94 +404,161 @@ export function SchoolAdminHome({
       {adminMessagesUnread > 0 && (
         <Link
           href="/system-messages"
-          className="block rounded-2xl border-2 border-amber-400/85 bg-gradient-to-r from-amber-50/98 to-orange-50/90 p-3.5 shadow-md transition-all duration-300 hover:border-amber-500 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-amber-500 dark:border-amber-500/45 dark:from-amber-950/40 dark:to-orange-950/25 sm:rounded-3xl sm:p-4"
+          className="group flex items-center gap-3 overflow-hidden rounded-2xl border border-amber-300/60 bg-gradient-to-r from-amber-50 via-orange-50/80 to-amber-50/60 p-3 shadow-[0_8px_24px_-12px_rgba(245,158,11,0.3)] ring-1 ring-amber-400/20 transition-all hover:-translate-y-0.5 dark:border-amber-500/35 dark:from-amber-950/50 dark:via-orange-950/30 dark:to-amber-950/40 sm:p-3.5"
         >
-          <div className="flex items-center gap-3 sm:gap-3.5">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-lg sm:size-12">
-              <Mail className="size-5 sm:size-6" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-amber-950 dark:text-amber-100 sm:text-base">
-                {adminMessagesUnread} yeni sistem mesajı
-              </p>
-              <p className="text-xs text-amber-900/88 dark:text-amber-200/88 sm:text-sm">Merkez iletişim kutusu — okumak için dokunun</p>
-            </div>
-            <ArrowRight className="size-5 shrink-0 text-amber-700 transition-transform duration-300 group-hover:translate-x-1 dark:text-amber-300" />
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md">
+            <Mail className="size-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-amber-950 dark:text-amber-50">{adminMessagesUnread} yeni sistem mesajı</p>
+            <p className="text-[11px] text-amber-800/85 dark:text-amber-200/85">Merkez iletişim kutusu</p>
           </div>
+          <ArrowRight className="size-4 shrink-0 text-amber-700 transition-transform group-hover:translate-x-0.5 dark:text-amber-300" />
         </Link>
       )}
 
-      <div className="space-y-5 sm:space-y-7">
-        <Card className="overflow-hidden rounded-2xl border-border/60 shadow-sm ring-1 ring-indigo-500/12 transition-shadow duration-300 hover:shadow-md sm:rounded-3xl dark:ring-indigo-500/18">
-            <CardHeader className="border-b border-indigo-200/45 bg-gradient-to-r from-indigo-50/95 via-background/85 to-violet-50/40 px-4 py-3.5 dark:border-indigo-500/22 dark:from-indigo-950/48 dark:via-zinc-950 dark:to-violet-950/28 sm:px-6 sm:py-4">
-              <CardTitle className="text-sm font-bold sm:text-base">Okul özeti</CardTitle>
-              <p className="text-[11px] font-normal leading-snug text-muted-foreground sm:text-xs">
-                Hesap durumu ve size önerilen sonraki adımlar
-              </p>
+      {statsError && <Alert message="Özet verileri yüklenemedi. Sayfayı yenileyin." />}
+
+      {/* Önerilen + özet */}
+      {(suggested.length > 0 || sa) && (
+        <div className="grid gap-3 lg:grid-cols-2 lg:gap-4">
+          {suggested.length > 0 && (
+            <Card variant="indigo" soft className="overflow-hidden rounded-2xl border-indigo-200/50 shadow-sm dark:border-indigo-500/30">
+              <CardHeader className="border-b border-indigo-200/40 bg-gradient-to-r from-indigo-50/90 to-transparent px-3 py-2.5 dark:border-indigo-500/25 dark:from-indigo-950/50 sm:px-4 sm:py-3">
+                <CardTitle className="flex items-center gap-2 text-sm font-bold text-indigo-950 dark:text-indigo-50">
+                  <Sparkles className="size-4 text-indigo-600 dark:text-indigo-400" />
+                  Önerilen adımlar
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 px-2 py-2 sm:px-3 sm:py-3">
+                {suggested.map((a) => {
+                  const Icon = a.icon;
+                  return (
+                    <Link
+                      key={a.href}
+                      href={a.href}
+                      className={cn(
+                        'flex items-center gap-2.5 rounded-xl px-2.5 py-2 transition-colors sm:px-3',
+                        a.emphasis
+                          ? 'border border-amber-300/50 bg-amber-50/70 hover:bg-amber-50 dark:border-amber-500/25 dark:bg-amber-950/30 dark:hover:bg-amber-950/45'
+                          : 'hover:bg-indigo-500/5 dark:hover:bg-indigo-500/10',
+                      )}
+                    >
+                      <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', a.emphasis ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400')}>
+                        <Icon className="size-4" strokeWidth={2} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-semibold text-foreground sm:text-sm">{a.title}</span>
+                        <span className="block text-[10px] text-muted-foreground sm:text-xs">{a.hint}</span>
+                      </span>
+                      <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
+                    </Link>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
+
+          <Card variant="teal" soft className="overflow-hidden rounded-2xl border-teal-200/50 shadow-sm dark:border-teal-500/30">
+            <CardHeader className="border-b border-teal-200/40 bg-gradient-to-r from-teal-50/90 to-transparent px-3 py-2.5 dark:border-teal-500/25 dark:from-teal-950/50 sm:px-4 sm:py-3">
+              <CardTitle className="text-sm font-bold text-teal-950 dark:text-teal-50">Okul özeti</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-5 px-4 pt-4 sm:px-6 sm:pt-5">
-              <SchoolAccountHealthStrip
-                stats={stats}
-                sa={sa}
-                loading={isLoadingStats}
-                error={Boolean(statsError)}
-              />
-              <SchoolSuggestedActionsCard
-                sa={sa}
-                loading={isLoadingStats}
-                error={Boolean(statsError)}
-                enabledModules={enabledModules}
-              />
-              {statsError && <Alert message="Özet verileri yüklenemedi. Sayfayı yenileyin." className="mt-1" />}
+            <CardContent className="grid grid-cols-2 gap-2 px-3 py-3 sm:grid-cols-4 sm:gap-3">
+              {isLoadingStats
+                ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)
+                : [
+                    { label: 'Öğretmen', value: sa?.users_by_role?.teacher ?? 0 },
+                    { label: 'Onay bekleyen', value: sa?.teachers_pending_approval ?? 0 },
+                    { label: 'Duyuru', value: stats?.announcements ?? 0 },
+                    { label: 'Toplam', value: stats?.users ?? 0 },
+                  ].map((c) => (
+                    <div key={c.label} className="rounded-xl border border-teal-200/40 bg-white/60 px-2 py-2 text-center dark:border-teal-500/20 dark:bg-zinc-900/40 sm:px-3 sm:py-2.5">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{c.label}</p>
+                      <p className="mt-0.5 text-xl font-bold tabular-nums text-foreground sm:text-2xl">{statsError ? '—' : c.value}</p>
+                    </div>
+                  ))}
             </CardContent>
           </Card>
+        </div>
+      )}
+
+      {/* Hızlı erişim — temalı bölümler */}
+      <div className="space-y-3 sm:space-y-4">
+        <h2 className="bg-gradient-to-r from-indigo-700 via-violet-600 to-cyan-600 bg-clip-text text-base font-extrabold tracking-tight text-transparent dark:from-indigo-300 dark:via-violet-300 dark:to-cyan-300 sm:text-lg">
+          Yönetim araçları
+        </h2>
+        {QUICK_SECTIONS.map((sec) => {
+          const items = sec.items.filter((l) => !l.moduleKey || isModuleEnabled(enabledModules, l.moduleKey));
+          if (items.length === 0) return null;
+          const theme = sec.theme;
+          return (
+            <nav key={sec.label} aria-label={sec.label} className={theme.nav}>
+              <h3 className={theme.header}>{sec.label}</h3>
+              <ul className="grid grid-cols-2 gap-2 bg-white/25 p-2 backdrop-blur-[2px] sm:grid-cols-3 sm:gap-2.5 sm:p-3 dark:bg-zinc-950/20 lg:grid-cols-3">
+                {items.map((item) => (
+                  <li key={item.href + item.label} className="min-w-0">
+                    <Link
+                      href={item.href}
+                      className={cn(
+                        'group relative flex h-full min-h-[5rem] flex-col justify-between overflow-hidden rounded-xl border bg-gradient-to-br from-white/98 via-white to-slate-50/90 p-2 shadow-sm transition-all duration-200',
+                        'max-sm:min-h-[4.75rem] max-sm:p-1.5',
+                        'hover:-translate-y-0.5 active:scale-[0.99] dark:from-zinc-900/95 dark:via-zinc-900 dark:to-zinc-950/95',
+                        theme.itemHover,
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-1">
+                        <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-md ring-2 ring-white/60 dark:ring-zinc-800/80 sm:size-9', item.accent)}>
+                          <item.icon className="size-3.5 sm:size-4" strokeWidth={1.85} />
+                        </span>
+                        <ChevronRight className="size-3 shrink-0 text-muted-foreground/45 transition group-hover:translate-x-0.5 group-hover:text-foreground sm:size-3.5" />
+                      </div>
+                      <div className="min-w-0 pt-1">
+                        <span className="line-clamp-2 text-[11px] font-bold leading-snug text-foreground sm:text-xs">{item.label}</span>
+                        <p className="mt-0.5 line-clamp-1 text-[9px] text-muted-foreground sm:text-[10px]">{item.hint}</p>
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          );
+        })}
       </div>
 
-      <section className="overflow-hidden rounded-[1.35rem] border border-border/55 bg-card/50 shadow-sm ring-1 ring-border/30 sm:rounded-[1.6rem]">
-        <div className="border-b border-border/40 bg-gradient-to-r from-slate-500/12 via-transparent to-violet-500/10 px-4 py-3.5 sm:px-5 sm:py-4">
-          <h2 className="text-sm font-bold tracking-tight text-foreground sm:text-base">Hızlı erişim</h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">Sık kullanılan okul yönetimi ekranları</p>
-        </div>
-        <div className="grid gap-2.5 p-3 sm:grid-cols-2 lg:grid-cols-3 sm:gap-3 sm:p-4">
-          {QUICK_LINKS.map((link) => (
-            <SectionLinkCard key={link.href + link.label} link={link} enabledModules={enabledModules} />
-          ))}
-        </div>
-      </section>
-
-      <section className="overflow-hidden rounded-[1.5rem] border border-indigo-200/50 bg-gradient-to-br from-indigo-50/90 via-card to-violet-50/45 shadow-[0_18px_48px_-22px_rgba(79,70,229,0.22)] ring-1 ring-indigo-400/15 transition-shadow duration-500 hover:shadow-[0_22px_52px_-20px_rgba(79,70,229,0.28)] dark:border-indigo-500/35 dark:from-indigo-950/45 dark:via-zinc-950 dark:to-violet-950/25 dark:ring-indigo-500/18 sm:rounded-[1.75rem]">
-        <div className="border-b border-indigo-200/50 bg-gradient-to-r from-indigo-100/95 via-violet-50/55 to-transparent px-4 py-3.5 sm:px-5 sm:py-4 dark:border-indigo-500/28 dark:from-indigo-950/85 dark:via-violet-950/35">
-          <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-950 dark:text-indigo-50 sm:text-[13px]">Modül özellikleri</h3>
-          <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">
-            {allOpen
-              ? 'Tüm modüller açık — aşağıdakilere doğrudan gidebilirsiniz'
-              : `${activeCount} / ${totalModules} modül açık (kapalı olanlar menüde gizlidir)`}
-          </p>
-        </div>
-        <div className="grid gap-2 p-3 sm:grid-cols-2 sm:gap-2.5 sm:p-4 lg:grid-cols-3 xl:grid-cols-4">
-          {MODULE_CATALOG.filter((m) => isModuleEnabled(enabledModules, m.key)).map((m) => {
-            const Icon = m.icon;
-            return (
-              <Link
-                key={`${m.key}-${m.href}`}
-                href={m.href}
-                className="group flex min-h-[3.25rem] items-center gap-2.5 rounded-2xl border border-border/55 bg-background/85 px-3 py-2.5 text-[13px] shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background hover:shadow-md sm:min-h-0 sm:gap-3 sm:text-sm"
-              >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary ring-1 ring-primary/18 transition-transform duration-300 group-hover:scale-105">
-                  <Icon className="size-4" />
-                </span>
-                <span className="min-w-0 flex-1 font-medium leading-snug text-foreground">{m.label}</span>
-                <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/55 transition-all duration-300 group-hover:translate-x-1 group-hover:text-primary sm:size-4" />
-              </Link>
-            );
-          })}
-        </div>
-        {!allOpen && MODULE_CATALOG.filter((m) => !isModuleEnabled(enabledModules, m.key)).length > 0 && (
-          <p className="border-t border-border/35 px-4 pb-4 pt-3 text-[11px] leading-relaxed text-muted-foreground sm:px-5 sm:pb-5 sm:text-xs">
-            Kapalı modüller menüde gizlidir. Açmak için merkez yöneticisi ile iletişime geçin.
-          </p>
-        )}
-      </section>
+      {/* Modüller */}
+      {visibleModules.length > 0 && (
+        <section className="overflow-hidden rounded-2xl border border-violet-200/55 bg-gradient-to-br from-violet-50/90 via-white to-fuchsia-50/40 shadow-[0_10px_32px_-18px_rgba(139,92,246,0.2)] ring-1 ring-violet-400/12 dark:border-violet-500/30 dark:from-violet-950/40 dark:via-zinc-950 dark:to-fuchsia-950/25">
+          <div className="border-b border-violet-200/50 bg-gradient-to-r from-violet-100/90 to-transparent px-3 py-2.5 dark:border-violet-500/25 dark:from-violet-950/60 sm:px-4 sm:py-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-xs font-bold uppercase tracking-[0.12em] text-violet-950 dark:text-violet-50 sm:text-[11px]">Modüller</h2>
+              <span className="text-[10px] font-medium text-muted-foreground sm:text-xs">
+                {allOpen ? 'Tümü açık' : `${activeCount} / ${moduleKeysUnique.length} açık`}
+              </span>
+            </div>
+          </div>
+          <div className="-mx-0 overflow-x-auto px-3 py-3 sm:overflow-visible sm:px-4">
+            <div className="flex snap-x snap-mandatory gap-3 sm:flex-wrap sm:gap-2.5">
+              {visibleModules.map((m) => (
+                <Link
+                  key={`${m.key}-${m.href}`}
+                  href={m.href}
+                  className="flex min-w-[4.5rem] shrink-0 snap-start flex-col items-center gap-1.5 text-center sm:min-w-0 sm:flex-row sm:rounded-xl sm:border sm:border-violet-200/40 sm:bg-white/70 sm:px-3 sm:py-2 sm:text-left sm:shadow-sm sm:transition-colors sm:hover:border-violet-400/50 sm:hover:bg-white dark:sm:border-violet-500/25 dark:sm:bg-zinc-900/50"
+                >
+                  <span className={cn('flex size-11 items-center justify-center rounded-full shadow-md ring-2 ring-white/80 dark:ring-zinc-800 sm:size-9 sm:rounded-lg sm:shadow-sm sm:ring-0', m.ring)}>
+                    <m.icon className="size-5 sm:size-4" strokeWidth={1.75} />
+                  </span>
+                  <span className="max-w-[4.5rem] text-[10px] font-semibold leading-tight text-foreground sm:max-w-none sm:text-xs">{m.label}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+          {!allOpen && MODULE_CATALOG.some((m) => !isModuleEnabled(enabledModules, m.key)) && (
+            <p className="border-t border-violet-200/40 px-3 pb-3 pt-2 text-[10px] text-muted-foreground dark:border-violet-500/20 sm:px-4 sm:text-xs">
+              Kapalı modüller menüde gizlidir. Açmak için merkez yöneticisi ile iletişime geçin.
+            </p>
+          )}
+        </section>
+      )}
     </div>
   );
 }

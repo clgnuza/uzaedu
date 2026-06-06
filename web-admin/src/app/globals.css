@@ -142,6 +142,13 @@
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
     }
+    [data-sonner-toaster],
+    [data-sonner-toaster] *,
+    [data-sonner-toast],
+    [data-sonner-toast] * {
+      animation-duration: 200ms !important;
+      transition-duration: 200ms !important;
+    }
   }
 }
 

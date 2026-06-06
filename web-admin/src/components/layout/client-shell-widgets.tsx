@@ -9,7 +9,14 @@ export function ClientShellWidgets() {
     <>
       <PwaShell />
       <CookieBanner />
-      <Toaster position="top-right" richColors closeButton style={{ zIndex: 9999 }} />
+      <Toaster
+        position="top-right"
+        richColors
+        closeButton
+        duration={3500}
+        toastOptions={{ duration: 3500 }}
+        style={{ zIndex: 9999 }}
+      />
     </>
   );
 }
