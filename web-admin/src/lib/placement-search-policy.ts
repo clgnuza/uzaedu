@@ -11,7 +11,7 @@ export type PlacementSearchPolicyDto = {
 export const DEFAULT_PLACEMENT_SEARCH_POLICY: PlacementSearchPolicyDto = {
   search_complexity: 'large',
   conflict_mode: 'auto_relocate',
-  allow_ignore_clash: true,
+  allow_ignore_clash: false,
 };
 
 export function parsePlacementSearchPolicyDto(raw: unknown): PlacementSearchPolicyDto {
@@ -21,7 +21,7 @@ export function parsePlacementSearchPolicyDto(raw: unknown): PlacementSearchPoli
   return {
     search_complexity: c === 'normal' || c === 'huge' ? c : 'large',
     conflict_mode: o.conflict_mode === 'ask' ? 'ask' : 'auto_relocate',
-    allow_ignore_clash: o.allow_ignore_clash !== false,
+    allow_ignore_clash: o.allow_ignore_clash === true,
   };
 }
 

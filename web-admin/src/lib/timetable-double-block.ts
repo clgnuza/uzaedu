@@ -17,6 +17,7 @@ export function findConsecutivePartner(entry: EditorEntry, entries: EditorEntry[
   const next = entries.find(
     (e) =>
       e.id !== entry.id &&
+      !e.is_locked &&
       e.day_of_week === entry.day_of_week &&
       e.lesson_num === entry.lesson_num + 1 &&
       sameAssignmentGroup(e, entry),
@@ -26,11 +27,51 @@ export function findConsecutivePartner(entry: EditorEntry, entries: EditorEntry[
     entries.find(
       (e) =>
         e.id !== entry.id &&
+        !e.is_locked &&
         e.day_of_week === entry.day_of_week &&
         e.lesson_num === entry.lesson_num - 1 &&
         sameAssignmentGroup(e, entry),
     ) ?? null
   );
+}
+
+/** Aynı günde ardışık tüm kartlar (2, 4, …). */
+export function expandConsecutiveRun(entry: EditorEntry, entries: EditorEntry[]): EditorEntry[] {
+  if (entry.is_locked) return [entry];
+
+  const run: EditorEntry[] = [entry];
+  let cur = entry;
+
+  while (true) {
+    const prev = entries.find(
+      (e) =>
+        !e.is_locked &&
+        e.id !== cur.id &&
+        sameAssignmentGroup(e, entry) &&
+        e.day_of_week === entry.day_of_week &&
+        e.lesson_num === cur.lesson_num - 1,
+    );
+    if (!prev) break;
+    run.unshift(prev);
+    cur = prev;
+  }
+
+  cur = entry;
+  while (true) {
+    const next = entries.find(
+      (e) =>
+        !e.is_locked &&
+        e.id !== cur.id &&
+        sameAssignmentGroup(e, entry) &&
+        e.day_of_week === entry.day_of_week &&
+        e.lesson_num === cur.lesson_num + 1,
+    );
+    if (!next) break;
+    run.push(next);
+    cur = next;
+  }
+
+  return run;
 }
 
 /** Aynı günde ardışık blok — sürüklemede birlikte taşınır. */
@@ -39,39 +80,24 @@ export function sameDayBlockRun(
   entries: EditorEntry[],
   assignmentHints?: EditorContext['assignment_hints'],
 ): EditorEntry[] {
-  const hint = resolvePlacementHint(entry, assignmentHints, entries);
-  const needsBlock = (hint?.block_size ?? 0) >= 2;
-
-  const sameDay = entries
-    .filter(
-      (e) =>
-        !e.is_locked &&
-        sameAssignmentGroup(e, entry) &&
-        e.day_of_week === entry.day_of_week,
-    )
-    .sort((a, b) => a.lesson_num - b.lesson_num);
-
-  if (sameDay.length <= 1) {
-    const partner = findConsecutivePartner(entry, entries);
-    if (partner && !partner.is_locked) return [entry, partner].sort((a, b) => a.lesson_num - b.lesson_num);
-    return [entry];
-  }
-
-  const idx = sameDay.findIndex((e) => e.id === entry.id);
-  if (idx < 0) return [entry];
-
-  let start = idx;
-  let end = idx;
-  while (start > 0 && sameDay[start - 1]!.lesson_num === sameDay[start]!.lesson_num - 1) start--;
-  while (end < sameDay.length - 1 && sameDay[end + 1]!.lesson_num === sameDay[end]!.lesson_num + 1) end++;
-
-  const run = sameDay.slice(start, end + 1);
+  const run = expandConsecutiveRun(entry, entries);
   if (run.length >= 2) return run;
-  if (needsBlock) {
+
+  const hint = resolvePlacementHint(entry, assignmentHints, entries);
+  if ((hint?.block_size ?? 0) >= 2) {
     const partner = findConsecutivePartner(entry, entries);
-    if (partner && !partner.is_locked) return [entry, partner].sort((a, b) => a.lesson_num - b.lesson_num);
+    if (partner) return expandConsecutiveRun(entry, entries);
   }
+
+  const partner = findConsecutivePartner(entry, entries);
+  if (partner) return expandConsecutiveRun(entry, entries);
+
   return [entry];
+}
+
+export function blockRunIds(entry: EditorEntry, entries: EditorEntry[], hints?: EditorContext['assignment_hints']): string[] {
+  const run = sameDayBlockRun(entry, entries, hints);
+  return run.length > 1 ? run.map((e) => e.id) : [];
 }
 
 /** Çiftlinin ilk (üst) kartı. */

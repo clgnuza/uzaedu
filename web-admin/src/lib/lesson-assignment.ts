@@ -73,6 +73,13 @@ export const PERIOD_FORMAT_LABEL = {
 } as const;
 
 /** Tablo / özet: haftalık desen (2+2+1). */
+export function ascImportTeacherHint(row: LessonAssignmentRow): string | null {
+  const raw = row.options?.asc_import_teachers;
+  if (!Array.isArray(raw)) return null;
+  const names = raw.filter((x): x is string => typeof x === 'string' && x.trim()).map((x) => x.trim());
+  return names.length ? names.join(', ') : null;
+}
+
 export function assignmentDistributionLabel(row: LessonAssignmentRow): string {
   return formatDayDistribution(inferDayDistribution(row.weekly_hours, row.options, !!row.biweekly));
 }

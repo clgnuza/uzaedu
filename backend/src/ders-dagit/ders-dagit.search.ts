@@ -11,9 +11,10 @@ import {
 } from './ders-dagit.assignment-blocks';
 import {
   assignmentByDayLessons,
-  assignmentHasStoredDistribution,
+  assignmentChunkDays,
   distributionPatternForScoring,
   matchesDayDistributionPattern,
+  patternChunkDayAllowed,
   remainingPatternChunks,
 } from './ders-dagit.day-distribution';
 import { shouldEnforceDistributionPattern } from './ders-dagit.distribution-policy';
@@ -62,6 +63,14 @@ function shuffleInPlace<T>(arr: T[]): T[] {
 
 function effHours(a: SolverAssignment): number {
   return a.biweekly ? Math.ceil(a.weekly_hours / 2) : a.weekly_hours;
+}
+
+/** Kart bölme deseni — gevşet modundan bağımsız (stüdyo/atama deseni). */
+function splitPatternForAssignment(a: SolverAssignment, ctx: SolverContext): number[] | null {
+  return (
+    placementPatternForAssignment(a, effHours(a), ctx) ??
+    distributionPatternForScoring(a.weekly_hours, a.options, a.biweekly, ctx.distribution_policy)
+  );
 }
 
 function slotKey(day: number, lesson: number): string {
@@ -551,7 +560,9 @@ function tryInsertPatternChunk(
   const days = ctx.work_days?.length ? [...ctx.work_days] : [1, 2, 3, 4, 5];
   shuffleInPlace(days);
   const entriesNow = listEntries(state);
+  const priorChunkDays = assignmentChunkDays(entriesNow, a.id);
   for (const day of days) {
+    if (!patternChunkDayAllowed(priorChunkDays, day)) continue;
     const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
     const starts =
       chunkSize === 1
@@ -610,7 +621,9 @@ function tryInsertPatternChunkWithEjection(
   const days = ctx.work_days?.length ? [...ctx.work_days] : [1, 2, 3, 4, 5];
   shuffleInPlace(days);
   const entriesNow = listEntries(state);
+  const priorChunkDays = assignmentChunkDays(entriesNow, a.id);
   for (const day of days) {
+    if (!patternChunkDayAllowed(priorChunkDays, day)) continue;
     const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
     const tryStarts =
       chunkSize === 1
@@ -850,24 +863,18 @@ function chunkSizeForMissing(
 ): number {
   const missing = missingHoursForPick(state, pick);
   if (missing <= 0) return 0;
-  const protectPattern = shouldEnforceDistributionPattern(ctx.distribution_policy);
-  const strictPattern = protectPattern || assignmentHasStoredDistribution(a.options);
-  if (strictPattern) {
-    const pattern =
-      placementPatternForAssignment(a, effHours(a), ctx) ??
-      distributionPatternForScoring(a.weekly_hours, a.options, a.biweekly, ctx.distribution_policy);
-    if (pattern) {
-      const remain = remainingPatternChunks(
-        a.id,
-        listEntries(state).map((e) => ({
-          assignment_id: e.assignment_id,
-          day_of_week: e.day_of_week,
-          lesson_num: e.lesson_num,
-        })),
-        pattern,
-      ).filter((c) => c <= missing);
-      if (remain.length) return remain[0]!;
-    }
+  const pattern = splitPatternForAssignment(a, ctx);
+  if (pattern) {
+    const remain = remainingPatternChunks(
+      a.id,
+      listEntries(state).map((e) => ({
+        assignment_id: e.assignment_id,
+        day_of_week: e.day_of_week,
+        lesson_num: e.lesson_num,
+      })),
+      pattern,
+    ).filter((c) => c <= missing);
+    if (remain.length) return remain[0]!;
   }
   return missing >= 2 ? 2 : 1;
 }
@@ -1136,13 +1143,8 @@ function proposeInsertWithEjection(
   const protectPattern = shouldEnforceDistributionPattern(ctx.distribution_policy);
 
   const missing = missingHoursForPick(state, pick);
-  const strictPattern =
-    protectPattern || assignmentHasStoredDistribution(a.options);
-  const pattern = strictPattern
-    ? (placementPatternForAssignment(a, effHours(a), ctx) ??
-        distributionPatternForScoring(a.weekly_hours, a.options, a.biweekly, ctx.distribution_policy))
-    : null;
-  if (pattern && missing > 0 && strictPattern) {
+  const pattern = splitPatternForAssignment(a, ctx);
+  if (pattern && missing > 0) {
     const remainChunks = remainingPatternChunks(
       a.id,
       listEntries(state).map((e) => ({

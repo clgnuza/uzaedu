@@ -23,6 +23,7 @@ import {
   maxLessonsForSectionDay,
   type SectionScheduleConfig,
 } from './ders-dagit.section-schedule';
+import { sectionsEquivalent } from './class-section-canonical';
 import type { StudioPeriodConfig } from './ders-dagit.period';
 
 /**
@@ -219,14 +220,14 @@ export function canPlace(
   const key = slotKey(day, lesson);
   const existing = occupied.get(key) ?? [];
   for (const e of existing) {
-    if (e.class_section === classSection) {
+    if (sectionsEquivalent(e.class_section, classSection)) {
       if (assignment.co_teach && e.assignment_id === assignment.id) continue;
       return false;
     }
     if (userId && e.user_id && e.user_id === userId) {
       const sameGroup = assignment.group_id && e.group_id === assignment.group_id;
       if (sameGroup && mode === 'teacher_multi_class') continue;
-      if (sameGroup && mode === 'subgroups' && e.class_section !== classSection) continue;
+      if (sameGroup && mode === 'subgroups' && !sectionsEquivalent(e.class_section, classSection)) continue;
       return false;
     }
     if (mode === 'parallel_rooms' && assignment.group_id && e.group_id === assignment.group_id) {

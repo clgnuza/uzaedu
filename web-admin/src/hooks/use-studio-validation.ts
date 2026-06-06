@@ -24,8 +24,12 @@ export function invalidateStudioValidationCache(studioId?: string) {
   }
 }
 
+function seedValidationCache(token: string, studioId: string, issues: ValidationIssue[]) {
+  cache.set(`${token}:${studioId}`, { data: issues, at: Date.now() });
+}
+
 type UseStudioValidationOptions = {
-  /** İlk çerçeve — sunucudan taze doğrulama yine de çekilir */
+  /** Layout overview — aynı veri tekrar çekilmesin */
   initialIssues?: ValidationIssue[] | null;
 };
 
@@ -36,7 +40,7 @@ export function useStudioValidation(
   const { token } = useAuth();
   const initialIssues = opts?.initialIssues;
   const [issues, setIssues] = useState<ValidationIssue[]>(() => initialIssues ?? []);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => initialIssues != null);
   const [syncing, setSyncing] = useState(false);
 
   const refresh = useCallback(
@@ -80,14 +84,22 @@ export function useStudioValidation(
   );
 
   useEffect(() => {
+    if (initialIssues == null || !token || !studioId) return;
+    seedValidationCache(token, studioId, initialIssues);
+    setIssues(initialIssues);
+    setReady(true);
+  }, [initialIssues, token, studioId]);
+
+  useEffect(() => {
     if (!token || !studioId) return;
-    void refresh({ force: true });
+    void refresh();
   }, [token, studioId, refresh]);
 
   useEffect(() => {
     const onAssignmentsChanged = (ev: Event) => {
       const detail = (ev as CustomEvent<AssignmentsChangedDetail>).detail;
       if (detail?.studioId && detail.studioId !== studioId) return;
+      invalidateStudioValidationCache(studioId);
       void refresh({ force: true });
     };
     window.addEventListener(DERS_DAGIT_ASSIGNMENTS_CHANGED, onAssignmentsChanged);

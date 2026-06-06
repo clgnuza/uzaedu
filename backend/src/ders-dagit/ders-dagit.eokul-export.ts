@@ -4,6 +4,7 @@
 import { compareClassSections } from './class-section-sort';
 import type { ExportEntry } from './ders-dagit.export';
 import { DAY_LABELS, escCsv } from './ders-dagit.export';
+import { classSlotKey } from './ders-dagit.program-clash';
 
 export type EokulExportRow = ExportEntry & {
   teacher_tc?: string | null;
@@ -67,7 +68,7 @@ export function validateEokulExport(rows: EokulExportRow[]): EokulExportReport {
         row: rowNum,
       });
     }
-    const ck = `${e.class_section}\0${e.day_of_week}\0${e.lesson_num}`;
+    const ck = classSlotKey(e.class_section, e.day_of_week, e.lesson_num);
     const prev = classSlot.get(ck);
     if (prev) {
       issues.push({

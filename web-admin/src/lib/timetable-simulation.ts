@@ -5,6 +5,7 @@ import {
   type EditorContext,
 } from '@/lib/ders-dagit-timetable-api';
 import { dayLabel } from '@/lib/ders-dagit-labels';
+import { listClashes, type TimetableClashContext } from '@/lib/timetable-clash';
 
 export type SimPendingMove = {
   entryId: string;
@@ -61,50 +62,11 @@ export function partitionSimulationSwaps(moves: SimPendingMove[]): {
   return { swaps, patches };
 }
 
-export function buildClashesFromEntries(entries: EditorEntry[]): EditorContext['clashes'] {
-  const clashes: EditorContext['clashes'] = [];
-  for (let i = 0; i < entries.length; i++) {
-    for (let j = i + 1; j < entries.length; j++) {
-      const a = entries[i]!;
-      const b = entries[j]!;
-      if (a.day_of_week !== b.day_of_week || a.lesson_num !== b.lesson_num) continue;
-      if (a.class_section === b.class_section) {
-        const msg = `Sınıf çakışması (${a.class_section})`;
-        clashes.push({
-          entry_id: a.id,
-          code: 'CLASS_CLASH',
-          message: msg,
-          day_of_week: a.day_of_week,
-          lesson_num: a.lesson_num,
-        });
-        clashes.push({
-          entry_id: b.id,
-          code: 'CLASS_CLASH',
-          message: msg,
-          day_of_week: b.day_of_week,
-          lesson_num: b.lesson_num,
-        });
-      }
-      if (a.user_id && b.user_id && a.user_id === b.user_id) {
-        const msg = 'Öğretmen çakışması';
-        clashes.push({
-          entry_id: a.id,
-          code: 'TEACHER_CLASH',
-          message: msg,
-          day_of_week: a.day_of_week,
-          lesson_num: a.lesson_num,
-        });
-        clashes.push({
-          entry_id: b.id,
-          code: 'TEACHER_CLASH',
-          message: msg,
-          day_of_week: b.day_of_week,
-          lesson_num: b.lesson_num,
-        });
-      }
-    }
-  }
-  return clashes;
+export function buildClashesFromEntries(
+  entries: EditorEntry[],
+  ctx?: TimetableClashContext,
+): EditorContext['clashes'] {
+  return listClashes(entries, ctx);
 }
 
 export async function applySimulationDraft(

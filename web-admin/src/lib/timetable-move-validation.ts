@@ -7,7 +7,7 @@ import {
 } from '@/lib/timetable-assignment-blocks';
 import { clashAtSlot } from '@/lib/timetable-clash';
 import { closureAt, type SlotClosure } from '@/lib/timetable-slot-closures';
-import type { SlotDropStatus } from '@/lib/timetable-slot-status';
+import type { SlotClashContext, SlotDropStatus } from '@/lib/timetable-slot-status';
 import { computeSlotDropStatus } from '@/lib/timetable-slot-status';
 
 export function dropStatusMessage(
@@ -40,6 +40,7 @@ export type MoveValidationInput = {
   dragging?: EditorEntry | null;
   poolClassSection?: string | null;
   assignmentHints?: Record<string, AssignmentPlacementHint>;
+  clashCtx?: SlotClashContext;
 };
 
 export type MoveValidationResult =
@@ -60,7 +61,17 @@ export function validateTimetableMove(input: MoveValidationInput): MoveValidatio
   }
 
   const dragEntry = dragging ?? entry ?? null;
-  const status = computeSlotDropStatus(dragEntry, poolClassSection ?? null, day, lesson, entries, new Set(closures.keys()));
+  const status = computeSlotDropStatus(
+    dragEntry,
+    poolClassSection ?? null,
+    day,
+    lesson,
+    entries,
+    new Set(closures.keys()),
+    undefined,
+    undefined,
+    input.clashCtx,
+  );
 
   if (status === 'same') {
     return { ok: false, message: 'Ders zaten bu saatte.', status };
@@ -87,7 +98,7 @@ export function validateTimetableMove(input: MoveValidationInput): MoveValidatio
   }
 
   if (entry) {
-    const clash = clashAtSlot(entries, entryId, day, lesson);
+    const clash = clashAtSlot(entries, entryId, day, lesson, undefined, input.clashCtx);
     if (clash && occupants.length === 0) {
       return {
         ok: false,

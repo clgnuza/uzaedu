@@ -1,8 +1,10 @@
 import {
+  assignmentChunkDays,
   assignmentDayDistribution,
   distinctPatternPermutations,
   inferDayDistribution,
   isValidDayDistribution,
+  patternChunkDayAllowed,
   remainingPatternChunks,
 } from './ders-dagit.day-distribution';
 import { shouldEnforceDistributionPattern } from './ders-dagit.distribution-policy';
@@ -85,13 +87,20 @@ export function placeByDayDistribution(
 
   const snap = snapshotPlacement(entries, occupied);
   const dayList = daysForAssignment(a, workDays);
+  const relaxSplit = !!ctx.relax_constraints;
   let placed = 0;
   const usedDays = new Set<number>();
+  const priorChunkDays = assignmentChunkDays(entries, a.id);
 
   const dayOrder = (day: number) => {
     const on = countOnDay(entries, a.id, day);
     const newDay = usedDays.has(day) ? 10 : 0;
     return on * 5 + newDay;
+  };
+
+  const chunkDaysSoFar = (): number[] => {
+    const merged = new Set([...priorChunkDays, ...usedDays]);
+    return [...merged].sort((x, y) => x - y);
   };
 
   for (const chunk of pattern) {
@@ -102,6 +111,7 @@ export function placeByDayDistribution(
 
     for (const day of sortedDays) {
       if (chunkDone) break;
+      if (!patternChunkDayAllowed(chunkDaysSoFar(), day)) continue;
       if (a.max_per_day != null && countOnDay(entries, a.id, day) + chunkSize > a.max_per_day) continue;
 
       const dayMax = ctx.max_lesson_by_day.get(day) ?? ctx.max_lesson_per_day;
@@ -124,8 +134,9 @@ export function placeByDayDistribution(
       }
     }
     if (!chunkDone) {
+      if (relaxSplit && placed > 0) break;
       restorePlacement(entries, occupied, snap);
-      return 0;
+      return relaxSplit ? placed : 0;
     }
   }
   return placed;
@@ -248,13 +259,29 @@ export function effectivePatternForAssignment(
   return inferDayDistribution(a.weekly_hours, a.options, a.biweekly, mode);
 }
 
+/** Gevşet modunda: stüdyo kuralları kapalı; yalnızca kart bölme ipucu (desen cezası yok). */
+function relaxedSplitPatternForAssignment(
+  a: SolverAssignment,
+  need: number,
+  ctx: SolverContext,
+): number[] | null {
+  const raw = assignmentDayDistribution(a.options);
+  if (raw && isValidDayDistribution(raw, need)) return raw;
+  const block = assignmentBlockLessons(a.options);
+  if (block >= 2 && need === block * 2) return [block, block];
+  if (block >= 2 && need === block) return [block];
+  const mode = ctx.distribution_policy?.mode ?? 'blocks';
+  const inferred = inferDayDistribution(a.weekly_hours, a.options, a.biweekly, mode);
+  return isValidDayDistribution(inferred, need) ? inferred : null;
+}
+
 /** Üretimde denenecek desen (blok modunda yumuşak ipucu dahil). */
 export function placementPatternForAssignment(
   a: SolverAssignment,
   need: number,
   ctx: SolverContext,
 ): number[] | null {
-  if (ctx.relax_constraints) return null;
+  if (ctx.relax_constraints) return relaxedSplitPatternForAssignment(a, need, ctx);
   const enforced = effectivePatternForAssignment(a, need, ctx);
   if (enforced) return enforced;
   const mode = ctx.distribution_policy?.mode ?? 'blocks';

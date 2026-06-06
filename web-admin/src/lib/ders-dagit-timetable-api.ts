@@ -14,6 +14,7 @@ export type EditorEntry = {
   room_name?: string | null;
   is_locked?: boolean;
   assignment_id?: string | null;
+  group_id?: string | null;
 };
 
 export type ValidationIssue = {
@@ -67,6 +68,7 @@ export type EditorContext = {
     { block_size: number; max_per_day: number; day_distribution: number[] | null }
   >;
   clashes: Array<{ entry_id: string; code: string; message: string; day_of_week?: number; lesson_num?: number }>;
+  group_modes?: Record<string, 'parallel_rooms' | 'subgroups' | 'teacher_multi_class'>;
   max_lesson: number;
   fairness: {
     ready: boolean;
@@ -82,10 +84,59 @@ export type EditorContext = {
   score_breakdown?: ProgramScoreBreakdown | null;
 };
 
-export async function fetchEditorContext(token: string, studioId: string, programId: string) {
-  return apiFetch<EditorContext>(`/ders-dagit/studios/${studioId}/programs/${programId}/editor-context`, {
-    token,
-  });
+export type EditorExtras = {
+  program_score: number | null;
+  score_breakdown: ProgramScoreBreakdown;
+  fairness: EditorContext['fairness'];
+};
+
+export type FetchEditorContextOpts = {
+  /** false = tam yanıt (skor/adalet dahil); varsayılan hızlı */
+  light?: boolean;
+};
+
+export async function fetchEditorContext(
+  token: string,
+  studioId: string,
+  programId: string,
+  opts?: FetchEditorContextOpts,
+) {
+  const light = opts?.light !== false;
+  const q = light ? '?light=1' : '?light=0';
+  return apiFetch<EditorContext>(
+    `/ders-dagit/studios/${studioId}/programs/${programId}/editor-context${q}`,
+    { token },
+  );
+}
+
+export async function fetchEditorExtras(token: string, studioId: string, programId: string) {
+  return apiFetch<EditorExtras>(
+    `/ders-dagit/studios/${studioId}/programs/${programId}/editor-extras`,
+    { token },
+  );
+}
+
+function mergeEditorExtras(ctx: EditorContext, extras: EditorExtras): EditorContext {
+  return {
+    ...ctx,
+    program: { ...ctx.program, score: extras.program_score ?? ctx.program.score },
+    score_breakdown: extras.score_breakdown,
+    fairness: extras.fairness,
+  };
+}
+
+export async function fetchEditorContextWithExtras(
+  token: string,
+  studioId: string,
+  programId: string,
+) {
+  const ctx = await fetchEditorContext(token, studioId, programId, { light: true });
+  try {
+    const extras = await fetchEditorExtras(token, studioId, programId);
+    return mergeEditorExtras(ctx, extras);
+  } catch {
+    return ctx;
+  }
 }
 
 export async function patchEntry(

@@ -1,3 +1,4 @@
+import { sectionIdentityKey } from './class-section-canonical';
 import { linkGenerationViolations } from './ders-dagit.generation-hints';
 import { applySoftRulePenalties, type RuleViolationDetail } from './ders-dagit.solver-rules';
 import type { SolverAssignment, SolverContext, SolverSlot } from './ders-dagit.solver';
@@ -61,9 +62,10 @@ function countClashes(entries: SolverSlot[], ctx: SolverContext): number {
     // Class clash: aynı şube aynı slota birden fazla ders (co_teach aynı assignment ise sorun değil).
     const byClass = new Map<string, SolverSlot[]>();
     for (const s of slots) {
-      const arr = byClass.get(s.class_section) ?? [];
+      const ck = sectionIdentityKey(s.class_section);
+      const arr = byClass.get(ck) ?? [];
       arr.push(s);
-      byClass.set(s.class_section, arr);
+      byClass.set(ck, arr);
     }
     for (const cSlots of byClass.values()) {
       if (cSlots.length <= 1) continue;

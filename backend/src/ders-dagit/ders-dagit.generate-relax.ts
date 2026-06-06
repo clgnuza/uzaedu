@@ -8,7 +8,7 @@ function deactivateRules(rules: RuleState): RuleState {
   return out;
 }
 
-/** Tek seferlik üretim: desen zorunluluğu ve stüdyo kurallarını çözücüde gevşetir (kalıcı ayar değişmez). */
+/** Tek seferlik üretim: stüdyo kuralları kapalı; desen yalnızca kart bölme ipucu (parçalar farklı günlerde). */
 export function applyGenerateRelaxToContext(ctx: SolverContext): SolverContext {
   const section_rules = new Map<string, RuleState>();
   for (const [sec, rules] of ctx.section_rules) {

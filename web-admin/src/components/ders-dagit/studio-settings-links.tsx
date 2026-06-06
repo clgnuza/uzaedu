@@ -57,8 +57,8 @@ export const STUDIO_SETTINGS_GROUPS: StudioSettingsGroup[] = [
   {
     section: 'veri',
     title: 'Müsaitlik tercihleri',
-    desc: 'Toplama penceresi ve onay (Ayarlar üstünde de var).',
-    href: '/ders-dagit/studyo/ayarlar',
+    desc: 'Toplama penceresi ve onay kuyruğu.',
+    href: '/ders-dagit/studyo/ogretmen-tercihleri',
     icon: BookUser,
   },
   { section: 'veri', title: 'Atamalar', desc: 'Ders–öğretmen–şube.', href: '/ders-dagit/studyo/atamalar', icon: ListChecks },

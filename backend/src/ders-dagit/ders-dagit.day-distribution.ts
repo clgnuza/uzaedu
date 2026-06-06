@@ -248,7 +248,22 @@ export function remainingPatternChunks(
   return decomposeRemainingHours(needHours, targetPattern);
 }
 
-/** Atama için gün → benzersiz ders saatleri (çoklu şube satırı tekrar sayılmaz). */
+/** Desen parçaları aynı güne konamaz; ardışık ve aralıklı günler serbest (2+1 → Salı+Çarşamba OK). */
+export function patternChunkDayAllowed(chunkDays: number[], candidateDay: number): boolean {
+  return !chunkDays.includes(candidateDay);
+}
+
+/** @deprecated use patternChunkDayAllowed */
+export const relaxSplitDayAllowed = patternChunkDayAllowed;
+
+export function assignmentChunkDays(
+  entries: Array<{ assignment_id?: string | null; day_of_week: number; lesson_num: number }>,
+  assignmentId: string,
+): number[] {
+  const byDay = assignmentByDayLessons(entries, assignmentId);
+  return [...byDay.keys()].filter((d) => (byDay.get(d)?.length ?? 0) > 0).sort((a, b) => a - b);
+}
+
 export function assignmentByDayLessons(
   entries: Array<{ assignment_id?: string | null; day_of_week: number; lesson_num: number }>,
   assignmentId: string,

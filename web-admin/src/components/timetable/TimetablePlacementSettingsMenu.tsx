@@ -11,7 +11,6 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { PLACEMENT_SEARCH_BUDGETS } from '@/lib/timetable-placement-budget';
 import {
   DEFAULT_TIMETABLE_PLACEMENT_SETTINGS,
@@ -137,19 +136,6 @@ export function TimetablePlacementSettingsMenu({
               Hemen çakışma sorusu
             </label>
           </fieldset>
-          <div className="flex items-center justify-between gap-3">
-            <Label htmlFor="allow-ignore-clash" className="text-xs leading-snug">
-              Çelişkileri dikkate alma
-            </Label>
-            <Switch
-              id="allow-ignore-clash"
-              disabled={saving}
-              checked={settings.allow_ignore_clash}
-              onCheckedChange={(checked) =>
-                void patch({ ...settings, allow_ignore_clash: checked })
-              }
-            />
-          </div>
         </div>
       </DialogContent>
     </Dialog>

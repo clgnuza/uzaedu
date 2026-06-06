@@ -19,6 +19,17 @@ export function sniffTransferImportFormat(buffer: Buffer): TransferFormatId | nu
   return null;
 }
 
+/** UI’da yanlış seçilmiş formatı dosya içeriğine göre düzelt */
+export function resolveTransferImportFormat(
+  requested: string,
+  sniffed: TransferFormatId | null,
+): TransferFormatId | string {
+  if (!sniffed || sniffed === requested) return requested;
+  if (requested === 'eokul_excel') return sniffed;
+  if (sniffed === 'asc_xml' || sniffed === 'ogretmenpro_json') return sniffed;
+  return requested;
+}
+
 export type TransferFormatId =
   | 'ogretmenpro_json'
   | 'asc_xml'

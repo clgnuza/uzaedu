@@ -11,7 +11,7 @@ export type PlacementSearchPolicy = {
 export const DEFAULT_PLACEMENT_SEARCH_POLICY: PlacementSearchPolicy = {
   search_complexity: 'large',
   conflict_mode: 'auto_relocate',
-  allow_ignore_clash: true,
+  allow_ignore_clash: false,
 };
 
 export type GenerationSearchBudget = {
@@ -65,7 +65,7 @@ export function parsePlacementSearchPolicy(raw: unknown): PlacementSearchPolicy 
   return {
     search_complexity: c === 'normal' || c === 'huge' ? c : 'large',
     conflict_mode: o.conflict_mode === 'ask' ? 'ask' : 'auto_relocate',
-    allow_ignore_clash: o.allow_ignore_clash !== false,
+    allow_ignore_clash: o.allow_ignore_clash === true,
   };
 }
 

@@ -183,7 +183,12 @@ import {
 import { buildElectivePoolDraftsFromCatalog } from './ders-dagit.elective-pools';
 import { dutySlotsToUnavailable, findDutyPlacementConflicts } from './ders-dagit.duty-sync';
 import { teacherHourNormFromSchool } from './ders-dagit.extra-lesson-sync';
-import { computeProgramClashes } from './ders-dagit.program-clash';
+import {
+  computeProgramClashes,
+  type ProgramClashContext,
+  wouldClash,
+  wouldClashAt,
+} from './ders-dagit.program-clash';
 import archiver = require('archiver');
 import { ExtraLessonParams } from '../extra-lesson-params/entities/extra-lesson-params.entity';
 import { YillikPlanIcerik } from '../yillik-plan-icerik/entities/yillik-plan-icerik.entity';
@@ -210,6 +215,7 @@ import { normalizeAvailabilityPeriods } from './ders-dagit-teacher-availability.
 import {
   STUDIO_TRANSFER_VERSION,
   TRANSFER_FORMAT_CATALOG,
+  resolveTransferImportFormat,
   sniffTransferImportFormat,
   type StudioTransferPackageV1,
 } from './ders-dagit.studio-transfer';
@@ -3058,19 +3064,19 @@ export class DersDagitService {
     // Okul hedefine göre çözücü ayarları (UI'daki teknik seçenekleri soyutlar).
     const priority = opts.priority ?? 'balanced';
     if (priority === 'coverage') {
-      // Tüm dersleri yerleştirmeye öncelik: gelişmiş çözücü + uzun süre + çok varyasyon.
+      // Tüm dersleri yerleştirmeye öncelik: gelişmiş çözücü + uzun süre; taslak sayısı UI'dan gelir.
       opts = {
         ...opts,
-        use_csp: true,
+        use_csp: opts.use_csp ?? true,
         duration_sec: Math.max(opts.duration_sec ?? 0, 180),
-        versions: Math.max(opts.versions ?? 0, 3),
+        versions: opts.versions != null ? Math.min(3, Math.max(1, opts.versions)) : 3,
       };
     } else if (priority === 'fast') {
       opts = {
         ...opts,
         use_csp: false,
         duration_sec: Math.min(opts.duration_sec ?? 60, 60),
-        versions: 1,
+        versions: opts.versions != null ? Math.min(3, Math.max(1, opts.versions)) : 1,
       };
     }
     await this.syncSectionScheduleOpenSlots(studioId, schoolId);
@@ -3309,6 +3315,7 @@ export class DersDagitService {
           })),
       );
       if (dutyConflictsV.length) continue;
+      if (this.placementHasClashes(labeledEntries, solverCtx.group_modes)) continue;
       const versionBreakdown = buildProgramScoreBreakdown(
         labeledEntries,
         solverInput,
@@ -3364,7 +3371,11 @@ export class DersDagitService {
         }
       }
     }
-    if (!programs.length && bestResult.entries.length) {
+    if (
+      !programs.length &&
+      bestResult.entries.length &&
+      !this.placementHasClashes(bestResult.entries, solverCtx.group_modes)
+    ) {
       const labeledEntries = bestResult.entries.map((e) => {
         const a = assignmentById.get(e.assignment_id);
         const subject = a ? formatProgramEntrySubject(a, subjectById) : e.subject;
@@ -3412,11 +3423,13 @@ export class DersDagitService {
         .strict_violations;
       await this.jobRepo.update(job.id, { status: 'failed', finished_at: new Date() });
       const viol = (retryViolations.length ? retryViolations : strictViolations).slice(0, 20);
+      const hasClashes = this.placementHasClashes(bestResult.entries, solverCtx.group_modes);
       throw new BadRequestException({
-        code: 'STRICT_RULES_VIOLATED',
-        message:
-          viol[0] ??
-          'Hiç program taslağı kaydedilemedi. Kurallar sayfasında zorunlu (sert) kuralları azaltın veya süreyi artırın.',
+        code: hasClashes ? 'SCHEDULE_CLASH' : 'STRICT_RULES_VIOLATED',
+        message: hasClashes
+          ? 'Üretilen yerleşimde sınıf veya öğretmen çakışması var; program kaydedilmedi.'
+          : viol[0] ??
+            'Hiç program taslağı kaydedilemedi. Kurallar sayfasında zorunlu (sert) kuralları azaltın veya süreyi artırın.',
         details: { violations: viol },
       });
     }
@@ -3513,23 +3526,54 @@ export class DersDagitService {
     });
   }
 
+  private async studioGroupModes(studioId: string): Promise<Map<string, DersDagitGroupMode>> {
+    const groups = await this.groupRepo.find({ where: { studio_id: studioId } });
+    const out = new Map<string, DersDagitGroupMode>();
+    for (const g of groups) out.set(g.id, normalizeGroupMode(g.parallel_mode));
+    return out;
+  }
+
+  private clashCtxFromModes(group_modes: Map<string, DersDagitGroupMode>): ProgramClashContext {
+    return { group_modes };
+  }
+
+  private placementHasClashes(
+    entries: Array<{
+      day_of_week: number;
+      lesson_num: number;
+      class_section: string;
+      user_id: string | null;
+      assignment_id: string;
+      group_id?: string | null;
+    }>,
+    group_modes: Map<string, DersDagitGroupMode>,
+  ): boolean {
+    if (!entries.length) return false;
+    const probe = entries.map((e, i) => ({
+      id: `gen-${i}`,
+      day_of_week: e.day_of_week,
+      lesson_num: e.lesson_num,
+      class_section: e.class_section,
+      user_id: e.user_id,
+      assignment_id: e.assignment_id,
+      group_id: e.group_id ?? null,
+    }));
+    return computeProgramClashes(probe, { group_modes }).length > 0;
+  }
+
   private assertEntrySlot(
-    programId: string,
     entry: DersDagitProgramEntry,
     day: number,
     lesson: number,
     excludeIds: string[],
     all: DersDagitProgramEntry[],
+    clashCtx?: ProgramClashContext,
   ) {
-    for (const other of all) {
-      if (excludeIds.includes(other.id) || other.id === entry.id) continue;
-      if (other.day_of_week !== day || other.lesson_num !== lesson) continue;
-      if (other.class_section === entry.class_section) {
-        throw new BadRequestException({ code: 'CLASS_CLASH', message: 'Sınıf çakışması.' });
-      }
-      if (entry.user_id && other.user_id === entry.user_id) {
-        throw new BadRequestException({ code: 'TEACHER_CLASH', message: 'Öğretmen çakışması.' });
-      }
+    const clash = entry.id
+      ? wouldClash(all, entry.id, day, lesson, excludeIds[0], clashCtx)
+      : wouldClashAt(all, entry, day, lesson, excludeIds, clashCtx);
+    if (clash) {
+      throw new BadRequestException({ code: clash.code, message: clash.message });
     }
   }
 
@@ -3611,7 +3655,32 @@ export class DersDagitService {
     });
   }
 
-  async getProgramEditorContext(programId: string, studioId: string, schoolId: string) {
+  async getProgramEditorExtras(programId: string, studioId: string, schoolId: string) {
+    const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
+    if (!program) throw new NotFoundException();
+    const raw = await this.programEntryRepo.find({ where: { program_id: programId } });
+    const entries = await this.enrichProgramEntries(raw);
+    const fairnessKey = `${studioId}:${programId}`;
+    let fairness = this.fairnessCache.get(fairnessKey)?.data;
+    if (!fairness || Date.now() - (this.fairnessCache.get(fairnessKey)?.at ?? 0) > DersDagitService.FAIRNESS_CACHE_MS) {
+      fairness = await this.getFairnessForProgram(studioId, programId);
+      this.fairnessCache.set(fairnessKey, { at: Date.now(), data: fairness });
+    }
+    const score_breakdown = await this.computeLiveProgramScoreBreakdown(studioId, schoolId, entries);
+    return {
+      program_score: score_breakdown.score,
+      score_breakdown,
+      fairness,
+    };
+  }
+
+  async getProgramEditorContext(
+    programId: string,
+    studioId: string,
+    schoolId: string,
+    opts?: { light?: boolean },
+  ) {
+    const light = opts?.light !== false;
     const program = await this.programRepo.findOne({ where: { id: programId, studio_id: studioId } });
     if (!program) throw new NotFoundException();
     const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
@@ -3655,7 +3724,8 @@ export class DersDagitService {
         day_distribution: spec.day_distribution,
       };
     }
-    const clashes = computeProgramClashes(entries);
+    const group_modes = await this.studioGroupModes(studioId);
+    const clashes = computeProgramClashes(entries, { group_modes });
     const schoolDefaultMax = Math.max(
       8,
       ...(period.lesson_schedule ?? []).map((s) => s.lesson_num),
@@ -3663,14 +3733,25 @@ export class DersDagitService {
     );
     const maxLesson = Math.max(schoolDefaultMax, ...entries.map((e) => e.lesson_num));
     const fairnessKey = `${studioId}:${programId}`;
-    let fairness = this.fairnessCache.get(fairnessKey)?.data;
-    if (!fairness || Date.now() - (this.fairnessCache.get(fairnessKey)?.at ?? 0) > DersDagitService.FAIRNESS_CACHE_MS) {
-      fairness = await this.getFairnessForProgram(studioId, programId);
-      this.fairnessCache.set(fairnessKey, { at: Date.now(), data: fairness });
+    let fairness: Awaited<ReturnType<DersDagitService['getFairnessForProgram']>> = {
+      ready: false,
+      message: 'Yükleniyor…',
+    };
+    let score_breakdown: ProgramScoreBreakdown | null = null;
+    if (light) {
+      const hit = this.fairnessCache.get(fairnessKey);
+      if (hit && Date.now() - hit.at < DersDagitService.FAIRNESS_CACHE_MS) fairness = hit.data;
+    } else {
+      let cachedFairness = this.fairnessCache.get(fairnessKey)?.data;
+      if (!cachedFairness || Date.now() - (this.fairnessCache.get(fairnessKey)?.at ?? 0) > DersDagitService.FAIRNESS_CACHE_MS) {
+        cachedFairness = await this.getFairnessForProgram(studioId, programId);
+        this.fairnessCache.set(fairnessKey, { at: Date.now(), data: cachedFairness });
+      }
+      fairness = cachedFairness;
+      score_breakdown = await this.computeLiveProgramScoreBreakdown(studioId, schoolId, entries);
     }
-    const score_breakdown = await this.computeLiveProgramScoreBreakdown(studioId, schoolId, entries);
     return {
-      program: { ...program, score: score_breakdown.score },
+      program: { ...program, score: score_breakdown?.score ?? program.score },
       entries,
       period,
       grid: {
@@ -3685,6 +3766,7 @@ export class DersDagitService {
       unplaced,
       assignment_hints,
       clashes,
+      group_modes: Object.fromEntries(group_modes),
       max_lesson: maxLesson,
       fairness,
       score_breakdown,
@@ -3876,8 +3958,9 @@ export class DersDagitService {
     const aLesson = a.lesson_num;
     const bDay = b.day_of_week;
     const bLesson = b.lesson_num;
-    this.assertEntrySlot(programId, a, bDay, bLesson, [b.id], all);
-    this.assertEntrySlot(programId, b, aDay, aLesson, [a.id], all);
+    const clashCtx = this.clashCtxFromModes(await this.studioGroupModes(studioId));
+    this.assertEntrySlot(a, bDay, bLesson, [b.id], all, clashCtx);
+    this.assertEntrySlot(b, aDay, aLesson, [a.id], all, clashCtx);
     a.day_of_week = bDay;
     a.lesson_num = bLesson;
     b.day_of_week = aDay;
@@ -3929,7 +4012,8 @@ export class DersDagitService {
       is_locked: false,
       group_id: a.group_id,
     });
-    this.assertEntrySlot(programId, draft, body.day_of_week, body.lesson_num, [], all);
+    const clashCtx = this.clashCtxFromModes(await this.studioGroupModes(studioId));
+    this.assertEntrySlot(draft, body.day_of_week, body.lesson_num, [], all, clashCtx);
     const saved = await this.programEntryRepo.save(draft);
     await this.audit(studioId, userId, 'program.entry.created', { program_id: programId, entry_id: saved.id });
     const [enriched] = await this.enrichProgramEntries([saved]);
@@ -4517,24 +4601,11 @@ export class DersDagitService {
     }
     const day = dto.day_of_week ?? entry.day_of_week;
     const lesson = dto.lesson_num ?? entry.lesson_num;
-    const classClash = await this.programEntryRepo.findOne({
-      where: { program_id: programId, day_of_week: day, lesson_num: lesson, class_section: entry.class_section },
-    });
-    if (classClash && classClash.id !== entryId) {
-      throw new BadRequestException({ code: 'CLASS_CLASH', message: 'Sınıf çakışması.' });
-    }
-    if (entry.user_id) {
-      const teacherClash = await this.programEntryRepo
-        .createQueryBuilder('e')
-        .where('e.program_id = :pid', { pid: programId })
-        .andWhere('e.day_of_week = :day', { day })
-        .andWhere('e.lesson_num = :lesson', { lesson })
-        .andWhere('e.user_id = :uid', { uid: entry.user_id })
-        .andWhere('e.id != :id', { id: entryId })
-        .getOne();
-      if (teacherClash) {
-        throw new BadRequestException({ code: 'TEACHER_CLASH', message: 'Öğretmen çakışması.' });
-      }
+    const all = await this.programEntryRepo.find({ where: { program_id: programId } });
+    const clashCtx = this.clashCtxFromModes(await this.studioGroupModes(studioId));
+    const clash = wouldClash(all, entryId, day, lesson, undefined, clashCtx);
+    if (clash) {
+      throw new BadRequestException({ code: clash.code, message: clash.message });
     }
     if (entry.assignment_id && (dto.day_of_week != null || dto.lesson_num != null)) {
       const a = await this.assignmentRepo.findOne({
@@ -6245,7 +6316,8 @@ export class DersDagitService {
         name: displayName,
         abbreviation: displayName.replace(/\s+/g, '').slice(0, 8),
         member_sections: [memberSection],
-        parallel_mode: g.entire_class ? 'teacher_multi_class' : 'subgroups',
+        // aSc grupları tek şube içinde (Group 1/2, Kız/Erkek); subgroups en az 2 şube ister
+        parallel_mode: 'teacher_multi_class',
       });
       groupIdByAsc.set(g.asc_id, saved.id);
       groupByAsc.set(displayName, saved);
@@ -6407,6 +6479,7 @@ export class DersDagitService {
       this.resolveAscTeacherNames(a),
       a.teacher_asc_ids ?? [],
       asc.teacher_match_names ?? {},
+      asc.teacher_meta_by_id ?? {},
     );
   }
 
@@ -6577,6 +6650,7 @@ export class DersDagitService {
         class_sections: string[];
         weekly_hours: number;
         teacher_ids: string[];
+        teacher_names: string[];
         room_ids: string[];
         group_id?: string | null;
         day_distribution?: number[];
@@ -6588,6 +6662,11 @@ export class DersDagitService {
       const teacherIds =
         r.resolved_teacher_ids ??
         (r.resolved_teacher_id ? [r.resolved_teacher_id] : []);
+      const teacherNames = [
+        ...new Set(
+          (r.teacher_name?.trim() ? [r.teacher_name.trim()] : []).filter(Boolean),
+        ),
+      ];
       const roomIds = [...new Set((r.room_asc_ids ?? []).map((id) => roomIdByAsc?.get(id)).filter(Boolean))] as string[];
       const groupId = r.group_asc_id ? (groupIdByAsc?.get(r.group_asc_id) ?? null) : null;
       const tid = teacherIds.join('|');
@@ -6602,12 +6681,14 @@ export class DersDagitService {
           prev.weekly_hours = prev.day_distribution.reduce((s, n) => s + n, 0);
         }
         prev.periods_per_card = Math.max(prev.periods_per_card ?? 1, r.periods_per_card ?? 1);
+        prev.teacher_names = [...new Set([...prev.teacher_names, ...teacherNames])];
       } else {
         merge.set(k, {
           subject_name: r.subject_name,
           class_sections: r.class_sections,
           weekly_hours: r.weekly_hours,
           teacher_ids: teacherIds,
+          teacher_names: teacherNames,
           room_ids: roomIds,
           group_id: groupId,
           day_distribution: r.day_distribution,
@@ -6624,6 +6705,10 @@ export class DersDagitService {
           : null;
       const hints = dist ? distributionToPlacementHints(dist) : null;
       const blockLessons = hints?.block_lessons ?? (row.periods_per_card && row.periods_per_card >= 2 ? row.periods_per_card : 0);
+      const importOpts =
+        row.teacher_ids.length === 0 && row.teacher_names.length
+          ? { asc_import_teachers: row.teacher_names }
+          : {};
       await this.upsertAssignment(
         studioId,
         {
@@ -6636,10 +6721,11 @@ export class DersDagitService {
           room_ids: row.room_ids,
           group_id: row.group_id ?? undefined,
           options:
-            dist || blockLessons >= 2
+            dist || blockLessons >= 2 || Object.keys(importOpts).length
               ? {
                   ...(dist ? { day_distribution: dist } : {}),
                   ...(blockLessons >= 2 ? { block_lessons: blockLessons } : {}),
+                  ...importOpts,
                 }
               : undefined,
         },
@@ -6820,6 +6906,7 @@ export class DersDagitService {
   }
 
   async previewStudioTransferImport(
+    studioId: string,
     schoolId: string,
     body: {
       format: string;
@@ -6827,13 +6914,14 @@ export class DersDagitService {
       eokul_format?: 'csv' | 'xlsx' | 'grid_xlsx' | 'auto';
     },
   ) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
     if (!body.file_base64?.trim()) {
       throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'Dosya gerekli.' });
     }
     const buffer = Buffer.from(body.file_base64, 'base64');
     const sniffed = sniffTransferImportFormat(buffer);
-    const format =
-      sniffed && sniffed !== body.format && body.format === 'eokul_excel' ? sniffed : body.format;
+    const format = resolveTransferImportFormat(body.format, sniffed);
     const formatAutoCorrected = sniffed != null && format !== body.format;
     if (format === 'asc_xml') {
       const parsed = parseAscTimetablesXml(buffer);
@@ -6933,19 +7021,18 @@ export class DersDagitService {
       merge_settings?: boolean;
     },
   ) {
+    const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
+    if (!studio) throw new NotFoundException();
     if (!body.file_base64?.trim()) {
       throw new BadRequestException({ code: 'FILE_REQUIRED', message: 'Dosya gerekli.' });
     }
     const buffer = Buffer.from(body.file_base64, 'base64');
     const sniffed = sniffTransferImportFormat(buffer);
-    const format =
-      sniffed && sniffed !== body.format && body.format === 'eokul_excel' ? sniffed : body.format;
-
-    await this.clearStudioForTransferImport(studioId, schoolId, {
-      deleteRooms: format === 'asc_xml',
-    });
+    const format = resolveTransferImportFormat(body.format, sniffed);
+    const formatAutoCorrected = sniffed != null && format !== body.format;
 
     if (format === 'eokul_excel') {
+      await this.clearStudioForTransferImport(studioId, schoolId, { deleteRooms: false });
       const r = await this.importEokulAssignments(studioId, schoolId, userId, {
         file_base64: body.file_base64,
         format: body.eokul_format ?? 'auto',
@@ -6953,10 +7040,9 @@ export class DersDagitService {
         auto_elective_groups: body.auto_elective_groups,
       });
       await this.syncSectionScheduleOpenSlots(studioId, schoolId);
-      return { kind: 'assignments', ...r, replace: true, format_auto_corrected: sniffed != null && format !== body.format };
+      return { kind: 'assignments', ...r, replace: true, format_auto_corrected: formatAutoCorrected };
     }
     if (format === 'ogretmenpro_json') {
-      const buffer = Buffer.from(body.file_base64, 'base64');
       let pkg: StudioTransferPackageV1;
       try {
         pkg = JSON.parse(buffer.toString('utf8')) as StudioTransferPackageV1;
@@ -6966,8 +7052,7 @@ export class DersDagitService {
       if (pkg.format !== 'ogretmenpro_studio_v1') {
         throw new BadRequestException({ code: 'PACKAGE_FORMAT', message: 'Geçersiz paket.' });
       }
-      const studio = await this.studioRepo.findOne({ where: { id: studioId, school_id: schoolId } });
-      if (!studio) throw new NotFoundException();
+      await this.clearStudioForTransferImport(studioId, schoolId, { deleteRooms: false });
       let subjects_saved = 0;
       for (const s of pkg.subjects ?? []) {
         await this.upsertSubject(studioId, {
@@ -7046,6 +7131,7 @@ export class DersDagitService {
           warnings: parsed.warnings,
         });
       }
+      await this.clearStudioForTransferImport(studioId, schoolId, { deleteRooms: true });
       const replace = true;
       const teachers = await this.listSchoolTeachers(schoolId);
       const rows = parsed.assignments.map((a) => {
@@ -7081,6 +7167,13 @@ export class DersDagitService {
       const slotSync = await this.syncSectionScheduleOpenSlots(studioId, schoolId);
       const withTeacher = rows.filter((r) => r.resolved_teacher_ids?.length).length;
       const withRoom = rows.filter((r) => (r.room_asc_ids ?? []).length).length;
+      const withoutTeacher = rows.length - withTeacher;
+      if (withoutTeacher > 0) {
+        parsed.warnings.push({
+          code: 'TEACHER_UNMATCHED',
+          message: `${withoutTeacher} atamada öğretmen okul listesiyle eşleşmedi. aSc'te öğretmen partner_id alanına TC yazın veya okul öğretmen adlarını aSc ile aynı tutun; dosyayı yeniden içe aktarın.`,
+        });
+      }
       await this.audit(studioId, userId, 'assignments.imported_asc', {
         count: imported,
         replace,
@@ -7106,8 +7199,12 @@ export class DersDagitService {
         timeoffs_applied: parsed.asc.timeoffs.length,
         section_slots_opened: slotSync.opened_cells,
         replace: true,
+        format_auto_corrected: formatAutoCorrected,
       };
     }
-    throw new BadRequestException({ code: 'FORMAT_UNSUPPORTED', message: 'Desteklenmeyen format.' });
+    throw new BadRequestException({
+      code: 'FORMAT_UNSUPPORTED',
+      message: 'Desteklenmeyen format. aSc XML, e-Okul Excel veya ÖğretmenPro yedeği seçin.',
+    });
   }
 }

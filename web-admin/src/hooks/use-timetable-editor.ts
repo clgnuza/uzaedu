@@ -6,6 +6,7 @@ import {
   createEntryFromAssignment,
   deleteEntry,
   fetchEditorContext,
+  fetchEditorExtras,
   patchEntry,
   swapEntries,
   type EditorContext,
@@ -36,6 +37,8 @@ type UndoOp = UndoMove | UndoSwap;
 export type TimetableLoadOpts = {
   /** Yalnızca program değişiminde; her taşıma/silmede çalıştırma */
   validation?: boolean;
+  /** Layout overview — ayrı /validation isteği atlanır */
+  validationIssues?: ValidationIssue[];
 };
 
 export function useTimetableEditor(token: string | null, studioId: string | null) {
@@ -47,14 +50,35 @@ export function useTimetableEditor(token: string | null, studioId: string | null
   const undoStack = useRef<UndoOp[]>([]);
   const [undoCount, setUndoCount] = useState(0);
 
+  const loadEditorExtras = useCallback(
+    (id: string) => {
+      if (!token || !studioId) return;
+      void fetchEditorExtras(token, studioId, id)
+        .then((extras) => {
+          setCtx((prev) => {
+            if (!prev || prev.program.id !== id) return prev;
+            return {
+              ...prev,
+              program: { ...prev.program, score: extras.program_score ?? prev.program.score },
+              score_breakdown: extras.score_breakdown,
+              fairness: extras.fairness,
+            };
+          });
+        })
+        .catch(() => {});
+    },
+    [token, studioId],
+  );
+
   const reloadEditor = useCallback(
     async (id: string) => {
       if (!token || !studioId) return;
-      const ed = await fetchEditorContext(token, studioId, id);
+      const ed = await fetchEditorContext(token, studioId, id, { light: true });
       setCtx(ed);
       setProgramId(id);
+      loadEditorExtras(id);
     },
-    [token, studioId],
+    [token, studioId, loadEditorExtras],
   );
 
   const load = useCallback(
@@ -62,16 +86,23 @@ export function useTimetableEditor(token: string | null, studioId: string | null
       const id = pid ?? programId;
       if (!token || !studioId || !id) return;
       const includeValidation = opts?.validation === true;
+      const presetValidation = opts?.validationIssues;
       setLoading(true);
       try {
         if (includeValidation) {
-          const [ed, issues] = await Promise.all([
-            fetchEditorContext(token, studioId, id),
-            apiFetch<ValidationIssue[]>(`/ders-dagit/studios/${studioId}/validation`, { token }),
-          ]);
+          const ed = await fetchEditorContext(token, studioId, id, { light: true });
           setCtx(ed);
           setProgramId(id);
-          setValidation(issues);
+          loadEditorExtras(id);
+          if (presetValidation != null) {
+            setValidation(presetValidation);
+          } else {
+            const issues = await apiFetch<ValidationIssue[]>(
+              `/ders-dagit/studios/${studioId}/validation`,
+              { token },
+            );
+            setValidation(issues);
+          }
         } else {
           await reloadEditor(id);
         }
@@ -81,7 +112,7 @@ export function useTimetableEditor(token: string | null, studioId: string | null
         setLoading(false);
       }
     },
-    [token, studioId, programId, reloadEditor],
+    [token, studioId, programId, reloadEditor, loadEditorExtras],
   );
 
   const entries = ctx?.entries ?? [];
@@ -119,12 +150,14 @@ export function useTimetableEditor(token: string | null, studioId: string | null
         await moveEntry(entryId, toDay, toLesson, occupant.id);
         return;
       }
+      const clashCtx = ctx?.group_modes ? { group_modes: ctx.group_modes } : undefined;
       const clash = clashAtSlot(
         entries,
         entryId,
         toDay,
         toLesson,
         swapWithId ? new Set([swapWithId]) : undefined,
+        clashCtx,
       );
       if (clash && !swapWithId) {
         toast.error(clash === 'CLASS_CLASH' ? 'Sınıf çakışması' : 'Öğretmen çakışması');
@@ -167,7 +200,6 @@ export function useTimetableEditor(token: string | null, studioId: string | null
       opts?: {
         primaryEntryId?: string;
         target?: { day: number; lesson: number };
-        ignoreClash?: boolean;
         silent?: boolean;
       },
     ): Promise<boolean> => {
@@ -190,13 +222,12 @@ export function useTimetableEditor(token: string | null, studioId: string | null
         const movingIds = new Set(ordered.map((m) => m.entryId));
         let working = ctx.entries;
         for (const m of ordered) {
-          if (!opts?.ignoreClash) {
-            const clash = clashAtSlot(working, m.entryId, m.day, m.lesson, movingIds);
-            if (clash) {
-              toast.error(clash === 'CLASS_CLASH' ? 'Sınıf çakışması' : 'Öğretmen çakışması');
-              await reloadEditor(programId);
-              return false;
-            }
+          const clashCtx = ctx.group_modes ? { group_modes: ctx.group_modes } : undefined;
+          const clash = clashAtSlot(working, m.entryId, m.day, m.lesson, movingIds, clashCtx);
+          if (clash) {
+            toast.error(clash === 'CLASS_CLASH' ? 'Sınıf çakışması' : 'Öğretmen çakışması');
+            await reloadEditor(programId);
+            return false;
           }
           const updated = await patchEntry(token, studioId, programId, m.entryId, {
             day_of_week: m.day,

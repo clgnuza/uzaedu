@@ -1,4 +1,30 @@
 import type { EditorEntry } from '@/lib/ders-dagit-timetable-api';
+import { sectionsMatch } from '@/lib/class-section-canonical';
+import { maxLessonsOnDay } from '@/lib/timetable-grid-build';
+
+export type SlotClashContext = {
+  group_modes?: Record<string, 'parallel_rooms' | 'subgroups' | 'teacher_multi_class'>;
+};
+
+function coTeachSameAssignment(a: EditorEntry, b: EditorEntry): boolean {
+  return !!a.assignment_id && a.assignment_id === b.assignment_id;
+}
+
+function classWouldClash(a: EditorEntry, b: EditorEntry): boolean {
+  return sectionsMatch(a.class_section, b.class_section) && !coTeachSameAssignment(a, b);
+}
+
+function teacherWouldClash(a: EditorEntry, b: EditorEntry, ctx?: SlotClashContext): boolean {
+  if (!a.user_id || !b.user_id || a.user_id !== b.user_id) return false;
+  if (coTeachSameAssignment(a, b)) return false;
+  const gid = a.group_id && a.group_id === b.group_id ? a.group_id : null;
+  if (!gid) return true;
+  const mode = ctx?.group_modes?.[gid];
+  if (mode === 'teacher_multi_class') return false;
+  if (mode === 'subgroups' && !sectionsMatch(a.class_section, b.class_section)) return false;
+  if (mode === 'parallel_rooms') return false;
+  return true;
+}
 
 /** Program hücresi durumu */
 export type SlotDropStatus = 'ok' | 'forbidden' | 'occupied' | 'swap' | 'same';
@@ -38,6 +64,17 @@ function worstStatus(a: SlotDropStatus, b: SlotDropStatus): SlotDropStatus {
   return STATUS_WORST_ORDER.indexOf(a) <= STATUS_WORST_ORDER.indexOf(b) ? a : b;
 }
 
+export function indexEntriesBySlot(entries: EditorEntry[]): Map<string, EditorEntry[]> {
+  const map = new Map<string, EditorEntry[]>();
+  for (const e of entries) {
+    const key = `${e.day_of_week}-${e.lesson_num}`;
+    const arr = map.get(key) ?? [];
+    arr.push(e);
+    map.set(key, arr);
+  }
+  return map;
+}
+
 export function computeSlotDropStatus(
   dragging: EditorEntry | null,
   poolClassSection: string | null,
@@ -46,6 +83,8 @@ export function computeSlotDropStatus(
   entries: EditorEntry[],
   forbidden: Set<string>,
   excludeEntryIds?: Set<string>,
+  entriesBySlot?: Map<string, EditorEntry[]>,
+  clashCtx?: SlotClashContext,
 ): SlotDropStatus {
   const key = `${day}-${lesson}`;
   if (forbidden.has(key)) return 'forbidden';
@@ -55,24 +94,20 @@ export function computeSlotDropStatus(
     return 'same';
   }
 
-  const atSlot = entries.filter((e) => e.day_of_week === day && e.lesson_num === lesson);
+  const atSlot = entriesBySlot?.get(key) ?? entries.filter((e) => e.day_of_week === day && e.lesson_num === lesson);
   const others = dragging
     ? atSlot.filter((e) => e.id !== dragging.id && !excludeEntryIds?.has(e.id))
     : atSlot.filter((e) => !excludeEntryIds?.has(e.id));
 
   if (dragging) {
     for (const o of others) {
-      const sameAssignment =
-        !!dragging.assignment_id &&
-        dragging.assignment_id === o.assignment_id;
-      if (o.class_section === dragging.class_section && !sameAssignment) return 'occupied';
-      if (dragging.user_id && o.user_id === dragging.user_id) return 'occupied';
+      if (classWouldClash(dragging, o) || teacherWouldClash(dragging, o, clashCtx)) return 'occupied';
     }
     if (others.length > 0) return 'swap';
     return 'ok';
   }
 
-  if (poolClassSection && others.some((o) => o.class_section === poolClassSection)) {
+  if (poolClassSection && others.some((o) => sectionsMatch(o.class_section, poolClassSection))) {
     return 'occupied';
   }
   if (others.length > 0) return 'swap';
@@ -87,12 +122,24 @@ export function computeBlockDropStatus(
   targetLesson: number,
   entries: EditorEntry[],
   forbidden: Set<string>,
+  entriesBySlot?: Map<string, EditorEntry[]>,
+  clashCtx?: SlotClashContext,
 ): SlotDropStatus {
   const block = entries
     .filter((e) => blockIds.includes(e.id))
     .sort((a, b) => a.lesson_num - b.lesson_num);
   if (block.length <= 1) {
-    return computeSlotDropStatus(dragging, null, targetDay, targetLesson, entries, forbidden);
+    return computeSlotDropStatus(
+      dragging,
+      null,
+      targetDay,
+      targetLesson,
+      entries,
+      forbidden,
+      undefined,
+      entriesBySlot,
+      clashCtx,
+    );
   }
   const exclude = new Set(blockIds);
   const offset = targetLesson - block[0]!.lesson_num;
@@ -106,10 +153,62 @@ export function computeBlockDropStatus(
       entries,
       forbidden,
       exclude,
+      entriesBySlot,
+      clashCtx,
     );
     worst = worstStatus(worst, s);
   }
   return worst;
+}
+
+/** Sürükleme sırasında hücre durumlarını bir kez hesapla (her render'da O(n²) önlenir). */
+export function buildDropStatusGrid(params: {
+  dragging: EditorEntry | null;
+  poolClassSection: string | null;
+  blockDragIds: string[] | null;
+  days: number[];
+  maxLesson: number;
+  lessonsPerDayByDow: Record<string, number>;
+  entries: EditorEntry[];
+  forbidden: Set<string>;
+  clashCtx?: SlotClashContext;
+}): Map<string, SlotDropStatus> {
+  const map = new Map<string, SlotDropStatus>();
+  const {
+    dragging,
+    poolClassSection,
+    blockDragIds,
+    days,
+    maxLesson,
+    lessonsPerDayByDow,
+    entries,
+    forbidden,
+    clashCtx,
+  } = params;
+  if (!dragging && !poolClassSection) return map;
+  const entriesBySlot = indexEntriesBySlot(entries);
+  for (const day of days) {
+    const dayMax = maxLessonsOnDay(day, maxLesson, lessonsPerDayByDow);
+    for (let lesson = 1; lesson <= dayMax; lesson++) {
+      const key = `${day}-${lesson}`;
+      const status =
+        dragging && blockDragIds?.length
+          ? computeBlockDropStatus(dragging, blockDragIds, day, lesson, entries, forbidden, entriesBySlot, clashCtx)
+          : computeSlotDropStatus(
+              dragging,
+              poolClassSection,
+              day,
+              lesson,
+              entries,
+              forbidden,
+              undefined,
+              entriesBySlot,
+              clashCtx,
+            );
+      map.set(key, status);
+    }
+  }
+  return map;
 }
 
 /** Sütun başlığı: o günün tüm slotlarında en kötü durum */

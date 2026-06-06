@@ -35,3 +35,36 @@ export function poolRowMatches(
   if (axis === 'teacher') return !!userId && `u:${userId}` === rowKey;
   return true;
 }
+
+/** Matris sürüklemede yalnızca hedef satır droppable — binlerce hücre ölçümü önlenir. */
+export function matrixDragTargetRowKey(
+  dragSource: { type: 'entry'; entry: EditorEntry } | { type: 'pool'; classSection: string; userId?: string | null } | null,
+  axis: MatrixAxis,
+): string | null {
+  if (!dragSource) return null;
+  if (dragSource.type === 'entry') {
+    const e = dragSource.entry;
+    if (axis === 'teacher') return teacherRowKey(e);
+    if (axis === 'class') return `c:${e.class_section.trim()}`;
+    return e.room_id ? `r:${e.room_id}` : 'r:__none__';
+  }
+  if (axis === 'class') return `c:${dragSource.classSection.trim()}`;
+  if (axis === 'teacher' && dragSource.userId) return `u:${dragSource.userId}`;
+  return null;
+}
+
+/** Sürükleme sırasında droppable olacak satırlar (null = matriste bırakma kapalı). */
+export function matrixDragTargetRowKeys(
+  dragSource: { type: 'entry'; entry: EditorEntry } | { type: 'pool'; classSection: string; userId?: string | null } | null,
+  axis: MatrixAxis,
+  entries?: EditorEntry[],
+): Set<string> | null {
+  if (!dragSource) return null;
+  const one = matrixDragTargetRowKey(dragSource, axis);
+  if (one) return new Set([one]);
+  // Öğretmensiz havuz ataması: öğretmen matrisinde onlarca satır droppable açmamak için kapalı.
+  if (dragSource.type === 'pool' && axis === 'teacher' && !dragSource.userId) {
+    return null;
+  }
+  return null;
+}

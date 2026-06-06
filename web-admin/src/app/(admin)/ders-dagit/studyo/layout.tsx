@@ -56,7 +56,11 @@ function StudioLayoutBody({ children }: { children: React.ReactNode }) {
               <StudioMobileNav />
             </div>
             {onboarding && <StudioOnboarding overview={overview} compact />}
-            {dataNav && <DersDagitStudioNav healthScore={overview?.health_score} />}
+            {dataNav ? (
+              <div className="sticky top-0 z-30 -mx-0.5 bg-background/95 px-0.5 pb-1.5 pt-0.5 backdrop-blur-sm supports-backdrop-filter:bg-background/80">
+                <DersDagitStudioNav healthScore={overview?.health_score} />
+              </div>
+            ) : null}
           </div>
         </>
       )}

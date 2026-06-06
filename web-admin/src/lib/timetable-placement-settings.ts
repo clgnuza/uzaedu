@@ -22,7 +22,7 @@ export function loadTimetablePlacementSettings(): TimetablePlacementSettings {
     const complexity = o.search_complexity;
     return {
       conflict_mode: o.conflict_mode === 'ask' ? 'ask' : 'auto_relocate',
-      allow_ignore_clash: o.allow_ignore_clash !== false,
+      allow_ignore_clash: o.allow_ignore_clash === true,
       search_complexity:
         complexity === 'normal' || complexity === 'huge' ? complexity : 'large',
     };

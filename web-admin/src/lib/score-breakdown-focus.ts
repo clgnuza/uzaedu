@@ -46,12 +46,19 @@ export function entryIdsForFocus(
   entries: EditorEntry[],
   focus: ScoreDeductionFocus | undefined,
   deduction: ScoreDeduction,
-  options?: { allSections?: boolean; classSection?: string },
+  options?: {
+    allSections?: boolean;
+    classSection?: string;
+    group_modes?: Record<string, 'parallel_rooms' | 'subgroups' | 'teacher_multi_class'>;
+  },
 ): Set<string> {
   const sectionFilter = options?.allSections !== false ? undefined : options?.classSection;
 
   if (focus?.type === 'clash') {
-    const ids = clashEntryIds(entries);
+    const ids = clashEntryIds(
+      entries,
+      options?.group_modes ? { group_modes: options.group_modes } : undefined,
+    );
     if (!sectionFilter) return ids;
     const out = new Set<string>();
     for (const e of entries) {

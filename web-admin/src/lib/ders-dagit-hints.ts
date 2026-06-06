@@ -103,14 +103,14 @@ export const SETTING_HINTS: Record<string, SettingHint> = {
   },
   ayarlar: {
     title: 'Ayarlar',
-    short: 'Müsaitlik toplama penceresi ve modül kısayolları.',
-    detail:
-      'Sayfanın üstünde öğretmen müsaitlik tercihlerini açıp kapatabilir, onay zorunluluğunu seçebilirsiniz. Bekleyen başvurular burada onaylanır; öğretmen önizlemesi için Başvurular sayfasına gidin.',
+    short: 'Modül sayfalarına kısayollar.',
+    detail: 'Kurulum, ders verisi, kurallar ve program adımlarına tek listeden gidilir.',
   },
   'ogretmen-tercihleri': {
     title: 'Başvurular ve önizleme',
     short: 'Öğretmen bazlı tercih inceleme.',
-    detail: 'Onay kuyruğu Ayarlar sayfasında da görünür; burada öğretmen seçerek ızgarayı önizleyebilirsiniz.',
+    detail:
+      'Müsaitlik toplama penceresini açıp kapatabilir, onay zorunluluğunu seçebilirsiniz. Bekleyen başvurular burada onaylanır; öğretmen ızgarasını önizleyebilirsiniz.',
   },
   dersler: {
     title: 'Dersler',

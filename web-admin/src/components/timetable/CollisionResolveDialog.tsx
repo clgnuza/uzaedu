@@ -24,22 +24,18 @@ export function CollisionResolveDialog({
   day,
   lesson,
   occupants,
-  allowIgnoreClash,
   onClose,
   onClearConflictsAndPlace,
   onSwapWith,
-  onPlaceAnyway,
 }: {
   open: boolean;
   moving: EditorEntry | null;
   day: number;
   lesson: number;
   occupants: EditorEntry[];
-  allowIgnoreClash?: boolean;
   onClose: () => void;
   onClearConflictsAndPlace: () => void;
   onSwapWith?: (targetId: string) => void;
-  onPlaceAnyway?: () => void;
 }) {
   if (!moving) return null;
   const locked = occupants.some((o) => o.is_locked);
@@ -82,11 +78,6 @@ export function CollisionResolveDialog({
               onClick={() => onSwapWith(occupants[0]!.id)}
             >
               Takas: {occupants[0]!.class_section} · {occupants[0]!.subject}
-            </Button>
-          )}
-          {allowIgnoreClash && onPlaceAnyway && (
-            <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={onPlaceAnyway}>
-              Çelişkileri dikkate alma, kartı yerleştir
             </Button>
           )}
           <Button type="button" variant="outline" size="sm" className="w-full" onClick={onClose}>

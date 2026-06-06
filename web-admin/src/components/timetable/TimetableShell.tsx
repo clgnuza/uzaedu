@@ -26,7 +26,18 @@ import { downloadDersDagitExport, openScheduleViewPdf } from '@/lib/ders-dagit-a
 import { cn } from '@/lib/utils';
 import type { EditorContext, EditorEntry } from '@/lib/ders-dagit-timetable-api';
 import { Undo2, ZoomIn, ZoomOut, Printer } from 'lucide-react';
-import { DndContext, DragOverlay, pointerWithin, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import {
+  DndContext,
+  DragOverlay,
+  MeasuringFrequency,
+  MeasuringStrategy,
+  pointerWithin,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
 import { TimetableLegend } from './TimetableLegend';
 import { TimetableQuickLinks } from './TimetableQuickLinks';
 import { TimetableHealthStrip } from './TimetableHealthStrip';
@@ -125,7 +136,8 @@ export function TimetableShell({
 }) {
   const router = useRouter();
   const { token } = useAuth();
-  const { studio } = useDersDagitStudio();
+  const { studio, overview } = useDersDagitStudio();
+  const studioValidation = overview?.validation;
   const editor = useTimetableEditor(token, studio?.id ?? null);
   const [programs, setPrograms] = useState<ProgramRow[]>([]);
   const [view, setView] = useState<ViewMode>(initialView ?? 'all');
@@ -239,10 +251,11 @@ export function TimetableShell({
       const removed = opts?.removedId;
       const pick =
         opts?.selectId ?? (removed && cur === removed ? list[0]?.id : list.some((p) => p.id === cur) ? cur : list[0]?.id);
-      if (pick && pick !== cur) await editor.load(pick, { validation: true });
+      if (pick && pick !== cur)
+        await editor.load(pick, { validation: true, validationIssues: studioValidation });
       onProgramIdChange?.(pick ?? '');
     },
-    [token, studio, editor.programId, editor.load, onProgramIdChange],
+    [token, studio, studioValidation, editor.programId, editor.load, onProgramIdChange],
   );
 
   useEffect(() => {
@@ -309,15 +322,50 @@ export function TimetableShell({
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [simulate, simPending.length]);
 
+  const programIdRef = useRef(editor.programId);
+  programIdRef.current = editor.programId;
+  const prevUrlProgramId = useRef<string | undefined>(undefined);
+
   useEffect(() => {
     if (!token || !studio || programs.length === 0) return;
-    const wanted = initialProgramId;
-    const exists = wanted && programs.some((p) => p.id === wanted);
-    const pick = exists ? wanted! : programs[0]!.id;
-    if (wanted && !exists) onProgramIdChange?.(pick);
-    if (editor.programId === pick) return;
-    void editor.load(pick, { validation: true });
-  }, [initialProgramId, programs, token, studio, editor.load, editor.programId, onProgramIdChange]);
+
+    const urlChanged = initialProgramId !== prevUrlProgramId.current;
+    prevUrlProgramId.current = initialProgramId;
+
+    const resolvePick = () => {
+      const wanted = initialProgramId;
+      const exists = wanted && programs.some((p) => p.id === wanted);
+      return exists ? wanted! : programs[0]!.id;
+    };
+
+    if (!programIdRef.current) {
+      const pick = resolvePick();
+      if (initialProgramId && !programs.some((p) => p.id === initialProgramId)) {
+        onProgramIdChange?.(pick);
+      }
+      void editor.load(pick, { validation: true, validationIssues: studioValidation });
+      return;
+    }
+
+    if (urlChanged) {
+      const pick = resolvePick();
+      if (initialProgramId && !programs.some((p) => p.id === initialProgramId)) {
+        onProgramIdChange?.(pick);
+      }
+      if (programIdRef.current !== pick) {
+        void editor.load(pick, { validation: true, validationIssues: studioValidation });
+      }
+      return;
+    }
+
+    if (!programs.some((p) => p.id === programIdRef.current)) {
+      const pick = programs[0]?.id;
+      if (pick && pick !== programIdRef.current) {
+        void editor.load(pick, { validation: true, validationIssues: studioValidation });
+        onProgramIdChange?.(pick);
+      }
+    }
+  }, [initialProgramId, programs, token, studio, studioValidation, editor.load, onProgramIdChange]);
 
   const lastUrlProgramId = useRef('');
   useEffect(() => {
@@ -344,7 +392,8 @@ export function TimetableShell({
   const displayCtx = useMemo(() => {
     if (!editor.ctx) return null;
     if (!simulate || !draftEntries) return editor.ctx;
-    const clashes = buildClashesFromEntries(draftEntries);
+    const clashCtx = editor.ctx.group_modes ? { group_modes: editor.ctx.group_modes } : undefined;
+    const clashes = buildClashesFromEntries(draftEntries, clashCtx);
     return { ...editor.ctx, entries: draftEntries, clashes };
   }, [editor.ctx, simulate, draftEntries]);
 
@@ -431,10 +480,11 @@ export function TimetableShell({
     }
   }, [ctx?.unplaced, pickedPoolAssignmentId, clearPoolSelection, ctx]);
 
-  const simClashIds = useMemo(
-    () => (draftEntries ? clashEntryIds(draftEntries) : editor.clashIds),
-    [draftEntries, editor.clashIds],
-  );
+  const simClashIds = useMemo(() => {
+    if (!draftEntries) return editor.clashIds;
+    const clashCtx = editor.ctx?.group_modes ? { group_modes: editor.ctx.group_modes } : undefined;
+    return clashEntryIds(draftEntries, clashCtx);
+  }, [draftEntries, editor.clashIds, editor.ctx?.group_modes]);
 
   const filterOptions = useMemo(() => {
     if (!editor.ctx || view === 'all') return [];
@@ -529,6 +579,35 @@ export function TimetableShell({
         const base = prev ?? editor.ctx?.entries ?? [];
         const entry = base.find((e) => e.id === entryId);
         if (!entry) return prev;
+
+        const block = sameDayBlockRun(entry, base, editor.ctx?.assignment_hints);
+        if (!swapWithId && block.length > 1) {
+          const sorted = [...block].sort((a, b) => a.lesson_num - b.lesson_num);
+          const lead = sorted[0]!;
+          const offset = lesson - lead.lesson_num;
+          const blockIds = new Set(sorted.map((e) => e.id));
+          const clashCtx = editor.ctx?.group_modes ? { group_modes: editor.ctx.group_modes } : undefined;
+          for (const e of sorted) {
+            const targetLesson = e.lesson_num + offset;
+            const clash = clashAtSlot(base, e.id, day, targetLesson, blockIds, clashCtx);
+            if (clash) {
+              toast.error(clash === 'CLASS_CLASH' ? 'Sınıf çakışması' : 'Öğretmen çakışması');
+              return prev;
+            }
+            const occ = base.some(
+              (x) =>
+                x.day_of_week === day &&
+                x.lesson_num === targetLesson &&
+                !blockIds.has(x.id),
+            );
+            if (occ) return prev;
+          }
+          return base.map((e) => {
+            if (!blockIds.has(e.id)) return e;
+            return { ...e, day_of_week: day, lesson_num: e.lesson_num + offset };
+          });
+        }
+
         if (swapWithId) {
           const other = base.find((e) => e.id === swapWithId);
           if (!other) return prev;
@@ -546,7 +625,8 @@ export function TimetableShell({
             return e;
           });
         }
-        const clash = clashAtSlot(base, entryId, day, lesson);
+        const clashCtx = editor.ctx?.group_modes ? { group_modes: editor.ctx.group_modes } : undefined;
+        const clash = clashAtSlot(base, entryId, day, lesson, undefined, clashCtx);
         if (clash) {
           toast.error(clash === 'CLASS_CLASH' ? 'Sınıf çakışması' : 'Öğretmen çakışması');
           return prev;
@@ -555,7 +635,7 @@ export function TimetableShell({
         return base.map((e) => (e.id === entryId ? { ...e, day_of_week: day, lesson_num: lesson } : e));
       });
     },
-    [editor.ctx?.entries],
+    [editor.ctx?.entries, editor.ctx?.assignment_hints, editor.ctx?.group_modes],
   );
 
   const applySimulation = useCallback(async () => {
@@ -571,7 +651,10 @@ export function TimetableShell({
     setBusyLocal(true);
     try {
       const n = await applySimulationDraft(token, studio.id, editor.programId, simBaseline, draftEntries);
-      await editor.load(editor.programId, { validation: true });
+      await editor.load(editor.programId, {
+        validation: true,
+        validationIssues: studioValidation,
+      });
       discardSimulation();
       toast.success(n === 1 ? '1 taşıma kaydedildi' : `${n} taşıma kaydedildi`);
     } catch (e) {
@@ -1077,7 +1160,7 @@ export function TimetableShell({
           return await applyPlan(chain);
         }
 
-        if (canPlaceEntryAt(c.entries, entryId, day, lesson, closures, c.assignment_hints)) {
+        if (canPlaceEntryAt(c.entries, entryId, day, lesson, closures, c.assignment_hints, c.group_modes)) {
           const ok = await editor.applyMoves([{ entryId, day, lesson }], {
             primaryEntryId: entryId,
             target: { day, lesson },
@@ -1103,6 +1186,7 @@ export function TimetableShell({
           closures,
           dragging,
           assignmentHints: c.assignment_hints,
+          clashCtx: c.group_modes ? { group_modes: c.group_modes } : undefined,
         });
         toast.error(
           chain.message || smart.message || (!v.ok ? v.message : undefined) || 'Yerleştirilemedi',
@@ -1157,28 +1241,6 @@ export function TimetableShell({
       target: { day, lesson },
     });
     if (ok) toast.success('Kart yerleştirildi');
-  }, [collision, simulate, editor]);
-
-  const resolveCollisionPlaceAnyway = useCallback(async () => {
-    if (!collision) return;
-    const { entryId, day, lesson } = collision;
-    setCollision(null);
-    if (simulate) {
-      setDraftEntries((prev) => {
-        const base = prev ?? editor.ctx?.entries ?? [];
-        return base.map((e) =>
-          e.id === entryId ? { ...e, day_of_week: day, lesson_num: lesson } : e,
-        );
-      });
-      toast.message('Çelişkili yerleştirme (önizleme)');
-      return;
-    }
-    const ok = await editor.applyMoves([{ entryId, day, lesson }], {
-      primaryEntryId: entryId,
-      target: { day, lesson },
-      ignoreClash: true,
-    });
-    if (ok) toast.message('Kart yerleştirildi (çelişki var)');
   }, [collision, simulate, editor]);
 
   const requestMove = useCallback(
@@ -1241,6 +1303,7 @@ export function TimetableShell({
 
   const gridCommon = (c: NonNullable<typeof displayCtx>) => ({
     entries: c.entries,
+    group_modes: c.group_modes,
     workDays: c.period.work_days ?? [1, 2, 3, 4, 5],
     maxLesson: c.max_lesson,
     lessonSchedule: c.period.lesson_schedule ?? [],
@@ -1330,6 +1393,9 @@ export function TimetableShell({
     <DndContext
       sensors={sensors}
       collisionDetection={pointerWithin}
+      measuring={{
+        droppable: { strategy: MeasuringStrategy.BeforeDragging, frequency: MeasuringFrequency.Optimized },
+      }}
       onDragStart={(e) => {
         const id = String(e.active.id);
         if (id.startsWith('pool:') || id.startsWith('pool-')) {
@@ -1341,15 +1407,22 @@ export function TimetableShell({
               ? `${u.class_section} · ${u.subject_name}${chunk > 1 ? ` (${chunk} saat)` : ''}`
               : 'Atama',
           );
-          setDragSource(u ? { type: 'pool', classSection: u.class_section } : null);
+          setDragSource(
+            u
+              ? { type: 'pool', classSection: u.class_section, userId: u.user_id ?? null }
+              : null,
+          );
           return;
         }
         const ent = editor.ctx?.entries.find((x) => x.id === id);
         if (ent) {
           const block = sameDayBlockRun(ent, editor.ctx?.entries ?? [], editor.ctx?.assignment_hints);
           const n = block.length;
+          const lead = n > 1 ? [...block].sort((a, b) => a.lesson_num - b.lesson_num)[0]! : ent;
           setDragLabel(
-            n > 1 ? `${ent.class_section} · ${ent.subject} (${n} saat blok)` : `${ent.class_section} · ${ent.subject}`,
+            n > 1
+              ? `${lead.class_section} · ${lead.subject} (${n} saat blok)`
+              : `${ent.class_section} · ${ent.subject}`,
           );
           setDragSource({
             type: 'entry',
@@ -1383,8 +1456,9 @@ export function TimetableShell({
               onValueChange={(v) => {
                 setFilterId(view === 'all' ? '' : FILTER_ALL);
                 lastUrlProgramId.current = v;
+                prevUrlProgramId.current = v;
                 onProgramIdChange?.(v);
-                void editor.load(v, { validation: true });
+                void editor.load(v, { validation: true, validationIssues: studioValidation });
               }}
               options={programs.map((p) => ({
                 value: p.id,
@@ -1647,7 +1721,7 @@ export function TimetableShell({
                     {...gridCommon(ctx)}
                     editable
                     busy={editorBusy}
-                    dragSource={effectiveDragSource}
+                    dragSource={dragSource}
                     placementMode={placementMode}
                     pickedEntryId={pickedEntryId}
                     onPickEntry={(id) => {
@@ -1771,7 +1845,6 @@ export function TimetableShell({
             day={collision?.day ?? 1}
             lesson={collision?.lesson ?? 1}
             occupants={collision?.occupants ?? []}
-            allowIgnoreClash={placementSettings.allow_ignore_clash}
             onClose={() => setCollision(null)}
             onClearConflictsAndPlace={() => void resolveCollisionClearAndPlace()}
             onSwapWith={(targetId) => {
@@ -1783,11 +1856,6 @@ export function TimetableShell({
               }
               setCollision(null);
             }}
-            onPlaceAnyway={
-              placementSettings.allow_ignore_clash
-                ? () => void resolveCollisionPlaceAnyway()
-                : undefined
-            }
           />
           </>
         ) : null}
@@ -1903,9 +1971,16 @@ export function TimetableShell({
           }}
         />
       </div>
-      <DragOverlay>
+      <DragOverlay dropAnimation={null}>
         {dragLabel ? (
-          <div className="rounded-md border bg-card px-2 py-1 text-xs shadow-lg">{dragLabel}</div>
+          <div className="rounded-md border-2 border-[rgb(var(--dd-accent))] bg-card px-2.5 py-1.5 text-xs font-medium shadow-xl">
+            {dragLabel}
+            {dragSource?.type === 'entry' && (dragSource.blockIds?.length ?? 0) > 1 ? (
+              <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                {dragSource.blockIds!.length} kart birlikte taşınır
+              </span>
+            ) : null}
+          </div>
         ) : null}
       </DragOverlay>
     </DndContext>

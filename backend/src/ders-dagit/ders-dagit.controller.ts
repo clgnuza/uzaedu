@@ -449,6 +449,7 @@ export class DersDagitController {
   @Roles(UserRole.school_admin)
   transferImportPreview(
     @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
     @Body()
     body: {
       format: string;
@@ -456,7 +457,7 @@ export class DersDagitController {
       eokul_format?: 'csv' | 'xlsx' | 'grid_xlsx' | 'auto';
     },
   ) {
-    return this.service.previewStudioTransferImport(u.schoolId!, body);
+    return this.service.previewStudioTransferImport(studioId, u.schoolId!, body);
   }
 
   @Post('studios/:studioId/transfer/import')
@@ -1304,8 +1305,20 @@ export class DersDagitController {
     @CurrentUser() u: CurrentUserPayload,
     @Param('studioId') studioId: string,
     @Param('programId') programId: string,
+    @Query('light') light?: string,
   ) {
-    return this.service.getProgramEditorContext(programId, studioId, u.schoolId!);
+    const lightMode = light !== '0' && light !== 'false';
+    return this.service.getProgramEditorContext(programId, studioId, u.schoolId!, { light: lightMode });
+  }
+
+  @Get('studios/:studioId/programs/:programId/editor-extras')
+  @Roles(UserRole.school_admin)
+  editorExtras(
+    @CurrentUser() u: CurrentUserPayload,
+    @Param('studioId') studioId: string,
+    @Param('programId') programId: string,
+  ) {
+    return this.service.getProgramEditorExtras(programId, studioId, u.schoolId!);
   }
 
   @Post('studios/:studioId/programs/:programId/entries')

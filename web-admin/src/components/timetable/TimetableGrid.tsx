@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { memo, useMemo, useState, type ReactNode } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -28,13 +28,10 @@ import {
 import { buildSlotClosures, closureAt, type SlotClosure } from '@/lib/timetable-slot-closures';
 import { dropStatusMessage, validateTimetableMove } from '@/lib/timetable-move-validation';
 import {
-  computeBlockDropStatus,
-  computeSlotDropStatus,
-  dayHeaderStatus,
+  buildDropStatusGrid,
   SLOT_CLOSED_STATIC,
   SLOT_STATUS_BADGE,
   SLOT_STATUS_CELL,
-  SLOT_STATUS_HEADER,
   type SlotDropStatus,
 } from '@/lib/timetable-slot-status';
 import { Ban, BookOpen, DoorOpen, User } from 'lucide-react';
@@ -74,6 +71,11 @@ function parseSlot(id: string) {
   const m = /^slot-(\d+)-(\d+)$/.exec(id);
   return m ? { day: Number(m[1]), lesson: Number(m[2]) } : null;
 }
+
+export type TimetableDragSource =
+  | { type: 'entry'; entry: EditorEntry; blockIds?: string[] }
+  | { type: 'pool'; classSection: string; userId?: string | null }
+  | null;
 
 function lessonTime(
   schedule: Array<{ lesson_num: number; start_time: string; end_time: string }>,
@@ -252,6 +254,7 @@ function CellChip({
   onEdit,
   onContextMenu,
   onPick,
+  dragSource,
 }: {
   entry: EditorEntry;
   viewMode?: 'class' | 'teacher' | 'room' | 'all';
@@ -269,6 +272,7 @@ function CellChip({
   onEdit: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onPick: () => void;
+  dragSource?: TimetableDragSource;
 }) {
   const colors = entryCellColor(entry, viewMode);
   const compact = compareLayout || placementMode === 'drag';
@@ -281,8 +285,12 @@ function CellChip({
   ]
     .filter(Boolean)
     .join(' · ');
+  const blockDragGhost =
+    dragSource?.type === 'entry' &&
+    dragSource.blockIds?.includes(entry.id) &&
+    dragSource.entry.id !== entry.id;
   const dragDisabled =
-    !editable || busy || !!entry.is_locked || placementMode === 'click';
+    !editable || busy || !!entry.is_locked || placementMode === 'click' || blockDragGhost;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: entry.id,
     data: { entry },
@@ -293,7 +301,7 @@ function CellChip({
       ref={setNodeRef}
       data-entry-id={entry.id}
       data-slot-key={slotHighlightKey(entry.day_of_week, entry.lesson_num)}
-      {...(editable && !entry.is_locked && !busy && placementMode === 'drag'
+      {...(editable && !dragDisabled && placementMode === 'drag'
         ? { ...attributes, ...listeners }
         : {})}
       onClick={(e) => {
@@ -313,7 +321,8 @@ function CellChip({
         'transition-[box-shadow,transform,opacity] duration-150',
         editable && !entry.is_locked && placementMode === 'drag' && 'cursor-grab touch-manipulation active:cursor-grabbing hover:shadow',
         placementMode === 'click' && editable && !entry.is_locked && 'cursor-pointer hover:-translate-y-px hover:shadow-md',
-        isDragging && 'scale-[0.98] opacity-50 shadow-none',
+        isDragging && 'z-20 scale-[0.98] opacity-50 shadow-none',
+        blockDragGhost && 'pointer-events-none opacity-25',
         hasClash && (compact ? 'ring-1 ring-destructive' : 'ring-2 ring-destructive/75'),
         highlighted && (compact ? 'ring-1 ring-primary' : 'ring-2 ring-primary ring-offset-1'),
         violationFocus &&
@@ -410,7 +419,7 @@ function CellChip({
   );
 }
 
-function DropSlot({
+const DropSlot = memo(function DropSlot({
   day,
   lesson,
   disabled,
@@ -479,7 +488,7 @@ function DropSlot({
         compareLayout ? 'min-w-0 max-w-none p-px' : 'min-w-0 max-w-full p-0.5',
         compareSlotKind && COMPARE_SLOT_CLASS[compareSlotKind],
         isClosed && !isDragging && SLOT_CLOSED_STATIC,
-        isDragging && effectiveStatus && SLOT_STATUS_CELL[effectiveStatus],
+        isDragging && isOver && effectiveStatus && SLOT_STATUS_CELL[effectiveStatus],
         flash && 'animate-pulse ring-2 ring-primary ring-offset-1',
         placementMode === 'click' && !disabled && !forb && 'cursor-cell',
         !disabled && !forb && isOver && effectiveStatus === 'ok' && 'ring-2 ring-inset ring-emerald-500/70',
@@ -495,7 +504,7 @@ function DropSlot({
           </span>
         </div>
       )}
-      {isDragging && effectiveStatus && (effectiveStatus !== 'ok' || isOver) && (
+      {isDragging && isOver && effectiveStatus && (
         <span
           className={cn(
             'pointer-events-none absolute right-0.5 top-0.5 z-10 rounded px-1 py-px text-[7px] font-bold uppercase tracking-wide',
@@ -519,12 +528,7 @@ function DropSlot({
       </div>
     </td>
   );
-}
-
-export type TimetableDragSource =
-  | { type: 'entry'; entry: EditorEntry; blockIds?: string[] }
-  | { type: 'pool'; classSection: string }
-  | null;
+});
 
 export function TimetableGrid({
   entries,
@@ -565,8 +569,10 @@ export function TimetableGrid({
   compareEntryStatus,
   compareSlotStatus,
   stackMinByCell,
+  group_modes,
 }: {
   entries: EditorEntry[];
+  group_modes?: Record<string, 'parallel_rooms' | 'subgroups' | 'teacher_multi_class'>;
   workDays: number[];
   maxLesson: number;
   lessonSchedule: Array<{ lesson_num: number; start_time: string; end_time: string }>;
@@ -657,6 +663,34 @@ export function TimetableGrid({
   );
 
   const isDragging = !!(draggingEntry || poolClassSection);
+  const dropStatusGrid = useMemo(
+    () =>
+      isDragging
+        ? buildDropStatusGrid({
+            dragging: draggingEntry,
+            poolClassSection,
+            blockDragIds,
+            days,
+            maxLesson,
+            lessonsPerDayByDow: gridMeta?.lessons_per_day_by_dow ?? {},
+            entries,
+            forbidden: forbiddenSlots,
+            clashCtx: group_modes ? { group_modes } : undefined,
+          })
+        : null,
+    [
+      isDragging,
+      draggingEntry,
+      poolClassSection,
+      blockDragIds,
+      days,
+      maxLesson,
+      gridMeta?.lessons_per_day_by_dow,
+      entries,
+      forbiddenSlots,
+      group_modes,
+    ],
+  );
   const tableView = filter?.mode ?? displayMode ?? 'all';
   const chipView = tableView;
   const tableMinWidth = 52 + days.length * 68;
@@ -753,9 +787,6 @@ export function TimetableGrid({
               Saat
             </th>
             {days.map((d) => {
-              const hs = isDragging
-                ? dayHeaderStatus(draggingEntry, poolClassSection, d, maxLesson, entries, forbiddenSlots)
-                : null;
               return (
                 <th
                   key={d}
@@ -765,7 +796,6 @@ export function TimetableGrid({
                     tableView === 'teacher' && 'border-violet-800',
                     tableView === 'room' && 'border-emerald-800',
                     tableView === 'all' && 'border-border',
-                    hs && SLOT_STATUS_HEADER[hs],
                   )}
                 >
                   {DAY_LABELS[d - 1] ?? d}
@@ -832,25 +862,7 @@ export function TimetableGrid({
                   const domKey = slotHighlightKey(day, lesson);
                   const closure = closureAt(slotClosures, day, lesson);
                   const cells = byKey.get(cellKey) ?? [];
-                  const dropStatus = isDragging
-                    ? draggingEntry && blockDragIds
-                      ? computeBlockDropStatus(
-                          draggingEntry,
-                          blockDragIds,
-                          day,
-                          lesson,
-                          entries,
-                          forbiddenSlots,
-                        )
-                      : computeSlotDropStatus(
-                          draggingEntry,
-                          poolClassSection,
-                          day,
-                          lesson,
-                          entries,
-                          forbiddenSlots,
-                        )
-                    : null;
+                  const dropStatus = dropStatusGrid?.get(`${day}-${lesson}`) ?? null;
                   return (
                     <DropSlot
                       key={day}
@@ -900,6 +912,7 @@ export function TimetableGrid({
                           placementMode={placementMode}
                           compareLayout={compareLayout}
                           compareStatus={compareEntryStatus?.get(c.id)}
+                          dragSource={dragSource}
                           onEdit={() => onEditEntry(c)}
                           onPick={() => onPickEntry?.(pickedEntryId === c.id ? null : c.id)}
                           onContextMenu={(e) => {

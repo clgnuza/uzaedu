@@ -20,39 +20,32 @@ import {
   Archive,
   Copy,
   GripVertical,
-  Gauge,
   LayoutGrid,
   MousePointerClick,
   Pencil,
-  Settings2,
   Sparkles,
   Star,
-  Target,
   Trash2,
   User,
   Users,
   Wand2,
-  Zap,
 } from 'lucide-react';
-import type { ComponentType } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useDersDagitStudio } from '@/hooks/use-ders-dagit-studio';
-import { StudioValidationGate } from '@/components/ders-dagit/StudioValidationGate';
-import { computeStudioReadiness, type StudioReadiness } from '@/lib/ders-dagit-readiness';
-import { filterGenerateBlockingIssues } from '@/lib/ders-dagit-generate-gate';
 import {
-  distributionPolicySummary,
-  parseDistributionPolicyDto,
-  type DistributionPolicyDto,
-} from '@/lib/distribution-policy';
+  GenerateStudioSettingsPanel,
+  generatePriorityHint,
+  type GeneratePriority,
+} from '@/components/ders-dagit/generate-studio-settings-panel';
+import { computeStudioReadiness } from '@/lib/ders-dagit-readiness';
+import { filterGenerateBlockingIssues } from '@/lib/ders-dagit-generate-gate';
+import { parseDistributionPolicyDto, type DistributionPolicyDto } from '@/lib/distribution-policy';
 import {
   fetchPlacementSearchPolicy,
   generationMinDurationSec,
-  placementSearchSummary,
   type PlacementSearchPolicyDto,
 } from '@/lib/placement-search-policy';
 import { resolveLongRunningApiBase } from '@/lib/resolve-api-base';
-import { TimetablePlacementSettingsMenu } from '@/components/timetable/TimetablePlacementSettingsMenu';
 import {
   DERS_DAGIT_ASSIGNMENTS_CHANGED,
   type AssignmentsChangedDetail,
@@ -69,10 +62,13 @@ import {
 } from '@/lib/ders-dagit-program-api';
 import { ProgramManageBar } from '@/components/timetable/ProgramManageBar';
 import { TimetableReadonly } from '@/components/timetable/TimetableReadonly';
-import { fetchEditorContext, type EditorEntry } from '@/lib/ders-dagit-timetable-api';
+import {
+  fetchEditorContext,
+  fetchEditorExtras,
+  type EditorEntry,
+} from '@/lib/ders-dagit-timetable-api';
 import { Button } from '@/components/ui/button';
-import { DdAccentButton, DdCard, DdGlassPanel, DdPageHeader, CardContent, CardHeader, CardTitle } from '@/components/ders-dagit/dd-ui';
-import { DdSelectField } from '@/components/ders-dagit/dd-select';
+import { DdCard, DdGlassPanel, DdPageHeader, CardContent, CardHeader, CardTitle } from '@/components/ders-dagit/dd-ui';
 import { ProgramScoreBreakdownPanel } from '@/components/ders-dagit/ProgramScoreBreakdownPanel';
 import { UnplacedPlacementReportPanel } from '@/components/ders-dagit/UnplacedPlacementReportPanel';
 import type { ProgramScoreBreakdown, ScoreDeduction } from '@/lib/ders-dagit-score-breakdown';
@@ -85,40 +81,6 @@ import {
 import type { ScoreDeductionGroup } from '@/lib/score-breakdown-groups';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-
-type GeneratePriority = 'coverage' | 'balanced' | 'fast';
-
-const PRIORITY_OPTIONS: Array<{
-  id: GeneratePriority;
-  title: string;
-  desc: string;
-  hint: string;
-  icon: ComponentType<{ className?: string }>;
-  recommended?: boolean;
-}> = [
-  {
-    id: 'coverage',
-    title: 'Tüm dersleri yerleştir',
-    desc: 'Boş ders kalmasın; çözücü tüm kombinasyonları zorlar.',
-    hint: 'Gelişmiş çözücü + 3 taslak + uzun süre. Yerleşmeyen ders kaldığında en iyi sonucu verir, biraz daha yavaştır.',
-    icon: Target,
-    recommended: true,
-  },
-  {
-    id: 'balanced',
-    title: 'Dengeli',
-    desc: 'Hız ve yerleşim arasında denge.',
-    hint: 'Standart süre ve tek taslak. Çoğu okul için yeterli.',
-    icon: Gauge,
-  },
-  {
-    id: 'fast',
-    title: 'Hızlı taslak',
-    desc: 'Hızlı önizleme; ince ayar sonra.',
-    hint: 'En hızlı seçenek. Yerleşmeyen ders olabilir; düzenleyiciden tamamlayın.',
-    icon: Zap,
-  },
-];
 
 type CompareRow = {
   id: string;
@@ -190,34 +152,6 @@ function generateErrorText(e: unknown): string {
     return 'Nöbet saatleriyle çakışma var. Nöbet planı veya ders saatlerini gözden geçirin.';
   }
   return e instanceof Error ? e.message : 'Üretim başarısız';
-}
-
-function ReadinessRing({ percent }: { percent: number }) {
-  const r = 26;
-  const c = 2 * Math.PI * r;
-  const offset = c - (Math.min(100, Math.max(0, percent)) / 100) * c;
-  return (
-    <div className="relative size-[4.5rem] shrink-0">
-      <svg className="size-full -rotate-90" viewBox="0 0 64 64" aria-hidden>
-        <circle cx="32" cy="32" r={r} fill="none" stroke="currentColor" strokeWidth="6" className="text-muted/30" />
-        <circle
-          cx="32"
-          cy="32"
-          r={r}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeDasharray={c}
-          strokeDashoffset={offset}
-          className="text-[rgb(var(--dd-accent))] transition-[stroke-dashoffset] duration-500"
-        />
-      </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold tabular-nums">
-        {percent}%
-      </span>
-    </div>
-  );
 }
 
 function SortableDraftCard({
@@ -398,7 +332,7 @@ export function ProgramGenerateStudio() {
   const [priority, setPriority] = useState<'coverage' | 'balanced' | 'fast'>('balanced');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [useCsp, setUseCsp] = useState(false);
-  const [relaxConstraints, setRelaxConstraints] = useState(true);
+  const [relaxConstraints, setRelaxConstraints] = useState(false);
   const [versions, setVersions] = useState('1');
   const [durationSec, setDurationSec] = useState('120');
   const [result, setResult] = useState<GenerateResult | null>(null);
@@ -432,8 +366,12 @@ export function ProgramGenerateStudio() {
   }, [token, studio]);
 
   useEffect(() => {
+    if (overview?.validation?.length) {
+      setGenerateBlockers(filterGenerateBlockingIssues(overview.validation));
+      return;
+    }
     void refreshGenerateBlockers();
-  }, [refreshGenerateBlockers]);
+  }, [overview?.validation, refreshGenerateBlockers]);
 
   useEffect(() => {
     if (!token || !studio) return;
@@ -521,7 +459,7 @@ export function ProgramGenerateStudio() {
       if (!token || !studio) return;
       setPreviewId(id);
       try {
-        const ctx = await fetchEditorContext(token, studio.id, id);
+        const ctx = await fetchEditorContext(token, studio.id, id, { light: true });
         const teacherById = new Map(ctx.teachers.map((t) => [t.id, t.label]));
         const entries = ctx.entries.map((e) => ({
           ...e,
@@ -540,6 +478,9 @@ export function ProgramGenerateStudio() {
         });
         setPreviewSection(ctx.class_sections[0] ?? '');
         setPreviewScoreBreakdown(ctx.score_breakdown ?? null);
+        void fetchEditorExtras(token, studio.id, id)
+          .then((extras) => setPreviewScoreBreakdown(extras.score_breakdown))
+          .catch(() => {});
       } catch (e) {
         setPreview(null);
         setPreviewScoreBreakdown(null);
@@ -598,9 +539,8 @@ export function ProgramGenerateStudio() {
         priority,
         duration_sec: durationSecNum,
         relax_constraints: relaxConstraints,
-        ...(showAdvanced
-          ? { versions: Number(versions), use_csp: useCsp }
-          : {}),
+        versions: Math.min(3, Math.max(1, Number(versions) || 1)),
+        ...(showAdvanced ? { use_csp: useCsp } : {}),
       };
       const res = await apiFetch<GenerateResult & { entries_count: number }>(
         `/ders-dagit/studios/${studio.id}/generate`,
@@ -779,191 +719,37 @@ export function ProgramGenerateStudio() {
 
         <div className="grid gap-4 lg:grid-cols-[minmax(280px,340px)_1fr] lg:items-start">
           <div className="space-y-4">
-            <DdCard variant="sky">
-              <CardContent className="flex gap-4 pt-5">
-                <ReadinessRing percent={readiness.percent} />
-                <div className="min-w-0 space-y-2 text-sm">
-                  <p className="font-medium">Hazırlık</p>
-                  <ReadinessChips readiness={readiness} />
-                </div>
-              </CardContent>
-            </DdCard>
-
-            {placementSearch && (
-              <DdCard>
-                <CardContent className="space-y-2 pt-4 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-medium text-foreground">Arama karmaşıklığı (üretimde)</p>
-                    <TimetablePlacementSettingsMenu
-                      token={token}
-                      studioId={studio?.id}
-                      onChange={setPlacementSearch}
-                    />
-                  </div>
-                  <p className="text-muted-foreground">{placementSearchSummary(placementSearch)}</p>
-                  {result?.search_iterations != null && (
-                    <p className="text-[11px] text-muted-foreground">
-                      Son üretim: {result.search_iterations.toLocaleString('tr-TR')} hamle
-                      {result.search_cap_estimate != null
-                        ? ` · hedef ~${result.search_cap_estimate.toLocaleString('tr-TR')} olasılık`
-                        : ''}
-                    </p>
-                  )}
-                </CardContent>
-              </DdCard>
-            )}
-
-            {distributionPolicy && (
-              <DdCard>
-                <CardContent className="space-y-2 pt-4 text-xs">
-                  <p className="font-medium text-foreground">Dağıtım ayarı (üretimde)</p>
-                  <p className="text-muted-foreground">{distributionPolicySummary(distributionPolicy)}</p>
-                  <p className="text-[11px] leading-relaxed text-muted-foreground">
-                    Ders bazlı 2+2, haftaya yay vb. için{' '}
-                    <Link href="/ders-dagit/studyo/planlama-iliskileri" className="text-primary underline">
-                      Planlama ilişkileri
-                    </Link>
-                    ; okul geneli için{' '}
-                    <Link href="/ders-dagit/studyo/kurallar" className="text-primary underline">
-                      Kurallar
-                    </Link>
-                    .
-                  </p>
-                  <Link href="/ders-dagit/studyo/kurallar" className="inline-block text-primary underline">
-                    Kurallar → haftalık dağıtım modu
-                  </Link>
-                </CardContent>
-              </DdCard>
-            )}
-
-            <DdCard variant="indigo">
-              <CardHeader>
-                <CardTitle className="text-base">Üret</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <StudioValidationGate overview={overview} action="generate">
-                  <div className="space-y-2.5">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Yerleştirme önceliği (süre / kapsam)
-                    </p>
-                    {PRIORITY_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setPriority(opt.id)}
-                        className={cn(
-                          'flex w-full items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors',
-                          priority === opt.id
-                            ? 'border-[rgb(var(--dd-accent))] bg-[rgb(var(--dd-accent))]/10 ring-2 ring-[rgb(var(--dd-accent))]/25'
-                            : 'border-border/70 hover:bg-muted/40',
-                        )}
-                      >
-                        <opt.icon
-                          className={cn(
-                            'mt-0.5 size-4 shrink-0',
-                            priority === opt.id ? 'text-[rgb(var(--dd-accent))]' : 'text-muted-foreground',
-                          )}
-                        />
-                        <span className="min-w-0">
-                          <span className="flex items-center gap-1.5 text-sm font-medium">
-                            {opt.title}
-                            {opt.recommended && (
-                              <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-700 dark:text-emerald-300">
-                                Önerilen
-                              </span>
-                            )}
-                          </span>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">{opt.desc}</span>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-
-                  <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-sm">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={relaxConstraints}
-                      onChange={(e) => setRelaxConstraints(e.target.checked)}
-                    />
-                    <span className="min-w-0">
-                      <span className="font-medium">Desen ve kuralları gevşet</span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        Bu üretimde 2+2 desen zorunluluğu ve stüdyo kuralları uygulanmaz; kalıcı ayarlar değişmez.
-                      </span>
-                    </span>
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowAdvanced((s) => !s)}
-                    className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                  >
-                    <Settings2 className="size-3.5" />
-                    Gelişmiş ayarlar {showAdvanced ? '▴' : '▾'}
-                  </button>
-                  {showAdvanced && (
-                    <div className="grid gap-2 rounded-lg border border-dashed border-border/70 p-2.5">
-                      <DdSelectField
-                        label="Taslak sayısı"
-                        value={versions}
-                        onValueChange={setVersions}
-                        options={[
-                          { value: '1', label: '1 (tek)' },
-                          { value: '2', label: '2' },
-                          { value: '3', label: '3 (karşılaştır)' },
-                        ]}
-                      />
-                      <DdSelectField
-                        label="Süre (sn)"
-                        value={durationSec}
-                        onValueChange={setDurationSec}
-                        options={[
-                          { value: '60', label: '60' },
-                          { value: '90', label: '90' },
-                          { value: '120', label: '120' },
-                          { value: '180', label: '180' },
-                          { value: '240', label: '240' },
-                        ]}
-                      />
-                      <label className="flex cursor-pointer items-center gap-2 text-sm" title="Büyük okullarda yavaş; yerleşemeyen çoksa açın">
-                        <input type="checkbox" checked={useCsp} onChange={(e) => setUseCsp(e.target.checked)} />
-                        Gelişmiş yerleştirme (yavaş, daha iyi)
-                      </label>
-                    </div>
-                  )}
-
-                  {generateBlockers.length > 0 && (
-                    <div className="rounded-lg border border-rose-500/40 bg-rose-500/5 px-2.5 py-2 text-xs text-rose-900 dark:text-rose-100">
-                      <p className="font-medium">Üretimi engelleyen hatalar</p>
-                      <ul className="mt-1 list-inside list-disc space-y-0.5">
-                        {generateBlockers.slice(0, 6).map((b, i) => (
-                          <li key={`${b.code}-${i}`}>{b.message}</li>
-                        ))}
-                      </ul>
-                      <Link href="/ders-dagit/studyo/dogrulama" className="mt-1 inline-block text-primary underline">
-                        Doğrulama
-                      </Link>
-                    </div>
-                  )}
-                  <DdAccentButton
-                    type="button"
-                    className="w-full"
-                    disabled={busy || !studio || generateBlockers.length > 0}
-                    onClick={() => void generate()}
-                  >
-                    <Wand2 className="mr-2 size-4" />
-                    {busy ? 'Oluşturuluyor…' : 'Program oluştur'}
-                  </DdAccentButton>
-                  <p className="text-[11px] leading-relaxed text-muted-foreground">
-                    {PRIORITY_OPTIONS.find((o) => o.id === priority)?.hint}
-                  </p>
-                </StudioValidationGate>
-              </CardContent>
-            </DdCard>
+            <GenerateStudioSettingsPanel
+              readiness={readiness}
+              overview={overview}
+              priority={priority}
+              onPriorityChange={setPriority}
+              relaxConstraints={relaxConstraints}
+              onRelaxConstraintsChange={setRelaxConstraints}
+              showAdvanced={showAdvanced}
+              onShowAdvancedChange={setShowAdvanced}
+              versions={versions}
+              onVersionsChange={setVersions}
+              durationSec={durationSec}
+              onDurationSecChange={setDurationSec}
+              useCsp={useCsp}
+              onUseCspChange={setUseCsp}
+              distributionPolicy={distributionPolicy}
+              placementSearch={placementSearch}
+              onPlacementSearchChange={setPlacementSearch}
+              token={token}
+              studioId={studio?.id}
+              generateBlockers={generateBlockers}
+              busy={busy}
+              studioReady={!!studio}
+              onGenerate={() => void generate()}
+              priorityHint={generatePriorityHint(priority)}
+              lastSearchIterations={result?.search_iterations}
+              lastSearchCapEstimate={result?.search_cap_estimate}
+            />
 
             {orderedDrafts.length > 0 && (
-              <DdCard variant="violet">
+              <DdCard variant="violet" className="relative z-10">
                 <CardHeader>
                   <CardTitle className="text-base">Taslaklar</CardTitle>
                 </CardHeader>
@@ -1185,35 +971,5 @@ export function ProgramGenerateStudio() {
         {dragDraft ? <DraftDragPreview draft={dragDraft} /> : null}
       </DragOverlay>
     </DndContext>
-  );
-}
-
-function ReadinessChips({ readiness }: { readiness: StudioReadiness }) {
-  return (
-    <div className="flex flex-wrap gap-1.5 text-xs">
-      {readiness.phases.data.steps
-        .filter((s) => s.required)
-        .map((s) => (
-          <Link
-            key={s.id}
-            href={s.href}
-            className={cn(
-              'rounded-full border px-2 py-0.5 transition-colors',
-              s.done ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-amber-500/40 bg-amber-500/10',
-            )}
-          >
-            {s.label}
-          </Link>
-        ))}
-      <Link href="/ders-dagit/studyo/planlama-iliskileri" className="rounded-full border px-2 py-0.5 hover:bg-muted/50">
-        Planlama ilişkileri
-      </Link>
-      <Link href="/ders-dagit/studyo/kurallar" className="rounded-full border px-2 py-0.5 hover:bg-muted/50">
-        Okul kuralları
-      </Link>
-      <Link href="/ders-dagit/studyo/kurulum" className="rounded-full border px-2 py-0.5 hover:bg-muted/50">
-        Dağıtım modu
-      </Link>
-    </div>
   );
 }

@@ -1,19 +1,16 @@
-import { clashEntryIds } from '@/lib/timetable-clash';
+import { listClashes } from '@/lib/timetable-clash';
 import type { EditorContext, EditorEntry } from '@/lib/ders-dagit-timetable-api';
 
-export function clashesForEntries(entries: EditorEntry[]): EditorContext['clashes'] {
-  const ids = clashEntryIds(entries);
-  return [...ids].map((entry_id) => ({
-    entry_id,
-    code: 'CLASH',
-    severity: 'warning',
-    message: 'Çakışma',
-  }));
+export function clashesForEntries(
+  entries: EditorEntry[],
+  ctx?: Pick<EditorContext, 'group_modes'>,
+): EditorContext['clashes'] {
+  return listClashes(entries, ctx?.group_modes ? { group_modes: ctx.group_modes } : undefined);
 }
 
 export function mergeEntryInContext(prev: EditorContext, updated: EditorEntry): EditorContext {
   const entries = prev.entries.map((e) => (e.id === updated.id ? { ...e, ...updated } : e));
-  return { ...prev, entries, clashes: clashesForEntries(entries) };
+  return { ...prev, entries, clashes: clashesForEntries(entries, prev) };
 }
 
 export function removeEntriesFromContext(prev: EditorContext, removedIds: Set<string>): EditorContext {
@@ -25,7 +22,7 @@ export function removeEntriesFromContext(prev: EditorContext, removedIds: Set<st
     }
   }
   const entries = prev.entries.filter((e) => !removedIds.has(e.id));
-  return { ...prev, entries, unplaced, clashes: clashesForEntries(entries) };
+  return { ...prev, entries, unplaced, clashes: clashesForEntries(entries, prev) };
 }
 
 export function addEntryToContext(
@@ -38,7 +35,7 @@ export function addEntryToContext(
   if (opts?.removePoolId) {
     unplaced = unplaced.filter((u) => u.pool_id !== opts.removePoolId);
   }
-  return { ...prev, entries, unplaced, clashes: clashesForEntries(entries) };
+  return { ...prev, entries, unplaced, clashes: clashesForEntries(entries, prev) };
 }
 
 export function swapEntriesInContext(prev: EditorContext, idA: string, idB: string): EditorContext {
@@ -50,7 +47,7 @@ export function swapEntriesInContext(prev: EditorContext, idA: string, idB: stri
     if (e.id === idB) return { ...e, day_of_week: a.day_of_week, lesson_num: a.lesson_num };
     return e;
   });
-  return { ...prev, entries, clashes: clashesForEntries(entries) };
+  return { ...prev, entries, clashes: clashesForEntries(entries, prev) };
 }
 
 function adjustUnplaced(

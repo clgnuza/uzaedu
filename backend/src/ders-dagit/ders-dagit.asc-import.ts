@@ -5,6 +5,9 @@ import { XMLParser } from 'fast-xml-parser';
 import type { EokulAssignmentDraft, EokulImportPreview, EokulImportWarning } from './ders-dagit.eokul-import';
 import { normalizeWhitespace } from './ders-dagit.elective';
 import { decodeXmlBufferToString } from './ders-dagit.xml-encoding';
+import type { AscTeacherMeta } from './ders-dagit.teacher-name-match';
+
+export type { AscTeacherMeta };
 
 export type AscAssignmentDraft = EokulAssignmentDraft & {
   teacher_names?: string[];
@@ -56,6 +59,8 @@ export type AscImportExtras = {
   teacher_by_id: Record<string, string>;
   /** aSc teacher id → okul listesi eşleştirme adları */
   teacher_match_names: Record<string, string[]>;
+  /** aSc teacher id → e-posta, partner_id (çoğu okulda TC), kısa ad */
+  teacher_meta_by_id: Record<string, AscTeacherMeta>;
   class_by_id: Record<string, string>;
   subject_by_id: Record<string, string>;
   /** Şube → toplam haftalık ders saati (atamalardan) */
@@ -320,7 +325,7 @@ export function parseAscTimetablesXml(buffer: Buffer): AscImportPreview {
       warnings: [{ code: 'ASC_XML_PARSE', message: 'XML okunamadı.' }],
       format: 'asc_xml',
       row_count: 0,
-      asc: { buildings: [], rooms: [], classes: [], groups: [], timeoffs: [], teacher_by_id: {}, teacher_match_names: {}, class_by_id: {}, subject_by_id: {}, section_weekly_hours: {}, max_period_count: 8 },
+      asc: { buildings: [], rooms: [], classes: [], groups: [], timeoffs: [], teacher_by_id: {}, teacher_match_names: {}, teacher_meta_by_id: {}, class_by_id: {}, subject_by_id: {}, section_weekly_hours: {}, max_period_count: 8 },
     };
   }
   const root =
@@ -333,9 +338,16 @@ export function parseAscTimetablesXml(buffer: Buffer): AscImportPreview {
   const classes = childMap(root, ['classes', 'Classes'], ['class', 'Class']);
   const teachers = childMap(root, ['teachers', 'Teachers'], ['teacher', 'Teacher']);
   const teacherMatchNames: Record<string, string[]> = {};
+  const teacherMetaById: Record<string, AscTeacherMeta> = {};
   for (const o of childItems(root, ['teachers', 'Teachers'], ['teacher', 'Teacher'])) {
     const id = attr(o, 'id', 'ID');
     if (!id) continue;
+    teacherMetaById[id] = {
+      email: attr(o, 'email', 'EMAIL') || undefined,
+      mobile: attr(o, 'mobile', 'MOBILE') || undefined,
+      partner_id: attr(o, 'partner_id', 'partnerId', 'PARTNER_ID') || undefined,
+      short: attr(o, 'short', 'SHORT') || undefined,
+    };
     const variants = buildTeacherMatchNames(o);
     if (variants.length) teacherMatchNames[id] = variants;
   }
@@ -542,6 +554,7 @@ export function parseAscTimetablesXml(buffer: Buffer): AscImportPreview {
       timeoffs,
       teacher_by_id: Object.fromEntries(teachers),
       teacher_match_names: teacherMatchNames,
+      teacher_meta_by_id: teacherMetaById,
       class_by_id: Object.fromEntries(classes),
       subject_by_id: Object.fromEntries(subjects),
       section_weekly_hours,

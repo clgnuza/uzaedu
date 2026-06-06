@@ -56,11 +56,12 @@ function placementValid(
   entries: EditorEntry[],
   closures: Map<string, SlotClosure>,
   assignmentHints?: EditorContext['assignment_hints'],
+  group_modes?: EditorContext['group_modes'],
 ): boolean {
   for (const e of entries) {
     if (closureAt(closures, e.day_of_week, e.lesson_num)) return false;
   }
-  if (clashEntryIds(entries).size > 0) return false;
+  if (clashEntryIds(entries, group_modes ? { group_modes } : undefined).size > 0) return false;
   return allEntriesRespectAssignmentBlocks(entries, assignmentHints);
 }
 
@@ -100,10 +101,11 @@ function goalEntryAt(
   base: EditorEntry[],
   closures: Map<string, SlotClosure>,
   assignmentHints?: EditorContext['assignment_hints'],
+  group_modes?: EditorContext['group_modes'],
 ): boolean {
   const p = positions.get(entryId);
   if (!p || p.day !== target.day || p.lesson !== target.lesson) return false;
-  return placementValid(entriesAtPositions(base, positions), closures, assignmentHints);
+  return placementValid(entriesAtPositions(base, positions), closures, assignmentHints, group_modes);
 }
 
 function poolAtTargetOk(
@@ -118,7 +120,7 @@ function poolAtTargetOk(
   const row = findUnplacedPoolRow(ctx, poolKey);
   if (!parsed || !row) return false;
   const entries = entriesAtPositions(base, positions);
-  if (!placementValid(entries, closures, ctx.assignment_hints)) return false;
+  if (!placementValid(entries, closures, ctx.assignment_hints, ctx.group_modes)) return false;
   const chunk = row.chunk_hours ?? parsed.chunkHours;
   for (let i = 0; i < chunk; i++) {
     const lesson = target.lesson + i;
@@ -241,7 +243,7 @@ async function runPlacementBfsAsync(
           const swapped = applySwap(node.positions, fId, oId);
           if (!swapped) continue;
           const swapEntries = entriesAtPositions(ctx.entries, swapped);
-          if (!placementValid(swapEntries, closures, ctx.assignment_hints)) continue;
+          if (!placementValid(swapEntries, closures, ctx.assignment_hints, ctx.group_modes)) continue;
           const swapKey = stateKey(swapped);
           if (visited.has(swapKey)) continue;
           visited.add(swapKey);
@@ -297,7 +299,7 @@ async function runPlacementBfsAsync(
         const move: TimetableMove = { entryId: e.id, day: t.day, lesson: t.lesson };
         const nextPos = applyMove(node.positions, move);
         const nextEntries = entriesAtPositions(ctx.entries, nextPos);
-        if (!placementValid(nextEntries, closures, ctx.assignment_hints)) continue;
+        if (!placementValid(nextEntries, closures, ctx.assignment_hints, ctx.group_modes)) continue;
 
         const key = stateKey(nextPos);
         if (!visited.has(key)) {
@@ -400,7 +402,7 @@ function runPlacementBfs(
           const swapped = applySwap(node.positions, fId, oId);
           if (!swapped) continue;
           const swapEntries = entriesAtPositions(ctx.entries, swapped);
-          if (!placementValid(swapEntries, closures, ctx.assignment_hints)) continue;
+          if (!placementValid(swapEntries, closures, ctx.assignment_hints, ctx.group_modes)) continue;
           const swapKey = stateKey(swapped);
           if (visited.has(swapKey)) continue;
           visited.add(swapKey);
@@ -447,7 +449,7 @@ function runPlacementBfs(
         const move: TimetableMove = { entryId: e.id, day: t.day, lesson: t.lesson };
         const nextPos = applyMove(node.positions, move);
         const nextEntries = entriesAtPositions(ctx.entries, nextPos);
-        if (!placementValid(nextEntries, closures, ctx.assignment_hints)) continue;
+        if (!placementValid(nextEntries, closures, ctx.assignment_hints, ctx.group_modes)) continue;
 
         const key = stateKey(nextPos);
         if (!visited.has(key)) {
@@ -553,7 +555,7 @@ export async function planChainEntryMoveDeep(
   return runPlacementSearch(
     ctx,
     closures,
-    (positions) => goalEntryAt(positions, entryId, target, ctx.entries, closures, ctx.assignment_hints),
+    (positions) => goalEntryAt(positions, entryId, target, ctx.entries, closures, ctx.assignment_hints, ctx.group_modes),
     complexity,
     { focusEntryId: entryId, target, ...extra },
   );
@@ -620,7 +622,7 @@ export function planChainEntryMove(
   return runPlacementBfs(
     ctx,
     closures,
-    (positions) => goalEntryAt(positions, entryId, target, ctx.entries, closures, ctx.assignment_hints),
+    (positions) => goalEntryAt(positions, entryId, target, ctx.entries, closures, ctx.assignment_hints, ctx.group_modes),
     { ...opts, focusEntryId: entryId, target },
   );
 }
@@ -664,12 +666,13 @@ export function canPlaceEntryAt(
   lesson: number,
   closures: Map<string, SlotClosure>,
   assignmentHints?: EditorContext['assignment_hints'],
+  group_modes?: EditorContext['group_modes'],
 ): boolean {
   if (closureAt(closures, day, lesson)) return false;
   const projected = entries.map((e) =>
     e.id === entryId ? { ...e, day_of_week: day, lesson_num: lesson } : e,
   );
-  return placementValid(projected, closures, assignmentHints);
+  return placementValid(projected, closures, assignmentHints, group_modes);
 }
 
 /** Blok ders: tüm ardışık kartlar aynı kaydırma ile hedefe gider. */
@@ -725,7 +728,10 @@ export async function planBlockEntryMoveDeep(
         e.id === m.entryId ? { ...e, day_of_week: m.day, lesson_num: m.lesson } : e,
       );
     }
-    if (placementValid(projected, closures, ctx.assignment_hints) && clashEntryIds(projected).size === 0) {
+    if (
+      placementValid(projected, closures, ctx.assignment_hints, ctx.group_modes) &&
+      clashEntryIds(projected, ctx.group_modes ? { group_modes: ctx.group_modes } : undefined).size === 0
+    ) {
       return {
         ok: true,
         relocations: orderMovesForApply(directMoves, lead.id, { day: targetDay, lesson: targetLesson }, ctx.entries),
@@ -764,7 +770,10 @@ export async function planBlockEntryMoveDeep(
       e.id === m.entryId ? { ...e, day_of_week: m.day, lesson_num: m.lesson } : e,
     );
   }
-  if (!placementValid(projected, closures, ctx.assignment_hints) || clashEntryIds(projected).size > 0) {
+  if (
+    !placementValid(projected, closures, ctx.assignment_hints, ctx.group_modes) ||
+    clashEntryIds(projected, ctx.group_modes ? { group_modes: ctx.group_modes } : undefined).size > 0
+  ) {
     return { ok: false, message: 'Blok bu konuma yerleşemez.', explored: chain.explored, restarts: chain.restarts };
   }
 
@@ -828,7 +837,10 @@ export function planBlockEntryMove(
         e.id === m.entryId ? { ...e, day_of_week: m.day, lesson_num: m.lesson } : e,
       );
     }
-    if (placementValid(projected, closures, ctx.assignment_hints) && clashEntryIds(projected).size === 0) {
+    if (
+      placementValid(projected, closures, ctx.assignment_hints, ctx.group_modes) &&
+      clashEntryIds(projected, ctx.group_modes ? { group_modes: ctx.group_modes } : undefined).size === 0
+    ) {
       return {
         ok: true,
         relocations: orderMovesForApply(directMoves, lead.id, { day: targetDay, lesson: targetLesson }, ctx.entries),
@@ -865,7 +877,10 @@ export function planBlockEntryMove(
       e.id === m.entryId ? { ...e, day_of_week: m.day, lesson_num: m.lesson } : e,
     );
   }
-  if (!placementValid(projected, closures, ctx.assignment_hints) || clashEntryIds(projected).size > 0) {
+  if (
+    !placementValid(projected, closures, ctx.assignment_hints, ctx.group_modes) ||
+    clashEntryIds(projected, ctx.group_modes ? { group_modes: ctx.group_modes } : undefined).size > 0
+  ) {
     return { ok: false, message: 'Blok bu konuma yerleşemez.' };
   }
 

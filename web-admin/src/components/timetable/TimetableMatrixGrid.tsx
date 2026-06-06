@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { GraduationCap, UserRound } from 'lucide-react';
 import { TimetableCellMenu } from './TimetableCellMenu';
 import {
@@ -28,7 +28,7 @@ import {
 import type { EditorEntry } from '@/lib/ders-dagit-timetable-api';
 
 import { useDraggable, useDroppable } from '@dnd-kit/core';
-import { matrixDropId, type MatrixAxis } from '@/lib/timetable-matrix-dnd';
+import { matrixDragTargetRowKeys, matrixDropId, type MatrixAxis } from '@/lib/timetable-matrix-dnd';
 import type { TimetableDragSource } from './TimetableGrid';
 
 export type { MatrixAxis };
@@ -80,6 +80,7 @@ function MatrixMiniCell({
   hasClash,
   noRoom,
   dragEnabled,
+  blockDragGhost,
   onContextMenu,
   onDoubleClick,
   onPick,
@@ -92,6 +93,7 @@ function MatrixMiniCell({
   hasClash: boolean;
   noRoom: boolean;
   dragEnabled: boolean;
+  blockDragGhost?: boolean;
   onContextMenu: (e: React.MouseEvent) => void;
   onDoubleClick: () => void;
   onPick?: () => void;
@@ -127,7 +129,8 @@ function MatrixMiniCell({
         useToneClass ? toneClass : 'shadow-sm',
         dragEnabled && 'cursor-grab touch-manipulation active:cursor-grabbing',
         editable && !dragEnabled && 'cursor-pointer',
-        isDragging && 'opacity-50',
+        isDragging && 'z-20 opacity-50',
+        blockDragGhost && 'pointer-events-none opacity-25',
         picked && 'ring-1 ring-sky-500',
         hasClash && 'ring-1 ring-destructive',
         entry.is_locked && 'border-dashed border-amber-400/50',
@@ -181,38 +184,39 @@ function MatrixMiniCell({
   );
 }
 
-function MatrixDropCell({
+const MATRIX_CELL_CLASS =
+  'min-w-0 overflow-hidden border-b border-r border-border px-0.5 py-0.5 align-top';
+
+function MatrixStaticCell({ children }: { children: ReactNode }) {
+  return <td className={MATRIX_CELL_CLASS}>{children}</td>;
+}
+
+const MatrixDropCell = memo(function MatrixDropCell({
   rowKey,
   day,
   lesson,
-  disabled,
-  isDragging,
   children,
 }: {
   rowKey: string;
   day: number;
   lesson: number;
-  disabled: boolean;
-  isDragging: boolean;
   children: ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: matrixDropId(rowKey, day, lesson),
-    disabled,
   });
   return (
     <td
       ref={setNodeRef}
       className={cn(
-        'min-w-0 overflow-hidden border-b border-r border-border px-0.5 py-0.5 align-top',
-        isDragging && !disabled && 'bg-primary/5',
-        isOver && !disabled && 'ring-2 ring-inset ring-primary/60',
+        MATRIX_CELL_CLASS,
+        isOver && 'bg-primary/10 ring-2 ring-inset ring-primary/60',
       )}
     >
       {children}
     </td>
   );
-}
+});
 
 function MatrixRowLabel({
   name,
@@ -338,9 +342,31 @@ export function TimetableMatrixGrid({
     y: number;
   } | null>(null);
   const canMenu = editable && !!(cellMenuHandlers ?? onEditEntry);
-  const isDragging = !!(dragSource || (placementMode === 'drag' && !busy));
-  const dragEnabled = (c: EditorEntry) =>
-    editable && !busy && !c.is_locked && placementMode === 'drag';
+  const isDragging = !!(dragSource && placementMode === 'drag' && !busy);
+  const [dropZonesLive, setDropZonesLive] = useState(false);
+  useEffect(() => {
+    if (!isDragging) {
+      setDropZonesLive(false);
+      return;
+    }
+    const id = requestAnimationFrame(() => setDropZonesLive(true));
+    return () => cancelAnimationFrame(id);
+  }, [isDragging, dragSource]);
+  const dragTargetRowKeys = useMemo(
+    () => (dropZonesLive ? matrixDragTargetRowKeys(dragSource ?? null, axis, entries) : null),
+    [dropZonesLive, dragSource, axis, entries],
+  );
+  const dragEnabled = (c: EditorEntry) => {
+    if (!editable || busy || c.is_locked || placementMode !== 'drag') return false;
+    if (
+      dragSource?.type === 'entry' &&
+      dragSource.blockIds?.includes(c.id) &&
+      dragSource.entry.id !== c.id
+    ) {
+      return false;
+    }
+    return true;
+  };
   const days = workDays.length ? workDays : [1, 2, 3, 4, 5];
   /** Öğretmen matrisinde tüm ders saatleri satır olarak görünsün (boş hücreler gizlenmesin). */
   const hideEmptyRows = axis === 'teacher' ? false : hideEmptyLessonRows;
@@ -542,46 +568,49 @@ export function TimetableMatrixGrid({
                 {days.map((day) => {
                   const cells = cellMap.get(`${rowKey}|${day}|${ln}`) ?? [];
                   const hasClash = cells.some((c) => clashIds.has(c.id));
-                  const dropDisabled = !editable || busy;
-                  return (
-                    <MatrixDropCell
-                      key={day}
-                      rowKey={rowKey}
-                      day={day}
-                      lesson={ln}
-                      disabled={dropDisabled}
-                      isDragging={isDragging}
-                    >
-                      {cells.length === 0 ? (
-                        <span className="block min-h-[1.25rem] py-2 text-center text-[8px] text-muted-foreground/30">
-                          ·
-                        </span>
-                      ) : (
-                        <div className={cn('flex flex-col gap-0.5', hasClash && 'rounded-md ring-2 ring-destructive/80')}>
-                          {cells.map((c) => (
-                            <MatrixMiniCell
-                              key={c.id}
-                              entry={c}
-                              axis={axis}
-                              toneIdx={rowIdx}
-                              editable={canMenu}
-                              picked={pickedEntryId === c.id}
-                              hasClash={clashIds.has(c.id)}
-                              noRoom={!c.room_id}
-                              dragEnabled={dragEnabled(c)}
-                              onPick={() => onPickEntry?.(c.id)}
-                              onContextMenu={(e) => {
-                                if (!canMenu) return;
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setMenu({ entry: c, x: e.clientX, y: e.clientY });
-                              }}
-                              onDoubleClick={() => onEditEntry?.(c)}
-                            />
-                          ))}
-                        </div>
-                      )}
+                  const rowCanDrop =
+                    dropZonesLive && dragTargetRowKeys != null && dragTargetRowKeys.has(rowKey);
+                  const cellBody =
+                    cells.length === 0 ? (
+                      <span className="block min-h-[1.25rem] py-2 text-center text-[8px] text-muted-foreground/30">
+                        ·
+                      </span>
+                    ) : (
+                      <div className={cn('flex flex-col gap-0.5', hasClash && 'rounded-md ring-2 ring-destructive/80')}>
+                        {cells.map((c) => (
+                          <MatrixMiniCell
+                            key={c.id}
+                            entry={c}
+                            axis={axis}
+                            toneIdx={rowIdx}
+                            editable={canMenu}
+                            picked={pickedEntryId === c.id}
+                            hasClash={clashIds.has(c.id)}
+                            noRoom={!c.room_id}
+                            dragEnabled={dragEnabled(c)}
+                            blockDragGhost={
+                              dragSource?.type === 'entry' &&
+                              !!dragSource.blockIds?.includes(c.id) &&
+                              dragSource.entry.id !== c.id
+                            }
+                            onPick={() => onPickEntry?.(c.id)}
+                            onContextMenu={(e) => {
+                              if (!canMenu) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setMenu({ entry: c, x: e.clientX, y: e.clientY });
+                            }}
+                            onDoubleClick={() => onEditEntry?.(c)}
+                          />
+                        ))}
+                      </div>
+                    );
+                  return rowCanDrop ? (
+                    <MatrixDropCell key={day} rowKey={rowKey} day={day} lesson={ln}>
+                      {cellBody}
                     </MatrixDropCell>
+                  ) : (
+                    <MatrixStaticCell key={day}>{cellBody}</MatrixStaticCell>
                   );
                 })}
               </tr>

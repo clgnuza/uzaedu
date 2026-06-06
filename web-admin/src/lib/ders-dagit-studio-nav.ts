@@ -9,35 +9,65 @@ export const STUDIO_FLOW = [
   { href: '/ders-dagit/studyo/ayarlar', label: 'Ayarlar' },
 ] as const;
 
-/** Kurulum / veri sayfaları — ikinci şerit (FLOW ile çakışmaz) */
-export const STUDIO_DATA_PAGES = [
-  { href: '/ders-dagit/studyo/donem', label: 'Dönem' },
-  { href: '/ders-dagit/studyo/sinif-saatleri', label: 'Sınıf saatleri' },
-  { href: '/ders-dagit/studyo/ogretmenler', label: 'Öğretmenler' },
-  { href: '/ders-dagit/studyo/ogretmen-tercihleri', label: 'Tercihler' },
-  { href: '/ders-dagit/studyo/dersler', label: 'Dersler' },
-  { href: '/ders-dagit/studyo/gruplar', label: 'Gruplar' },
-  { href: '/ders-dagit/studyo/secmeli', label: 'Seçmeli' },
-  { href: '/ders-dagit/studyo/derslikler', label: 'Derslikler' },
-  { href: '/ders-dagit/studyo/binalar', label: 'Binalar' },
-  { href: '/ders-dagit/studyo/atamalar', label: 'Atamalar' },
-  { href: '/ders-dagit/studyo/planlama-iliskileri', label: 'Planlama' },
-  { href: '/ders-dagit/studyo/kurallar', label: 'Kurallar' },
-  { href: '/ders-dagit/studyo/arsiv', label: 'Arşiv' },
-  { href: '/ders-dagit/studyo/adalet', label: 'Adalet' },
+/** Kurulum / veri sayfaları — gruplu ikinci şerit */
+export const STUDIO_NAV_GROUPS = [
+  {
+    id: 'time',
+    label: 'Zaman',
+    items: [
+      { href: '/ders-dagit/studyo/donem', label: 'Dönem' },
+      { href: '/ders-dagit/studyo/sinif-saatleri', label: 'Sınıf saatleri' },
+    ],
+  },
+  {
+    id: 'people',
+    label: 'Kişiler',
+    items: [
+      { href: '/ders-dagit/studyo/ogretmenler', label: 'Öğretmenler' },
+      { href: '/ders-dagit/studyo/ogretmen-tercihleri', label: 'Tercihler' },
+    ],
+  },
+  {
+    id: 'lessons',
+    label: 'Dersler',
+    items: [
+      { href: '/ders-dagit/studyo/dersler', label: 'Ders listesi' },
+      { href: '/ders-dagit/studyo/atamalar', label: 'Atamalar' },
+      { href: '/ders-dagit/studyo/secmeli', label: 'Seçmeli' },
+    ],
+  },
+  {
+    id: 'rooms',
+    label: 'Mekân',
+    items: [
+      { href: '/ders-dagit/studyo/derslikler', label: 'Derslikler' },
+      { href: '/ders-dagit/studyo/binalar', label: 'Binalar' },
+    ],
+  },
+  {
+    id: 'dist',
+    label: 'Dağıtım',
+    items: [
+      { href: '/ders-dagit/studyo/gruplar', label: 'Gruplar' },
+      { href: '/ders-dagit/studyo/planlama-iliskileri', label: 'Planlama' },
+      { href: '/ders-dagit/studyo/kurallar', label: 'Kurallar' },
+    ],
+  },
+  {
+    id: 'more',
+    label: 'Diğer',
+    items: [
+      { href: '/ders-dagit/studyo/arsiv', label: 'Arşiv' },
+      { href: '/ders-dagit/studyo/adalet', label: 'Adalet' },
+    ],
+  },
 ] as const;
 
-const FLOW_ONLY = new Set([
-  '/ders-dagit/studyo',
-  '/ders-dagit/studyo/kurulum',
-  '/ders-dagit/studyo/dogrulama',
-  '/ders-dagit/studyo/uret',
-  '/ders-dagit/studyo/program',
-  '/ders-dagit/studyo/raporlar',
-  '/ders-dagit/studyo/ayarlar',
-  '/ders-dagit/studyo/yayin',
-  '/ders-dagit/studyo/ogretmen-program',
-]);
+export type StudioNavItem = { href: string; label: string };
+
+export const STUDIO_DATA_PAGES: StudioNavItem[] = STUDIO_NAV_GROUPS.flatMap((g) =>
+  g.items.map((item) => ({ href: item.href, label: item.label })),
+);
 
 export function matchStudioHref(pathname: string, href: string, exact?: boolean) {
   const path = pathname.split('?')[0] ?? pathname;
@@ -56,12 +86,11 @@ export function resolveStudioNavHref(pathname: string, hrefs: string[]): string 
   return best;
 }
 
-/** Program / doğrulama / üret sayfalarında alt menü gizlenir */
+/** Stüdyo alt menüsü — Oluştur / Program sayfalarında gizli (sol panelde özet linkler var) */
 export function showStudioDataNav(pathname: string) {
-  if (!pathname.startsWith('/ders-dagit/studyo')) return false;
-  for (const p of FLOW_ONLY) {
-    if (pathname === p || pathname.startsWith(`${p}/`)) return false;
-  }
+  const path = pathname.split('?')[0] ?? pathname;
+  if (!path.startsWith('/ders-dagit/studyo')) return false;
+  if (path.includes('/uret') || path.includes('/program')) return false;
   return true;
 }
 

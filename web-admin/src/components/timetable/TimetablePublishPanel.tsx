@@ -51,7 +51,7 @@ const STEPS = [
 export function TimetablePublishPanel({ programId }: { programId: string }) {
   const { token } = useAuth();
   const { studio, overview, refresh } = useDersDagitStudio();
-  useStudioValidation(studio?.id);
+  useStudioValidation(studio?.id, { initialIssues: overview?.validation });
   const [programs, setPrograms] = useState<Program[]>([]);
   const [preview, setPreview] = useState<PublishPreview | null>(null);
   const [validFrom, setValidFrom] = useState(() => new Date().toISOString().slice(0, 10));
