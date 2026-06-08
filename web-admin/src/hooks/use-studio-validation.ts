@@ -99,7 +99,7 @@ export function useStudioValidation(
     const onAssignmentsChanged = (ev: Event) => {
       const detail = (ev as CustomEvent<AssignmentsChangedDetail>).detail;
       if (detail?.studioId && detail.studioId !== studioId) return;
-      invalidateStudioValidationCache(studioId);
+      invalidateStudioValidationCache(studioId ?? undefined);
       void refresh({ force: true });
     };
     window.addEventListener(DERS_DAGIT_ASSIGNMENTS_CHANGED, onAssignmentsChanged);
