@@ -89,6 +89,13 @@ $deployScript = Join-Path $PSScriptRoot "hetzner-deploy.ps1"
 if (-not (Test-Path $deployScript)) { throw "hetzner-deploy.ps1 bulunamadi: $deployScript" }
 
 function Invoke-ProdHomepageVerify {
+  $pwScript = Join-Path $PSScriptRoot "verify-prod-homepage-playwright.mjs"
+  if (Test-Path $pwScript) {
+    Write-Host '[verify] Playwright anasayfa kontrolu...'
+    & node $pwScript
+    if ($LASTEXITCODE -ne 0) { throw "Playwright anasayfa dogrulamasi basarisiz (cikis $LASTEXITCODE)" }
+    return
+  }
   $verifyScript = Join-Path $PSScriptRoot "verify-prod-homepage.ps1"
   if (-not (Test-Path $verifyScript)) { return }
   Write-Host '[verify] Canli anasayfa kontrolu...'

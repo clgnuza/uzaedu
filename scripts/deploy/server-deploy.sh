@@ -45,4 +45,10 @@ export UZAEDU_BACKEND_ROOT="${UZAEDU_BACKEND_ROOT:-$ROOT/backend}"
 export UZAEDU_WEB_ROOT="${UZAEDU_WEB_ROOT:-$ROOT/web-admin}"
 pm2 startOrReload "$ROOT/backend/tools/pm2-ecosystem.config.cjs" --update-env
 pm2 save 2>/dev/null || true
+GIT_SHA_SHORT="$(git rev-parse --short HEAD)"
+if [[ -f "$ROOT/backend/.env" ]]; then
+  sed -i '/^DEPLOY_GIT_SHA=/d' "$ROOT/backend/.env"
+  echo "DEPLOY_GIT_SHA=${GIT_SHA_SHORT}" >> "$ROOT/backend/.env"
+fi
+
 echo "[deploy] OK"

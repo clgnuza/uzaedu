@@ -14,6 +14,8 @@ $markers = @(
   'Uzaedu',
   'Tek ekosistem',
   'landing-page',
+  'landing-seal-hub',
+  'landing-features-grid',
   '/register'
 )
 
@@ -24,8 +26,18 @@ if ($r.StatusCode -ne 200) {
 }
 
 $html = [string]$r.Content
-if ($html -match 'Sistem güncelleniyor|bakim-page|maintenance_enabled') {
+if ($html -match 'Sistem güncelleniyor|bakim-card|bakim-title|maintenance_enabled') {
   throw 'Anasayfa bakim modu icerigi gosteriyor olabilir.'
+}
+
+try {
+  $apiBase = if ($env:PROD_API_BASE) { $env:PROD_API_BASE.Trim().TrimEnd('/') } else { 'https://api.uzaedu.com/api' }
+  $extras = Invoke-RestMethod -Uri "$apiBase/content/web-extras" -TimeoutSec 15
+  if ($extras.maintenance_enabled -eq $true) {
+    throw 'API maintenance_enabled=true'
+  }
+} catch {
+  if ($_.Exception.Message -match 'maintenance_enabled') { throw }
 }
 
 $missing = @($markers | Where-Object { $html -notmatch [regex]::Escape($_) })
