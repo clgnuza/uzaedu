@@ -65,10 +65,10 @@ function Set-ProdMaintenanceViaApi {
 function Set-ProdMaintenanceViaSsh {
   param([Parameter(Mandatory = $true)][bool]$Enabled)
   $ssh = Get-DeploySshTarget
-  $flag = if ($Enabled) { "--on" } else { "--off" }
-  $remoteScript = "$($ssh.RemoteRoot)/backend/tools/set-web-maintenance-remote.js"
-  $cmd = "cd $($ssh.RemoteRoot)/backend && node tools/set-web-maintenance-remote.js $flag"
-  Write-Host "[maint] SSH $($ssh.Target) -> $cmd"
+  $flag = if ($Enabled) { 'true' } else { 'false' }
+  $sql = "UPDATE app_config SET value = jsonb_set(COALESCE(value::jsonb, '{}'::jsonb), '{maintenance_enabled}', '$flag') WHERE key = 'web_extras_config';"
+  $cmd = "echo " + [char]34 + $sql + [char]34 + " | docker exec -i ogretmenpro-db psql -U ogretmenpro -d ogretmenpro -v ON_ERROR_STOP=1"
+  Write-Host "[maint] SSH $($ssh.Target) -> docker psql maintenance_enabled=$Enabled"
   & ssh -i $ssh.Key -o BatchMode=yes -o StrictHostKeyChecking=accept-new $ssh.Target $cmd
   if ($LASTEXITCODE -ne 0) { throw "SSH bakim komutu cikis: $LASTEXITCODE" }
   Write-Host "[maint] maintenance_enabled=$Enabled OK (SSH DB)"
