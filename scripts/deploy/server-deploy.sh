@@ -12,7 +12,7 @@ npm_ci_build() {
   local dir="$1"
   local build_cmd="$2"
   ( cd "$dir"
-    if [[ -d dist ]]; then rm -rf dist; fi
+    rm -rf dist 2>/dev/null || true
     if [[ -f .next/lock ]]; then rm -f .next/lock; fi
     unset NODE_ENV
     if ! npm ci --jobs=1; then
