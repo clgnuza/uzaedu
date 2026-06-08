@@ -8,10 +8,13 @@ git fetch origin "$BRANCH"
 git checkout "$BRANCH"
 git pull --ff-only origin "$BRANCH"
 
+pm2 stop uzaedu-api uzaedu-web 2>/dev/null || true
+
 npm_ci_build() {
   local dir="$1"
   local build_cmd="$2"
   ( cd "$dir"
+    if [[ "$dir" == *"/backend" ]]; then rm -rf dist; fi
     rm -rf dist 2>/dev/null || true
     if [[ -f .next/lock ]]; then rm -f .next/lock; fi
     unset NODE_ENV
