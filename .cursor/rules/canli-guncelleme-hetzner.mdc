@@ -13,7 +13,7 @@ alwaysApply: false
 - **Python:** `cd backend` → `python tools/hetzner_ssh_deploy.py` (aynı env; `--dry-run`, `--playwright-only`).
 - **Ortam:** `DEPLOY_SSH_HOST` yoksa `api.uzaedu.com` A kaydı; `DEPLOY_SSH_USER` varsayılan `root`; `DEPLOY_SSH_KEY` varsayılan `%USERPROFILE%\.ssh\id_rsa_uzaedu` (Linux: `~/.ssh/id_rsa_uzaedu`); `DEPLOY_REMOTE_ROOT` varsayılan `/opt/uzaedu`.
 - Uzakta: `/opt/uzaedu/scripts/deploy/server-deploy.sh` (git pull, `npm ci`, build, pm2 reload) + Playwright betiği.
-- **Deploy sonrası anasayfa (zorunlu):** `hetzner-deploy-maintained.ps1` bakım kapatıldıktan sonra `node tools/verify-prod-homepage-playwright.mjs` — `maintenance_enabled=false`, `/bakim` yönlendirmesi yok, `.landing-seal-hub` + ≥14 modül kartı + pulse placeholder yok. Yedek: `.\tools\verify-prod-homepage.ps1` (HTML + API). Elle: `cd backend` → `node tools/verify-prod-homepage-playwright.mjs`
+- **Deploy sonrası anasayfa (zorunlu):** `node tools/verify-prod-homepage-playwright.mjs` — `www.uzaedu.com` → `https://uzaedu.com` yönlendirmesi, `/_next/static/css/*.css` HTTP 200, koyu `landing-page` arka planı, `.landing-seal-hub` + ≥14 modül kartı. **www ayrı origin sayılmaz** (Cloudflare’de www statik 404 önbelleği CSS’siz sayfa yapar). Yedek: `.\tools\verify-prod-homepage.ps1`
 
 ## SQL (PostgreSQL, tek dosya — prod güvenli)
 
