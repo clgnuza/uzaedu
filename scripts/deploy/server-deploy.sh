@@ -19,7 +19,10 @@ npm_ci_build() {
   ( cd "$dir"
     unset NODE_ENV
     export NPM_CONFIG_PRODUCTION=false
-    if [[ "$dir" == *"/backend" ]]; then rm -rf dist node_modules; fi
+    if [[ "$dir" == *"/backend" ]]; then
+      if [[ -d dist ]]; then find dist -mindepth 1 -delete 2>/dev/null || true; rm -rf dist; fi
+      rm -rf node_modules
+    fi
     if [[ "$dir" == *"/web-admin" ]]; then rm -f .next/lock; fi
     if ! npm ci --jobs=1; then
       echo "[deploy] npm ci retry ($dir): rm node_modules"
