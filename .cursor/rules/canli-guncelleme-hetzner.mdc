@@ -13,7 +13,7 @@ alwaysApply: false
 - **Python:** `cd backend` → `python tools/hetzner_ssh_deploy.py` (aynı env; `--dry-run`, `--playwright-only`).
 - **Ortam:** `DEPLOY_SSH_HOST` yoksa `api.uzaedu.com` A kaydı; `DEPLOY_SSH_USER` varsayılan `root`; `DEPLOY_SSH_KEY` varsayılan `%USERPROFILE%\.ssh\id_rsa_uzaedu` (Linux: `~/.ssh/id_rsa_uzaedu`); `DEPLOY_REMOTE_ROOT` varsayılan `/opt/uzaedu`.
 - Uzakta: `/opt/uzaedu/scripts/deploy/server-deploy.sh` (git pull, `npm ci`, build, pm2 reload) + Playwright betiği.
-- **Deploy sonrası anasayfa:** `hetzner-deploy.ps1` ve `hetzner-deploy-maintained.ps1` otomatik `tools/verify-prod-homepage.ps1` çalıştırır (`PROD_SITE_URL`, varsayılan `https://uzaedu.com`). HTTP 200 + `Tek ekosistem`, `landing-page`, `Kayıt ol` yoksa deploy başarısız sayılır; bakımlı deploy’da kontrol bakım kapatıldıktan sonra yapılır. Elle: `.\tools\verify-prod-homepage.ps1`
+- **Deploy sonrası anasayfa:** `hetzner-deploy-maintained.ps1` bakım kapatıldıktan sonra `tools/verify-prod-homepage.ps1` çalıştırır (`-SkipMaintenance` ile doğrudan deploy sonunda). `PROD_SITE_URL` varsayılan `https://uzaedu.com`. HTTP 200 + `Tek ekosistem`, `landing-page`, `/register` yoksa deploy başarısız sayılır. Elle: `.\tools\verify-prod-homepage.ps1`
 
 ## SQL (PostgreSQL, tek dosya — prod güvenli)
 

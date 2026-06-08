@@ -88,12 +88,23 @@ function Set-ProdMaintenance {
 $deployScript = Join-Path $PSScriptRoot "hetzner-deploy.ps1"
 if (-not (Test-Path $deployScript)) { throw "hetzner-deploy.ps1 bulunamadi: $deployScript" }
 
+function Invoke-ProdHomepageVerify {
+  $verifyScript = Join-Path $PSScriptRoot "verify-prod-homepage.ps1"
+  if (-not (Test-Path $verifyScript)) { return }
+  Write-Host '[verify] Canli anasayfa kontrolu...'
+  & $verifyScript
+  if ($LASTEXITCODE -ne 0) { throw "Anasayfa dogrulamasi basarisiz (cikis $LASTEXITCODE)" }
+}
+
 if ($SkipMaintenance) {
   Write-Host "[maint] SkipMaintenance - dogrudan deploy."
   try {
     & $deployScript
-    exit $LASTEXITCODE
+    if ($LASTEXITCODE -ne 0) { throw "hetzner-deploy.ps1 cikis: $LASTEXITCODE" }
+    Invoke-ProdHomepageVerify
+    exit 0
   } catch {
+    Write-Host "[maint] HATA: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
   }
 }
@@ -124,12 +135,7 @@ try {
   }
   if ($null -ne $lastErr) { throw "Bakim kapatilamadi (3 deneme): $($lastErr.Exception.Message)" }
 
-  $verifyScript = Join-Path $PSScriptRoot "verify-prod-homepage.ps1"
-  if (Test-Path $verifyScript) {
-    Write-Host '[verify] Bakim kapali - anasayfa kontrolu...'
-    & $verifyScript
-    if ($LASTEXITCODE -ne 0) { throw "Anasayfa dogrulamasi basarisiz (cikis $LASTEXITCODE)" }
-  }
+  Invoke-ProdHomepageVerify
 
   Write-Host "[maint] Tamam."
   exit 0

@@ -14,7 +14,7 @@ $markers = @(
   'Uzaedu',
   'Tek ekosistem',
   'landing-page',
-  'Kayıt ol'
+  '/register'
 )
 
 Write-Host ('[verify] GET ' + $SiteUrl + '/')
