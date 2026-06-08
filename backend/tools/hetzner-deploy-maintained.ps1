@@ -123,6 +123,13 @@ try {
   }
   if ($null -ne $lastErr) { throw "Bakim kapatilamadi (3 deneme): $($lastErr.Exception.Message)" }
 
+  $verifyScript = Join-Path $PSScriptRoot "verify-prod-homepage.ps1"
+  if (Test-Path $verifyScript) {
+    Write-Host "[verify] Bakim kapali — anasayfa kontrolu..."
+    & $verifyScript
+    if ($LASTEXITCODE -ne 0) { throw "Anasayfa dogrulamasi basarisiz (cikis $LASTEXITCODE)" }
+  }
+
   Write-Host "[maint] Tamam."
   exit 0
 }

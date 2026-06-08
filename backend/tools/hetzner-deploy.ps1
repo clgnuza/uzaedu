@@ -40,4 +40,12 @@ $pw = "$remoteRoot/backend/tools/server-playwright-install.sh"
 Write-Host "SSH $sshTarget -> Playwright chromium (MEB Mebbis)"
 & ssh -i $key -o BatchMode=yes -o StrictHostKeyChecking=accept-new $sshTarget "chmod +x $pw 2>/dev/null; bash $pw"
 if ($LASTEXITCODE -ne 0) { throw "Playwright kurulum cikis kodu: $LASTEXITCODE" }
+
+$verifyScript = Join-Path $PSScriptRoot "verify-prod-homepage.ps1"
+if (Test-Path $verifyScript) {
+  Write-Host "[verify] Canli anasayfa kontrolu..."
+  & $verifyScript
+  if ($LASTEXITCODE -ne 0) { throw "Anasayfa dogrulamasi basarisiz (cikis $LASTEXITCODE)" }
+}
+
 Write-Host "Tamam."

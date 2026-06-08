@@ -6,7 +6,7 @@
     "postinstall": "npm rebuild better-sqlite3",
     "build": "nest build && copyfiles -f \"src/optik/fonts/*.ttf\" dist/optik/fonts",
     "start": "nest start",
-    "start:dev": "nest start --watch",
+    "start:dev": "cross-env NODE_OPTIONS=--require=./tools/dom-polyfill.cjs nest start --watch",
     "start:dev:sqlite": "cross-env APP_USE_SQLITE=true nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
