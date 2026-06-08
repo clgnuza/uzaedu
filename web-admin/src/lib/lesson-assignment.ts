@@ -76,7 +76,7 @@ export const PERIOD_FORMAT_LABEL = {
 export function ascImportTeacherHint(row: LessonAssignmentRow): string | null {
   const raw = row.options?.asc_import_teachers;
   if (!Array.isArray(raw)) return null;
-  const names = raw.filter((x): x is string => typeof x === 'string' && x.trim()).map((x) => x.trim());
+  const names = raw.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim());
   return names.length ? names.join(', ') : null;
 }
 
