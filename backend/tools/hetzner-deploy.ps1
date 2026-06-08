@@ -43,7 +43,7 @@ if ($LASTEXITCODE -ne 0) { throw "Playwright kurulum cikis kodu: $LASTEXITCODE" 
 
 $verifyScript = Join-Path $PSScriptRoot "verify-prod-homepage.ps1"
 if (Test-Path $verifyScript) {
-  Write-Host "[verify] Canli anasayfa kontrolu..."
+  Write-Host '[verify] Canli anasayfa kontrolu...'
   & $verifyScript
   if ($LASTEXITCODE -ne 0) { throw "Anasayfa dogrulamasi basarisiz (cikis $LASTEXITCODE)" }
 }

@@ -17,7 +17,7 @@ $markers = @(
   'Kayıt ol'
 )
 
-Write-Host "[verify] GET $SiteUrl/"
+Write-Host ('[verify] GET ' + $SiteUrl + '/')
 $r = Invoke-WebRequest -Uri "$SiteUrl/" -UseBasicParsing -TimeoutSec $TimeoutSec -MaximumRedirection 5
 if ($r.StatusCode -ne 200) {
   throw "Anasayfa HTTP $($r.StatusCode) (beklenen 200)"
@@ -33,5 +33,5 @@ if ($missing.Count -gt 0) {
   throw "Anasayfa eksik icerik: $($missing -join ', ')"
 }
 
-Write-Host "[verify] Anasayfa OK ($SiteUrl/)"
+Write-Host ('[verify] Anasayfa OK (' + $SiteUrl + '/)')
 exit 0
