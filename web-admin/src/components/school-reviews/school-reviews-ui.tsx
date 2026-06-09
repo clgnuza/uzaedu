@@ -321,7 +321,7 @@ export function SrReviewCard({ children, className }: { children: ReactNode; cla
 }
 
 const SR_TEACHER_NAV_ITEMS = [
-  { href: '/okul-degerlendirmeleri', label: 'Okul listesi', icon: Search },
+  { href: '/okul-degerlendirmeleri', label: 'Okul listesi', icon: Search, needsModule: false },
   { href: '/favoriler', label: 'Favorilerim', icon: Heart, needsModule: true },
 ] as const;
 
