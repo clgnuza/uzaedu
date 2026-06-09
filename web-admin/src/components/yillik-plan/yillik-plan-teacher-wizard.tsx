@@ -22,6 +22,7 @@ import {
   Plus,
   X,
   Download,
+  Mail,
   Check,
   Settings,
   ArrowRight,
@@ -46,6 +47,7 @@ import { filterBilsemCatalogSubjects } from '@/lib/bilsem-catalog-subjects';
 import { BILSEM_ALT_GRUPLAR, BILSEM_ANA_GRUPLAR } from '@/lib/bilsem-groups';
 import { BilsemPlanSourceEngagement } from '@/components/bilsem/bilsem-plan-source-engagement';
 import { EvrakWizardHero } from '@/components/evrak/evrak-wizard-hero';
+import { YillikPlanGenerateModal } from '@/components/yillik-plan/yillik-plan-generate-modal';
 
 type FormSchemaField = { key: string; label: string; type: string; required?: boolean };
 
@@ -459,6 +461,7 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
   const [generateForm, setGenerateForm] = useState<Record<string, string>>({});
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateSuccess, setGenerateSuccess] = useState(false);
+  const [sendPlanEmail, setSendPlanEmail] = useState(false);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewExpanded, setPreviewExpanded] = useState(false);
@@ -1051,12 +1054,13 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
     if (!token || !generateModal) return;
     setGenerateLoading(true);
     try {
-      const res = await apiFetch<{ download_url: string; filename: string }>('/documents/generate', {
+      const res = await apiFetch<{ download_url: string; filename: string; email_sent?: boolean }>('/documents/generate', {
         token,
         method: 'POST',
         body: JSON.stringify({
           template_id: generateModal.id,
           form_data: generateForm,
+          send_email: sendPlanEmail,
         }),
       });
       const w = window.open(res.download_url, '_blank');
@@ -1070,7 +1074,11 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
           : 'Popup engellendiyse aşağıdaki butona tıklayın';
       toast.success(okTitle, {
         ...(isBilsemYillikPlan ? bilsemToastOk : {}),
-        description: okDesc,
+        description: sendPlanEmail
+          ? res.email_sent
+            ? `${okDesc} · ${me?.email ?? 'E-postanıza'} gönderildi`
+            : `${okDesc} · E-posta gönderilemedi (SMTP ayarlarını kontrol edin)`
+          : okDesc,
         action: {
           label: 'İndir',
           onClick: () => window.open(res.download_url, '_blank'),
@@ -1328,6 +1336,25 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
       : '';
     return [al, bl].filter(Boolean).join(' / ');
   })();
+
+  const generateModalMetaChips = useMemo(() => {
+    if (isBilsemYillikPlan) {
+      return [filters.academic_year, bilsemGrupSummaryShort].filter(Boolean) as string[];
+    }
+    return [
+      generateForm.sinif && formatYillikPlanGradeLabel(generateForm.sinif, false),
+      generateForm.ders_adi ?? generateForm.dersAdi,
+      generateForm.ogretim_yili || filters.academic_year,
+    ].filter(Boolean) as string[];
+  }, [
+    isBilsemYillikPlan,
+    filters.academic_year,
+    bilsemGrupSummaryShort,
+    generateForm.sinif,
+    generateForm.ders_adi,
+    generateForm.dersAdi,
+    generateForm.ogretim_yili,
+  ]);
 
   const archiveBilsem = useMemo(() => archiveItems.filter(isArchiveBilsem), [archiveItems]);
   const archiveOther = useMemo(() => archiveItems.filter((i) => !isArchiveBilsem(i)), [archiveItems]);
@@ -2659,467 +2686,40 @@ export function YillikPlanTeacherWizard({ scope, hideHeader }: YillikPlanTeacher
         </div>
       )}
 
-      {generateModal && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center overflow-y-auto bg-black/45 px-3 py-4 backdrop-blur-[2px] sm:px-4 sm:py-6">
-          <Card
-            className={`my-2 w-full max-w-2xl flex-col overflow-hidden shadow-2xl sm:my-0 ${
-              isBilsemYillikPlan
-                ? 'border-violet-500/25 ring-1 ring-violet-500/10 dark:border-violet-500/30'
-                : 'border-border'
-            } flex max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-3rem)]`}
-          >
-            <CardHeader
-              className={`shrink-0 flex flex-row items-start justify-between gap-3 border-b ${
-                isBilsemYillikPlan ? 'py-3' : 'py-4'
-              } ${
-                isBilsemYillikPlan
-                  ? 'border-violet-500/15 bg-gradient-to-r from-violet-500/[0.06] to-transparent dark:from-violet-950/40'
-                  : 'border-sky-200/60 bg-linear-to-r from-sky-500/10 via-cyan-500/6 to-indigo-500/6 dark:border-sky-800/40 dark:from-sky-950/40'
-              }`}
-            >
-              <div className={`min-w-0 ${isBilsemYillikPlan ? 'space-y-0.5' : 'space-y-1'}`}>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  {isBilsemYillikPlan ? 'Son adım · Word üretimi' : 'Plan üretimi'}
-                </p>
-                <CardTitle className={isBilsemYillikPlan ? 'text-sm font-semibold leading-snug sm:text-base' : 'text-base font-semibold leading-snug sm:text-lg'}>
-                  {isBilsemYillikPlan ? (
-                    <span className="bg-gradient-to-r from-violet-700 to-fuchsia-600 bg-clip-text text-transparent dark:from-violet-300 dark:to-fuchsia-400">
-                      {templateDisplayName(generateModal)}
-                    </span>
-                  ) : (
-                    <span className="bg-linear-to-r from-sky-700 via-cyan-700 to-indigo-700 bg-clip-text text-transparent dark:from-sky-300 dark:via-cyan-300 dark:to-indigo-300">
-                      {`${filters.grade && `${filters.grade}. `}Sınıf ${templateDisplayName(generateModal)} Yıllık Plan`}
-                    </span>
-                  )}
-                </CardTitle>
-                <p className={isBilsemYillikPlan ? 'text-[11px] leading-snug text-muted-foreground' : 'text-xs text-muted-foreground'}>
-                  {isBilsemYillikPlan
-                    ? [filters.academic_year, bilsemGrupSummaryShort].filter(Boolean).join(' · ') || '—'
-                    : generateForm.ogretim_yili || filters.academic_year || 'Öğretim yılı'}{' '}
-                  {!isBilsemYillikPlan && '· Bilgileri kontrol edip üretin'}
-                  {isBilsemYillikPlan && '· Kontrol, önizleme, indir'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setGenerateModal(null);
-                  setGenerateSuccess(false);
-                }}
-                className={`rounded-full p-1.5 transition-colors ${
-                  isBilsemYillikPlan
-                    ? 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                    : 'text-sky-700/80 hover:bg-sky-500/15 hover:text-sky-900 dark:text-sky-300 dark:hover:bg-sky-900/40'
-                }`}
-                aria-label="Kapat"
-              >
-                ×
-              </button>
-            </CardHeader>
-            <CardContent className="flex min-h-0 flex-1 flex-col gap-0 overflow-y-auto p-0">
-              {generateSuccess ? (
-                <div
-                  className={`flex flex-1 flex-col items-center justify-center gap-3 px-5 py-8 ${
-                    isBilsemYillikPlan
-                      ? 'bg-linear-to-b from-violet-500/4 to-transparent'
-                      : 'bg-linear-to-b from-sky-500/10 via-cyan-500/5 to-transparent'
-                  }`}
-                >
-                  <div
-                    className={`flex size-11 items-center justify-center rounded-full ${
-                      isBilsemYillikPlan
-                        ? 'bg-violet-500/15 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300'
-                        : 'bg-sky-500/20 text-sky-700 ring-1 ring-sky-500/30 dark:bg-sky-900/40 dark:text-sky-300'
-                    }`}
-                  >
-                    <CheckCircle2 className="size-6" />
-                  </div>
-                  <p className="text-sm font-medium text-foreground">
-                    {isBilsemYillikPlan ? 'Dosya indirildi' : 'Plan indirildi'}
-                  </p>
-                  <p className="max-w-xs text-center text-xs text-muted-foreground">
-                    {isBilsemYillikPlan ? 'Arşivde de saklandı. Başka şablon veya seçimle yeni dosya üretebilirsiniz.' : 'Başka plan üretmek ister misiniz?'}
-                  </p>
-                  <div className="flex flex-wrap justify-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setGenerateSuccess(false);
-                        setGenerateForm((prev) => ({ ...prev }));
-                      }}
-                      className={`rounded-lg px-4 py-2 text-xs font-medium text-primary-foreground shadow-sm ${
-                        isBilsemYillikPlan
-                          ? 'bg-violet-600 hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500'
-                          : 'bg-linear-to-r from-sky-600 to-cyan-600 hover:from-sky-500 hover:to-cyan-500'
-                      }`}
-                    >
-                      Yeni üret
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setGenerateModal(null);
-                        setGenerateSuccess(false);
-                      }}
-                      className="rounded-lg border border-sky-300/50 bg-sky-500/5 px-4 py-2 text-xs text-sky-800 hover:bg-sky-500/10 dark:border-sky-700/40 dark:bg-sky-950/30 dark:text-sky-200"
-                    >
-                      Kapat
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="min-h-0 flex-1 overflow-y-auto">
-                  <div className={isBilsemYillikPlan ? 'space-y-2 p-3' : 'space-y-4 p-4'}>
-                  {(() => {
-                    const schema = generateModal.formSchema ?? generateModal.form_schema ?? [];
-                    const c = isBilsemYillikPlan;
-                    const lbl = c ? 'mb-1 block text-xs font-medium text-foreground' : 'mb-1.5 block text-sm font-medium text-foreground';
-                    const inp = c
-                      ? 'h-8 w-full rounded-lg border border-input bg-background px-2.5 py-1 text-xs transition-colors placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/25'
-                      : 'h-10 w-full rounded-xl border border-input bg-background px-4 py-2 text-sm transition-colors placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
-                    const inpZ = c
-                      ? 'h-8 min-w-0 flex-1 rounded-lg border border-input bg-background px-2.5 py-1 text-xs transition-colors placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/25'
-                      : 'h-10 min-w-[120px] flex-1 rounded-xl border border-input bg-background px-3 py-2 text-sm transition-colors placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
-                    const btnZ = c
-                      ? 'inline-flex h-8 shrink-0 items-center gap-1 rounded-lg bg-primary px-2.5 text-xs font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90'
-                      : 'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90';
-                    const readOnlyKeys = ['ogretim_yili', 'sinif', 'ders_kodu', 'dersKodu', 'ders-kodu', 'subject_code', 'ders_adi', 'dersAdi', 'ders-adi', 'subject_label'];
-                    const zumreKeys = ['zumre_ogretmenleri', 'zumreler'];
-                    const profileLockedKeys = ['onay_tarihi', 'tarih', 'onay_tarihi_alt', 'mudur_adi', 'zumre_ogretmenleri', 'zumreler', 'ogretmen_unvani'];
-                    const summaryLine = [
-                      generateForm.sinif && formatYillikPlanGradeLabel(generateForm.sinif, isBilsemYillikPlan),
-                      generateForm.ders_adi ?? generateForm.dersAdi,
-                      generateForm.ogretim_yili,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ');
-                    return (
-                      <div className={c ? 'space-y-3' : 'space-y-5'}>
-                        {summaryLine && (
-                          <p
-                            className={
-                              c
-                                ? 'rounded-lg bg-muted/40 px-2.5 py-1.5 text-xs font-medium leading-snug text-foreground'
-                                : 'rounded-xl bg-muted/40 px-4 py-3 text-sm font-medium text-foreground'
-                            }
-                          >
-                            {summaryLine}
-                          </p>
-                        )}
-                        {onayBolumuEksik && (
-                          <Alert
-                            message="Müdür adı ve zümre öğretmenleri zorunludur."
-                            variant="warning"
-                          />
-                        )}
-                        <Alert
-                          message="Tarih, müdür, zümre ve öğretmen unvanı Profil > Zümre sekmesinden alınır."
-                          variant="info"
-                        />
-                        {schema.map((f, fi) => {
-                          if (readOnlyKeys.includes(f.key)) return null;
-                          if (f.key === 'zumreler' && schema.some((x) => x.key === 'zumre_ogretmenleri')) return null;
-                          if (f.key === 'tarih' && schema.some((x) => x.key === 'onay_tarihi')) return null;
-                          const isZumre = zumreKeys.includes(f.key);
-                          const isProfileLocked = profileLockedKeys.includes(f.key);
-                          const zumreValue = generateForm[f.key] ?? generateForm.zumre_ogretmenleri ?? generateForm.zumreler ?? '';
-                          const zumreList = zumreValue ? zumreValue.split(',').map((s) => s.trim()).filter(Boolean) : [];
-                          const placeholders: Record<string, string> = {
-                            okul_adi: 'Örn: Atatürk Anadolu Lisesi',
-                            mudur_adi: 'Örn: Mehmet Yılmaz',
-                            onay_tarihi: 'GG.AA.YYYY',
-                          };
-                          if (isZumre) {
-                            const zumreItems = dedupeZumre(parseZumreRaw(zumreValue));
-                            return (
-                              <div key={f.key}>
-                                <label className={lbl}>
-                                  Zümre öğretmenleri (isim ve branş/unvan ile ekleyin) {f.required && '*'}
-                                </label>
-                                {!isProfileLocked && (
-                                  <div className={c ? 'flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-end' : 'flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end'}>
-                                  <input
-                                    type="text"
-                                    id="zumre-isim-input"
-                                    placeholder="Öğretmen adı"
-                                    className={c ? `${inpZ} min-w-[100px] sm:min-w-[120px]` : inpZ}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        const isimEl = document.getElementById('zumre-isim-input') as HTMLInputElement;
-                                        const unvanEl = document.getElementById('zumre-unvan-input') as HTMLInputElement;
-                                        const isim = isimEl?.value?.trim();
-                                        if (isim) {
-                                          const unvan = unvanEl?.value?.trim() ?? '';
-                                          const next = [...zumreItems, { isim, unvan }];
-                                          setGenerateForm((prev) => ({
-                                            ...prev,
-                                            zumre_ogretmenleri: serializeZumre(next),
-                                            zumreler: serializeZumre(next),
-                                          }));
-                                          isimEl.value = '';
-                                          if (unvanEl) unvanEl.value = '';
-                                        }
-                                      }
-                                    }}
-                                  />
-                                  <input
-                                    type="text"
-                                    id="zumre-unvan-input"
-                                    placeholder="Branş / unvan (örn: Coğrafya Öğretmeni)"
-                                    className={c ? `${inpZ} min-w-0 sm:min-w-[120px]` : inpZ}
-                                  />
-                                  <button
-                                    type="button"
-                                    className={btnZ}
-                                    onClick={() => {
-                                      const isimEl = document.getElementById('zumre-isim-input') as HTMLInputElement;
-                                      const unvanEl = document.getElementById('zumre-unvan-input') as HTMLInputElement;
-                                      const isim = isimEl?.value?.trim();
-                                      if (isim) {
-                                        const unvan = unvanEl?.value?.trim() ?? '';
-                                        const next = [...zumreItems, { isim, unvan }];
-                                        setGenerateForm((prev) => ({
-                                          ...prev,
-                                          zumre_ogretmenleri: serializeZumre(next),
-                                          zumreler: serializeZumre(next),
-                                        }));
-                                        isimEl.value = '';
-                                        if (unvanEl) unvanEl.value = '';
-                                      }
-                                    }}
-                                  >
-                                    <Plus className={c ? 'size-3.5' : 'size-4'} />
-                                    Ekle
-                                  </button>
-                                </div>
-                                )}
-                                {zumreItems.length > 0 && (
-                                  <div className={c ? 'mt-1.5 flex flex-wrap gap-1' : 'mt-2 flex flex-wrap gap-1.5'}>
-                                    {zumreItems.map((item, i) => (
-                                      <span
-                                        key={`${item.isim}-${item.unvan}-${i}`}
-                                        className={
-                                          c
-                                            ? 'inline-flex items-center gap-0.5 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] transition-colors hover:bg-primary/20'
-                                            : 'inline-flex items-center gap-1 rounded-full bg-primary/15 px-3 py-1.5 text-sm transition-colors hover:bg-primary/20'
-                                        }
-                                      >
-                                        {item.unvan ? `${item.isim} · ${item.unvan}` : item.isim}
-                                        {!isProfileLocked && (
-                                          <button
-                                            type="button"
-                                            className="rounded-full p-0.5 hover:bg-primary/30"
-                                            onClick={() => {
-                                              const next = zumreItems.filter((_, j) => j !== i);
-                                              setGenerateForm((prev) => ({
-                                                ...prev,
-                                                zumre_ogretmenleri: serializeZumre(next),
-                                                zumreler: serializeZumre(next),
-                                              }));
-                                            }}
-                                          >
-                                            <X className="size-3.5" />
-                                          </button>
-                                        )}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          }
-                          return (
-                            <div key={f.key}>
-                              <label className={lbl}>
-                                {f.label} {f.required && '*'}
-                              </label>
-                              {(f.key === 'onay_tarihi' || f.key === 'tarih' || f.key === 'onay_tarihi_alt') ? (
-                                <input
-                                  type="date"
-                                  value={(() => {
-                                    const s = (generateForm[f.key] ?? generateForm.onay_tarihi ?? generateForm.tarih ?? '').trim().replace(/\s*\/\s*/g, '.');
-                                    if (!s) return '';
-                                    const parts = s.split(/[.\/\-]/).map((p) => p.trim());
-                                    if (parts.length === 3 && parts[2]?.length === 4)
-                                      return `${parts[2]}-${(parts[1] ?? '').padStart(2, '0')}-${(parts[0] ?? '').padStart(2, '0')}`;
-                                    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-                                    return '';
-                                  })()}
-                                  onChange={(e) => {
-                                    if (isProfileLocked) return;
-                                    const v = e.target.value;
-                                    const tr = v ? new Date(v).toLocaleDateString('tr-TR') : '';
-                                    const trAlt = tr.replace(/\./g, ' / ');
-                                    setGenerateForm((prev) => ({
-                                      ...prev,
-                                      onay_tarihi: tr,
-                                      tarih: tr,
-                                      onay_tarihi_alt: trAlt,
-                                    }));
-                                  }}
-                                  className={inp}
-                                  disabled={isProfileLocked}
-                                />
-                              ) : (
-                                <input
-                                  type="text"
-                                  value={generateForm[f.key] ?? ''}
-                                  onChange={(e) => {
-                                    if (isProfileLocked) return;
-                                    setGenerateForm((prev) => ({ ...prev, [f.key]: e.target.value }));
-                                  }}
-                                  placeholder={placeholders[f.key]}
-                                  className={inp}
-                                  disabled={isProfileLocked}
-                                />
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-              {(preview !== null || previewLoading) && (
-                <div
-                  className={`overflow-hidden rounded-xl border ${
-                    isBilsemYillikPlan
-                      ? 'mx-2 mb-2 border-violet-500/20 bg-gradient-to-br from-violet-500/[0.05] via-muted/30 to-fuchsia-500/[0.03] dark:border-violet-500/25 dark:from-violet-950/30'
-                      : 'mx-3 mb-3 border-border bg-muted/25'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setPreviewExpanded((e) => !e)}
-                    className={`flex w-full items-center gap-2 text-left transition-colors ${
-                      isBilsemYillikPlan ? 'px-2 py-2 hover:bg-violet-500/[0.06] dark:hover:bg-violet-950/40' : 'gap-3 px-3 py-2.5 hover:bg-muted/40'
-                    }`}
-                  >
-                    <span
-                      className={`flex shrink-0 items-center justify-center rounded-lg ${
-                        isBilsemYillikPlan
-                          ? 'size-7 bg-violet-500/15 text-violet-700 dark:bg-violet-500/20 dark:text-violet-200'
-                          : 'size-8 bg-muted text-muted-foreground'
-                      }`}
-                    >
-                      <Eye className={isBilsemYillikPlan ? 'size-3.5' : 'size-4'} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        {previewLoading ? 'Önizleme hazırlanıyor' : 'Canlı önizleme'}
-                      </span>
-                      <span className="line-clamp-1 text-xs font-medium text-foreground">
-                        {preview?.sheet_name ?? 'Şablon özeti'}
-                      </span>
-                    </span>
-                    {previewExpanded ? (
-                      <ChevronUp className="size-4 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
-                    )}
-                  </button>
-                  {previewExpanded && (
-                    <div
-                      className={`min-h-[80px] overflow-auto overscroll-contain border-t px-2 py-2 sm:px-3 ${
-                        isBilsemYillikPlan
-                          ? 'max-h-[min(38vh,320px)] border-violet-500/15 bg-white/65 dark:border-violet-500/20 dark:bg-zinc-950/80'
-                          : 'max-h-[min(52vh,440px)] border-border bg-white/60 dark:bg-zinc-950/70'
-                      }`}
-                    >
-                      {previewLoading ? (
-                        <div className="flex flex-col items-center justify-center gap-2 py-8">
-                          <LoadingSpinner className="size-6 text-violet-600 dark:text-violet-400" />
-                          <p className="text-[11px] text-muted-foreground">Sayfa oluşturuluyor…</p>
-                        </div>
-                      ) : preview?.sheet_html ? (
-                        <div
-                          className="origin-top-left [scrollbar-width:thin]"
-                          style={
-                            (preview as { full_plan?: boolean })?.full_plan
-                              ? { transform: 'scale(0.88)', transformOrigin: 'top left', minWidth: '113.6%' }
-                              : isBilsemYillikPlan
-                                ? { transform: 'scale(0.95)', transformOrigin: 'top left' }
-                                : undefined
-                          }
-                        >
-                          <div
-                            className={`prose prose-sm max-w-none [&_th]:border [&_th]:border-border/80 [&_th]:bg-muted/60 [&_td]:border [&_td]:border-border/60 dark:[&_th]:border-white/10 dark:[&_td]:border-white/10 ${
-                              isBilsemYillikPlan
-                                ? 'text-[11px] leading-snug [&_table]:text-[10px] [&_td]:p-1.5 [&_th]:p-1.5'
-                                : '[&_td]:p-2 [&_th]:p-2'
-                            }`}
-                            dangerouslySetInnerHTML={{ __html: preview.sheet_html }}
-                          />
-                        </div>
-                      ) : preview && 'message' in preview ? (
-                        <p className="rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-4 text-center text-[11px] leading-relaxed text-muted-foreground">
-                          {preview.message}
-                        </p>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-              )}
-                  </div>
-                  </div>
-              <div
-                className={`shrink-0 border-t border-border bg-background ${
-                  isBilsemYillikPlan ? 'px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]' : 'px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]'
-                }`}
-              >
-                <div className={`flex justify-end ${isBilsemYillikPlan ? 'gap-2' : 'gap-3'}`}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setGenerateModal(null);
-                      setGenerateSuccess(false);
-                    }}
-                    className={
-                      isBilsemYillikPlan
-                        ? 'rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted'
-                        : 'rounded-xl border border-input bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted'
-                    }
-                  >
-                    İptal
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleGenerateSubmit}
-                    disabled={
-                      generateLoading ||
-                      noPlanKota ||
-                      (isBilsemYillikPlan &&
-                        !useBilsemPlanContentSource &&
-                        !String(generateForm.bilsem_yillik_draft_json ?? '').trim())
-                    }
-                    title={noPlanKota ? 'Plan üretim kotanız bitti. Marketten hak alın.' : undefined}
-                    className={
-                      isBilsemYillikPlan
-                        ? 'inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50'
-                        : 'inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50'
-                    }
-                  >
-                    {generateLoading ? (
-                      <>
-                        <LoadingSpinner className={isBilsemYillikPlan ? 'size-3.5' : 'size-4'} />
-                        Üretiliyor…
-                      </>
-                    ) : (
-                      <>
-                        <Download className={isBilsemYillikPlan ? 'size-3.5' : 'size-4'} />
-                        Üret ve İndir
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      {generateModal ? (
+        <YillikPlanGenerateModal
+          open
+          isBilsem={isBilsemYillikPlan}
+          title={
+            isBilsemYillikPlan
+              ? templateDisplayName(generateModal)
+              : `${filters.grade ? `${filters.grade}. ` : ''}Sınıf ${templateDisplayName(generateModal)} Yıllık Plan`
+          }
+          metaChips={generateModalMetaChips}
+          template={generateModal}
+          generateForm={generateForm}
+          setGenerateForm={setGenerateForm}
+          generateSuccess={generateSuccess}
+          setGenerateSuccess={setGenerateSuccess}
+          generateLoading={generateLoading}
+          sendPlanEmail={sendPlanEmail}
+          setSendPlanEmail={setSendPlanEmail}
+          preview={preview}
+          previewLoading={previewLoading}
+          previewExpanded={previewExpanded}
+          setPreviewExpanded={setPreviewExpanded}
+          onayBolumuEksik={onayBolumuEksik}
+          noPlanKota={noPlanKota}
+          useBilsemPlanContentSource={useBilsemPlanContentSource}
+          userEmail={me?.email}
+          onClose={() => {
+            setGenerateModal(null);
+            setGenerateSuccess(false);
+            setSendPlanEmail(false);
+          }}
+          onSubmit={handleGenerateSubmit}
+        />
+      ) : null}
     </div>
   );
 }
