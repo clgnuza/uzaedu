@@ -36,7 +36,12 @@ function clip(s: string | null | undefined, n = 42) {
 
 function normalizePlanWeekItemForPreview(item: BilsemPlanWeekItem): BilsemPlanWeekItem {
   const next = { ...item };
-  const dedupePair = (a: keyof BilsemPlanWeekItem, b: keyof BilsemPlanWeekItem) => {
+  type PreviewTextKey =
+    | 'degerler'
+    | 'zenginlestirme'
+    | 'okuryazarlik_becerileri'
+    | 'okul_temelli_planlama';
+  const dedupePair = (a: PreviewTextKey, b: PreviewTextKey) => {
     const va = String(next[a] ?? '').trim();
     const vb = String(next[b] ?? '').trim();
     if (va && vb && va === vb) next[a] = null;
