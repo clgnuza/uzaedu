@@ -3,22 +3,23 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { ReminderFormSection } from './reminder-form-section';
 import { Repeat, BellRing } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import {
+  AGENDA_DIALOG_CLASS,
+  AgendaFormActions,
+  AgendaPriorityPills,
+  agendaInput,
+  agendaLabel,
+  agendaSection,
+  agendaTextarea,
+} from './agenda-form-ui';
 
 function localTodayYMD(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function ymdToSlash(ymd: string): string {
-  if (ymd.length < 10) return ymd;
-  const [y, m, d] = ymd.slice(0, 10).split('-');
-  if (!y || !m || !d) return ymd;
-  return `${d}/${m}/${y}`;
 }
 
 type TaskFormData = {
@@ -46,19 +47,14 @@ export function TaskFormModal({
   onSubmit: (data: TaskFormData) => Promise<void>;
   initialDate?: string;
   initial?: Partial<TaskFormData>;
-  /** Düzenleme modu — yoksa yeni görev; initial nesne referansı her render değişmesin diye */
   editTaskId?: string | null;
   students?: { id: string; name: string }[];
 }) {
   const [title, setTitle] = useState(initial?.title ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
-  const [dueDate, setDueDate] = useState(
-    initial?.dueDate ?? initialDate ?? localTodayYMD(),
-  );
+  const [dueDate, setDueDate] = useState(initial?.dueDate ?? initialDate ?? localTodayYMD());
   const [dueTime, setDueTime] = useState(initial?.dueTime ?? '09:00');
-  const [priority, setPriority] = useState<TaskFormData['priority']>(
-    initial?.priority ?? 'medium',
-  );
+  const [priority, setPriority] = useState<TaskFormData['priority']>(initial?.priority ?? 'medium');
   const [repeat, setRepeat] = useState<TaskFormData['repeat']>(initial?.repeat ?? 'none');
   const [studentId, setStudentId] = useState(initial?.studentId ?? '');
   const [remindAt, setRemindAt] = useState<string | undefined>();
@@ -89,7 +85,7 @@ export function TaskFormModal({
       setRemindAt(undefined);
       setReminderWanted(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `initial` alanları ayrı; tüm nesne üstten her render’da yenilenir
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     open,
     editTaskId,
@@ -112,7 +108,7 @@ export function TaskFormModal({
       return;
     }
     if (repeat !== 'none' && (!dueDate || dueDate.length < 10)) {
-      toast.error('Tekrar (günlük / haftalık / aylık) için son tarih zorunludur');
+      toast.error('Tekrar için son tarih zorunludur');
       return;
     }
     setLoading(true);
@@ -150,115 +146,66 @@ export function TaskFormModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={editTaskId ? 'Görevi Düzenle' : 'Yeni Görev'}>
-        <form onSubmit={handleSubmit} className="space-y-2 sm:space-y-4">
+      <DialogContent
+        title={editTaskId ? 'Görevi Düzenle' : 'Yeni Görev'}
+        className={AGENDA_DIALOG_CLASS}
+      >
+        <form onSubmit={handleSubmit} className="space-y-2">
           <div>
-            <Label htmlFor="task-title" className="text-xs sm:text-sm">
-              Başlık
-            </Label>
+            <span className={agendaLabel}>Başlık</span>
             <Input
               id="task-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Görev başlığı"
               required
-              className="mt-1 min-h-10 text-sm sm:min-h-11"
+              className={agendaInput}
             />
           </div>
-          <div>
-            <Label htmlFor="task-desc" className="text-xs sm:text-sm">
-              Açıklama
-            </Label>
-            <textarea
-              id="task-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Açıklama (opsiyonel)"
-              rows={2}
-              className="mt-1 min-h-[72px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-[80px] sm:py-2.5"
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+          <div className="grid grid-cols-2 gap-2">
             <div>
-              <Label htmlFor="task-date" className="text-xs sm:text-sm">
-                Son tarih
-              </Label>
+              <span className={agendaLabel}>Son tarih</span>
               <Input
                 id="task-date"
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className="mt-1 min-h-10 text-sm sm:min-h-11"
+                className={agendaInput}
               />
-              {dueDate && dueDate.length >= 10 ? (
-                <p className="mt-1 text-[11px] font-medium tabular-nums text-muted-foreground sm:hidden">{ymdToSlash(dueDate)}</p>
-              ) : null}
             </div>
             <div>
-              <Label htmlFor="task-time" className="text-xs sm:text-sm">
-                Saat
-              </Label>
+              <span className={agendaLabel}>Saat</span>
               <Input
                 id="task-time"
                 type="time"
                 value={dueTime}
                 onChange={(e) => setDueTime(e.target.value)}
-                className="mt-1 min-h-10 text-sm sm:min-h-11"
+                className={agendaInput}
               />
             </div>
           </div>
           <div>
-            <Label className="text-xs sm:text-sm">Öncelik</Label>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as TaskFormData['priority'])}
-              className="mt-1 min-h-9 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm sm:min-h-11 sm:px-3 sm:py-2"
-            >
-              <option value="low">Düşük</option>
-              <option value="medium">Orta</option>
-              <option value="high">Yüksek</option>
-            </select>
+            <span className={agendaLabel}>Açıklama</span>
+            <textarea
+              id="task-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Opsiyonel"
+              rows={2}
+              className={agendaTextarea}
+            />
           </div>
-          <div className="rounded-lg border border-border/70 bg-muted/20 p-2.5 sm:p-3">
-            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground sm:text-xs">
-              <Repeat className="size-3.5 text-violet-500 sm:size-4" aria-hidden />
-              Tekrar ve sonlandırma
-            </div>
-            <div>
-              <Label className="text-xs sm:text-sm">Tekrar</Label>
-              <select
-                value={repeat}
-                onChange={(e) => setRepeat(e.target.value as TaskFormData['repeat'])}
-                className="mt-1 min-h-9 w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm sm:min-h-11 sm:px-3 sm:py-2"
-              >
-                <option value="none">Yok</option>
-                <option value="daily">Günlük</option>
-                <option value="weekly">Haftalık</option>
-                <option value="monthly">Aylık</option>
-              </select>
-            </div>
-            <p className="mt-2 text-[10px] leading-snug text-muted-foreground sm:text-xs">
-              Tamamlayınca yeni görev açılır; yeni görevde hatırlatıcı yoktur. Seriyi durdurmak için Tekrar → Yok ve Kaydet.
-            </p>
-            {editTaskId && repeat !== 'none' && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-2 h-8 w-full rounded-lg text-[11px] sm:h-9 sm:text-xs"
-                onClick={() => setRepeat('none')}
-              >
-                Tekrarı şimdi durdur (Yok)
-              </Button>
-            )}
+          <div>
+            <span className={agendaLabel}>Öncelik</span>
+            <AgendaPriorityPills value={priority} onChange={setPriority} />
           </div>
           {students.length > 0 && (
             <div>
-              <Label className="text-xs sm:text-sm">Öğrenci (opsiyonel)</Label>
+              <span className={agendaLabel}>Öğrenci</span>
               <select
                 value={studentId}
                 onChange={(e) => setStudentId(e.target.value)}
-                className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-11"
+                className={cn(agendaInput, 'w-full')}
               >
                 <option value="">Seçin</option>
                 {students.map((s) => (
@@ -269,33 +216,56 @@ export function TaskFormModal({
               </select>
             </div>
           )}
-          <div className="rounded-lg border border-border/70 bg-muted/20 p-2.5 sm:p-3">
-            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground sm:text-xs">
-              <BellRing className="size-3.5 text-teal-500 sm:size-4" aria-hidden />
+
+          <details className={cn(agendaSection, 'group open:pb-1.5')}>
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+              <Repeat className="size-3.5 text-violet-500" aria-hidden />
+              Tekrar
+            </summary>
+            <select
+              value={repeat}
+              onChange={(e) => setRepeat(e.target.value as TaskFormData['repeat'])}
+              className={cn(agendaInput, 'mt-1.5 w-full')}
+            >
+              <option value="none">Yok</option>
+              <option value="daily">Günlük</option>
+              <option value="weekly">Haftalık</option>
+              <option value="monthly">Aylık</option>
+            </select>
+            {editTaskId && repeat !== 'none' && (
+              <button
+                type="button"
+                onClick={() => setRepeat('none')}
+                className="mt-1.5 w-full rounded-md border border-border/70 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted/40"
+              >
+                Tekrarı durdur
+              </button>
+            )}
+          </details>
+
+          <details className={cn(agendaSection, 'group open:pb-1.5')} open={reminderWanted}>
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+              <BellRing className="size-3.5 text-teal-500" aria-hidden />
               Hatırlatıcı
+            </summary>
+            <div className="mt-1.5">
+              <ReminderFormSection
+                enabled={reminderWanted}
+                remindAt={remindAt}
+                onChange={setRemindAt}
+                disabled={loading}
+                onEnabledChange={setReminderWanted}
+                showLeadingBell={false}
+              />
             </div>
-            <ReminderFormSection
-              enabled={reminderWanted}
-              remindAt={remindAt}
-              onChange={setRemindAt}
-              disabled={loading}
-              onEnabledChange={setReminderWanted}
-              showLeadingBell={false}
-            />
-            {editTaskId ? (
-              <p className="mt-2 text-[10px] leading-snug text-muted-foreground sm:text-xs">
-                Hatırlatıcıyı kapatırsanız gönderilmemiş bildirim silinir; kaydetmeyi unutmayın.
-              </p>
-            ) : null}
-          </div>
-          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end sm:pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
-              İptal
-            </Button>
-            <Button type="submit" disabled={loading || !title.trim()} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
-              {loading ? 'Kaydediliyor…' : 'Kaydet'}
-            </Button>
-          </div>
+          </details>
+
+          <AgendaFormActions
+            onCancel={() => onOpenChange(false)}
+            loading={loading}
+            submitLabel="Kaydet"
+            disabled={!title.trim()}
+          />
         </form>
       </DialogContent>
     </Dialog>

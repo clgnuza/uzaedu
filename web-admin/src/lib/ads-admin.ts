@@ -1,8 +1,8 @@
 /** Backend `ads.constants` ile uyumlu placement önerileri */
 export const AD_PLACEMENT_SUGGESTIONS: Record<'web' | 'ios' | 'android', string[]> = {
   web: ['banner_top', 'banner_sidebar', 'inline_article', 'footer_strip'],
-  ios: ['banner_home', 'interstitial_cold_start', 'native_feed', 'rewarded_extra', 'market_rewarded_jeton'],
-  android: ['banner_home', 'interstitial_exit', 'native_list', 'rewarded_extra', 'market_rewarded_jeton'],
+  ios: ['banner_home', 'interstitial_cold_start', 'native_feed', 'rewarded_extra'],
+  android: ['banner_home', 'interstitial_exit', 'native_list', 'rewarded_extra'],
 };
 
 /** Backend `ADSENSE_FORMAT_HINTS` ile aynı kapsam */

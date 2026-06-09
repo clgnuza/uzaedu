@@ -16,11 +16,7 @@ import Link from 'next/link';
 import {
   Building2,
   Coins,
-  ExternalLink,
-  Shield,
   ShoppingBag,
-  Plus,
-  Trash2,
   UserRound,
   BarChart3,
   RefreshCw,
@@ -28,7 +24,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
-  Smartphone,
 } from 'lucide-react';
 import {
   SCHOOL_MODULE_KEYS,
@@ -38,6 +33,8 @@ import {
 } from '@/config/school-modules';
 import { cn } from '@/lib/utils';
 import { WEB_SETTINGS_TEXTAREA } from '@/components/web-settings/web-settings-shell';
+import { MarketIapPolicyPanel, type IapSide } from '@/components/market/market-iap-policy-panel';
+import { MarketProductionPolicyPanel } from '@/components/market/market-production-policy-panel';
 
 type CurrencyPair = { jeton: number; ekders: number };
 type ModuleScopeUsage = { monthly: CurrencyPair; yearly: CurrencyPair };
@@ -70,39 +67,9 @@ function emptyModuleRow(): ModuleRow {
     },
   };
 }
-type IapPack = {
-  product_id: string;
-  amount: number;
-  label?: string | null;
-  grant_yillik_plan_uretim?: number;
-  grant_evrak_uretim?: number;
-};
-type IapSide = { jeton: IapPack[]; ekders: IapPack[] };
-
-type MarketStoreCompliance = {
-  purchase_disclosure_tr: string | null;
-  purchase_disclosure_en: string | null;
-  refunds_and_support_note: string | null;
-};
-
-type MarketSubscriptionUrls = {
-  android_play_subscriptions_help_url: string | null;
-  android_manage_play_subscriptions_url: string | null;
-  apple_manage_subscriptions_url: string | null;
-  apple_subscription_terms_note: string | null;
-};
-
 type MarketMinorPrivacy = {
   not_targeting_children_note: string | null;
   parental_consent_note: string | null;
-};
-
-type MarketRewardedAdJetonConfig = {
-  enabled: boolean;
-  jeton_per_reward: number;
-  max_rewards_per_day: number;
-  cooldown_seconds: number;
-  allowed_ad_unit_ids: string[];
 };
 
 type MarketEntitlementExchangeConfig = {
@@ -112,17 +79,23 @@ type MarketEntitlementExchangeConfig = {
   max_units_per_request: number;
 };
 
+type MarketStoreComplianceLite = {
+  purchase_disclosure_tr: string | null;
+  purchase_disclosure_en: string | null;
+  refunds_and_support_note: string | null;
+};
+
 type MarketPolicyConfig = {
   cache_ttl_market_policy: number;
   module_prices: Record<string, ModuleRow>;
   iap_android: IapSide;
   iap_ios: IapSide;
-  store_compliance: MarketStoreCompliance;
-  subscription_urls: MarketSubscriptionUrls;
+  store_compliance: MarketStoreComplianceLite;
   minor_privacy: MarketMinorPrivacy;
-  rewarded_ad_jeton: MarketRewardedAdJetonConfig;
   entitlement_exchange: MarketEntitlementExchangeConfig;
 };
+
+const emptyIap = (): IapSide => ({ jeton: [], ekders: [] });
 
 type WalletSplit = { user: CurrencyPair; school: CurrencyPair };
 
@@ -172,8 +145,6 @@ function shortId(id: string): string {
   return id.length > 8 ? `${id.slice(0, 8)}…` : id;
 }
 
-const emptyIap = (): IapSide => ({ jeton: [], ekders: [] });
-
 const RATIO_MAX = 1_000_000_000;
 function roundRatio(n: number): number {
   return Math.round(Math.min(RATIO_MAX, Math.max(0, n)) * 1e6) / 1e6;
@@ -191,13 +162,6 @@ function fmtTrRatioInput(n: number): string {
   if (!Number.isFinite(n)) return '';
   const r = roundRatio(n);
   return new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 6, useGrouping: false }).format(r);
-}
-
-const IAP_GRANT_INPUT_MAX = 10_000;
-function parseGrantInt(raw: string): number {
-  const n = parseInt(raw.trim(), 10);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return Math.min(IAP_GRANT_INPUT_MAX, n);
 }
 
 function PriceInput(props: {
@@ -275,30 +239,24 @@ export default function MarketPolicyPage() {
     if (!token) return;
     setLoading(true);
     try {
-      const data = await apiFetch<MarketPolicyConfig>('/app-config/market-policy', { token });
+      const raw = await apiFetch<MarketPolicyConfig & { rewarded_ad_jeton?: unknown; teacher_invite_jeton?: unknown }>(
+        '/app-config/market-policy',
+        { token },
+      );
+      const { rewarded_ad_jeton: _rewarded, teacher_invite_jeton: _invite, ...data } = raw;
       setCfg({
-        ...data,
+        cache_ttl_market_policy: data.cache_ttl_market_policy,
+        module_prices: data.module_prices ?? {},
+        iap_android: data.iap_android ?? emptyIap(),
+        iap_ios: data.iap_ios ?? emptyIap(),
         store_compliance: data.store_compliance ?? {
           purchase_disclosure_tr: null,
           purchase_disclosure_en: null,
           refunds_and_support_note: null,
         },
-        subscription_urls: data.subscription_urls ?? {
-          android_play_subscriptions_help_url: null,
-          android_manage_play_subscriptions_url: null,
-          apple_manage_subscriptions_url: null,
-          apple_subscription_terms_note: null,
-        },
         minor_privacy: data.minor_privacy ?? {
           not_targeting_children_note: null,
           parental_consent_note: null,
-        },
-        rewarded_ad_jeton: data.rewarded_ad_jeton ?? {
-          enabled: false,
-          jeton_per_reward: 1,
-          max_rewards_per_day: 10,
-          cooldown_seconds: 90,
-          allowed_ad_unit_ids: [],
         },
         entitlement_exchange: data.entitlement_exchange ?? {
           enabled: false,
@@ -358,72 +316,6 @@ export default function MarketPolicyPage() {
     });
   };
 
-  const addPack = (platform: 'iap_android' | 'iap_ios', kind: 'jeton' | 'ekders') => {
-    setCfg((prev) => {
-      if (!prev) return prev;
-      const side = prev[platform];
-      return {
-        ...prev,
-        [platform]: {
-          ...side,
-          [kind]: [
-            ...side[kind],
-            { product_id: '', amount: 0, label: '', grant_yillik_plan_uretim: 0, grant_evrak_uretim: 0 },
-          ],
-        },
-      };
-    });
-  };
-
-  const setPack = (
-    platform: 'iap_android' | 'iap_ios',
-    kind: 'jeton' | 'ekders',
-    index: number,
-    patch: Partial<IapPack>
-  ) => {
-    setCfg((prev) => {
-      if (!prev) return prev;
-      const side = prev[platform];
-      const list = [...side[kind]];
-      list[index] = { ...list[index], ...patch };
-      return {
-        ...prev,
-        [platform]: { ...side, [kind]: list },
-      };
-    });
-  };
-
-  const removePack = (platform: 'iap_android' | 'iap_ios', kind: 'jeton' | 'ekders', index: number) => {
-    setCfg((prev) => {
-      if (!prev) return prev;
-      const side = prev[platform];
-      return {
-        ...prev,
-        [platform]: {
-          ...side,
-          [kind]: side[kind].filter((_, i) => i !== index),
-        },
-      };
-    });
-  };
-
-  const setCompliance = (patch: Partial<MarketStoreCompliance>) => {
-    setCfg((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        store_compliance: { ...prev.store_compliance, ...patch },
-      };
-    });
-  };
-
-  const setSubscriptionUrls = (patch: Partial<MarketSubscriptionUrls>) => {
-    setCfg((prev) => {
-      if (!prev) return prev;
-      return { ...prev, subscription_urls: { ...prev.subscription_urls, ...patch } };
-    });
-  };
-
   const setMinorPrivacy = (patch: Partial<MarketMinorPrivacy>) => {
     setCfg((prev) => {
       if (!prev) return prev;
@@ -445,10 +337,19 @@ export default function MarketPolicyPage() {
     if (!token || !cfg) return;
     setSaving(true);
     try {
+      const payload = {
+        cache_ttl_market_policy: cfg.cache_ttl_market_policy,
+        module_prices: cfg.module_prices,
+        iap_android: cfg.iap_android,
+        iap_ios: cfg.iap_ios,
+        store_compliance: cfg.store_compliance,
+        minor_privacy: cfg.minor_privacy,
+        entitlement_exchange: cfg.entitlement_exchange,
+      };
       await apiFetch('/app-config/market-policy', {
         method: 'PATCH',
         token,
-        body: JSON.stringify(cfg),
+        body: JSON.stringify(payload),
       });
       toast.success('Kaydedildi');
       load();
@@ -490,10 +391,8 @@ export default function MarketPolicyPage() {
               { label: 'Öğretmen tarafı', icon: UserRound },
               { label: 'Jeton / ek ders', icon: Coins },
               { label: 'Aylık / yıllık', icon: Calendar },
-              { label: 'Mobil satın alma', icon: Smartphone },
-              { label: 'Mağaza', icon: ShoppingBag },
             ]}
-            summary="Modül tarifeleri; mobil IAP (Play / App Store) jeton ve ek ders paketleri. Kayıt 6 ondalık. Sunucu varsayılan aylık tarife kullanır; modül giriş uyarıları sunucu varsayılanıyla gelir."
+            summary="Modül tarifeleri ve üretim ekonomisi. Kayıt 6 ondalık. Sunucu varsayılan aylık tarife kullanır; modül giriş uyarıları sunucu varsayılanıyla gelir."
           />
         </ToolbarHeading>
         <div className="flex flex-wrap gap-2">
@@ -735,187 +634,6 @@ export default function MarketPolicyPage() {
         </div>
       </div>
 
-      <Card className="border-amber-200/80 dark:border-amber-900/50">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Shield className="h-5 w-5 text-amber-700 dark:text-amber-500" />
-            Mağaza uyumu (Google Play / Apple App Store)
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Aşağıdaki metinler <code className="rounded bg-muted px-1">GET /content/market-policy</code> ile mobil
-            uygulamaya gider; satın alma ve hesap ekranlarında gösterin. Bu panel hukuki danışmanlık değildir.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm leading-relaxed">
-            <p className="font-medium text-foreground">Kontrol listesi (özet)</p>
-            <ul className="mt-2 list-inside list-disc space-y-1.5 text-muted-foreground">
-              <li>
-                Dijital içerik (jeton, ek ders vb.) için uygulama içinde yalnızca{' '}
-                <strong className="text-foreground">Google Play Faturalandırma</strong> ve{' '}
-                <strong className="text-foreground">App Store uygulama içi satın alma</strong> kullanın; mağaza
-                kurallarına aykırı harici ödeme yönlendirmesinden kaçının.
-              </li>
-              <li>
-                Satın almadan önce <strong className="text-foreground">fiyat, ne satın alındığı ve koşullar</strong> net
-                olmalı; yanıltıcı veya eksik bilgi vermeyin.
-              </li>
-              <li>
-                Gizlilik ve şartlar için{' '}
-                <Link href="/web-ayarlar" className="font-medium text-primary underline underline-offset-2">
-                  Web Ayarları → Mobil uygulama
-                </Link>{' '}
-                bölümündeki <code className="rounded bg-muted px-1">privacy_policy_url</code>,{' '}
-                <code className="rounded bg-muted px-1">terms_url</code> alanlarını doldurun; uygulama içi metinlerle
-                tutarlı olsun.
-              </li>
-              <li>İade, abonelik veya tüketilebilir ürünler için mağaza süreçlerine uygun destek / iletişim bilgisi verin.</li>
-            </ul>
-            <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-              <a
-                href="https://support.google.com/googleplay/android-developer/answer/9858738?hl=tr"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-primary hover:underline"
-              >
-                Google Play — faturalandırma
-                <ExternalLink className="h-3 w-3" />
-              </a>
-              <a
-                href="https://play.google.com/about/developer-content-policy/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-primary hover:underline"
-              >
-                Google Play — içerik politikaları
-                <ExternalLink className="h-3 w-3" />
-              </a>
-              <a
-                href="https://developer.apple.com/app-store/review/guidelines/#payments"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-primary hover:underline"
-              >
-                App Store İnceleme — ödemeler (3.1)
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="disc-tr">Satın alma bilgilendirmesi (Türkçe)</Label>
-            <textarea
-              id="disc-tr"
-              className={WEB_SETTINGS_TEXTAREA}
-              rows={4}
-              placeholder="Örn: Fiyatlar TL cinsinden; jeton sanal bakiyedir, iade koşulları App Store / Google Play kurallarına tabidir…"
-              value={cfg.store_compliance.purchase_disclosure_tr ?? ''}
-              onChange={(e) =>
-                setCompliance({
-                  purchase_disclosure_tr: e.target.value.length ? e.target.value : null,
-                })
-              }
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="disc-en">Satın alma bilgilendirmesi (İngilizce, isteğe bağlı)</Label>
-            <textarea
-              id="disc-en"
-              className={WEB_SETTINGS_TEXTAREA}
-              rows={4}
-              placeholder="Short disclosure for EN locale…"
-              value={cfg.store_compliance.purchase_disclosure_en ?? ''}
-              onChange={(e) =>
-                setCompliance({
-                  purchase_disclosure_en: e.target.value.length ? e.target.value : null,
-                })
-              }
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="refund">İade, iptal ve destek özeti</Label>
-            <textarea
-              id="refund"
-              className={WEB_SETTINGS_TEXTAREA}
-              rows={3}
-              placeholder="Kullanıcıların mağaza üzerinden iade başvurusu yapabileceği, destek e-postası veya iç destek bağlantısı…"
-              value={cfg.store_compliance.refunds_and_support_note ?? ''}
-              onChange={(e) =>
-                setCompliance({
-                  refunds_and_support_note: e.target.value.length ? e.target.value : null,
-                })
-              }
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Abonelik yönetimi (mağaza bağlantıları)</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Abonelik satıyorsanız kullanıcıya iptal / yönetim bağlantıları gösterin. URL alanları yalnızca{' '}
-            <strong className="text-foreground">https://</strong> ile kaydedilir.
-          </p>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="sub-help">Google Play — abonelik yardım (https)</Label>
-            <Input
-              id="sub-help"
-              type="url"
-              placeholder="https://support.google.com/googleplay/answer/7018481"
-              value={cfg.subscription_urls.android_play_subscriptions_help_url ?? ''}
-              onChange={(e) =>
-                setSubscriptionUrls({
-                  android_play_subscriptions_help_url: e.target.value.trim() || null,
-                })
-              }
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="sub-manage-gp">Google Play — abonelikleri yönet</Label>
-            <Input
-              id="sub-manage-gp"
-              type="url"
-              placeholder="https://play.google.com/store/account/subscriptions"
-              value={cfg.subscription_urls.android_manage_play_subscriptions_url ?? ''}
-              onChange={(e) =>
-                setSubscriptionUrls({
-                  android_manage_play_subscriptions_url: e.target.value.trim() || null,
-                })
-              }
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="sub-apple">Apple — abonelikleri yönet (https)</Label>
-            <Input
-              id="sub-apple"
-              type="url"
-              placeholder="https://apps.apple.com/account/subscriptions"
-              value={cfg.subscription_urls.apple_manage_subscriptions_url ?? ''}
-              onChange={(e) =>
-                setSubscriptionUrls({ apple_manage_subscriptions_url: e.target.value.trim() || null })
-              }
-            />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="sub-terms-apple">Apple abonelik koşulları (kısa not)</Label>
-            <textarea
-              id="sub-terms-apple"
-              className={WEB_SETTINGS_TEXTAREA}
-              rows={2}
-              value={cfg.subscription_urls.apple_subscription_terms_note ?? ''}
-              onChange={(e) =>
-                setSubscriptionUrls({
-                  apple_subscription_terms_note: e.target.value.length ? e.target.value : null,
-                })
-              }
-            />
-          </div>
-        </CardContent>
-      </Card>
-
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Çocuklar ve KVKK (uygulama metni)</CardTitle>
@@ -954,101 +672,77 @@ export default function MarketPolicyPage() {
         </CardContent>
       </Card>
 
+      <MarketIapPolicyPanel
+        iapAndroid={cfg.iap_android}
+        iapIos={cfg.iap_ios}
+        onChange={(platform, side) =>
+          setCfg((prev) => (prev ? { ...prev, [platform]: side } : prev))
+        }
+      />
+
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Jeton → plan / evrak üretim hakkı</CardTitle>
+          <CardTitle className="text-lg">Mobil satın alma metni</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Market sayfasında öğretmen ve okul yöneticisi jeton ile yıllık plan veya evrak üretim kotası alabilir (tarife
-            aşağıda). Jeton başına ondalık kullanılabilir (örn. 0,1); virgül veya nokta yazılabilir.
+            Uygulama mağaza ekranında gösterilir (<code className="rounded bg-muted px-1">GET /content/market-policy</code>
+            ).
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-2">
-            <input
-              id="ee-enabled"
-              type="checkbox"
-              className="size-4 rounded border-input"
-              checked={cfg.entitlement_exchange.enabled}
-              onChange={(e) => setEntitlementExchange({ enabled: e.target.checked })}
+          <div className="space-y-2">
+            <Label htmlFor="iap-disc-tr">Satın alma bilgilendirmesi (TR)</Label>
+            <textarea
+              id="iap-disc-tr"
+              className={WEB_SETTINGS_TEXTAREA}
+              rows={3}
+              value={cfg.store_compliance.purchase_disclosure_tr ?? ''}
+              onChange={(e) =>
+                setCfg((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        store_compliance: {
+                          ...prev.store_compliance,
+                          purchase_disclosure_tr: e.target.value.length ? e.target.value : null,
+                        },
+                      }
+                    : prev,
+                )
+              }
             />
-            <Label htmlFor="ee-enabled">Özellik açık</Label>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="ee-yp">1 yıllık plan üretim hakkı (jeton)</Label>
-              <Input
-                id="ee-yp"
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                spellCheck={false}
-                className="h-9 min-w-[5.5rem] font-medium tabular-nums"
-                placeholder="örn. 25 veya 0,5"
-                value={eeJetonDraft?.yp ?? fmtTrRatioInput(cfg.entitlement_exchange.jeton_per_yillik_plan_unit)}
-                onFocus={() =>
-                  setEeJetonDraft((d) => ({
-                    yp: d?.yp ?? fmtTrRatioInput(cfg.entitlement_exchange.jeton_per_yillik_plan_unit),
-                    ev: d?.ev ?? fmtTrRatioInput(cfg.entitlement_exchange.jeton_per_evrak_unit),
-                  }))
-                }
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  setEeJetonDraft((d) => ({
-                    yp: raw,
-                    ev: d?.ev ?? fmtTrRatioInput(cfg.entitlement_exchange.jeton_per_evrak_unit),
-                  }));
-                  setEntitlementExchange({ jeton_per_yillik_plan_unit: parseRatioInput(raw) });
-                }}
-                onBlur={() => setEeJetonDraft(null)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="ee-ev">1 evrak üretim hakkı (jeton)</Label>
-              <Input
-                id="ee-ev"
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                spellCheck={false}
-                className="h-9 min-w-[5.5rem] font-medium tabular-nums"
-                placeholder="örn. 10 veya 0,1"
-                value={eeJetonDraft?.ev ?? fmtTrRatioInput(cfg.entitlement_exchange.jeton_per_evrak_unit)}
-                onFocus={() =>
-                  setEeJetonDraft((d) => ({
-                    yp: d?.yp ?? fmtTrRatioInput(cfg.entitlement_exchange.jeton_per_yillik_plan_unit),
-                    ev: d?.ev ?? fmtTrRatioInput(cfg.entitlement_exchange.jeton_per_evrak_unit),
-                  }))
-                }
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  setEeJetonDraft((d) => ({
-                    yp: d?.yp ?? fmtTrRatioInput(cfg.entitlement_exchange.jeton_per_yillik_plan_unit),
-                    ev: raw,
-                  }));
-                  setEntitlementExchange({ jeton_per_evrak_unit: parseRatioInput(raw) });
-                }}
-                onBlur={() => setEeJetonDraft(null)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="ee-max">Tek istekte en fazla birim</Label>
-              <Input
-                id="ee-max"
-                type="number"
-                min={1}
-                max={500}
-                className="h-9 max-w-[10rem] font-medium tabular-nums"
-                value={cfg.entitlement_exchange.max_units_per_request}
-                onChange={(e) =>
-                  setEntitlementExchange({
-                    max_units_per_request: Math.min(500, Math.max(1, parseInt(e.target.value, 10) || 1)),
-                  })
-                }
-              />
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="iap-disc-en">Satın alma bilgilendirmesi (EN)</Label>
+            <textarea
+              id="iap-disc-en"
+              className={WEB_SETTINGS_TEXTAREA}
+              rows={2}
+              value={cfg.store_compliance.purchase_disclosure_en ?? ''}
+              onChange={(e) =>
+                setCfg((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        store_compliance: {
+                          ...prev.store_compliance,
+                          purchase_disclosure_en: e.target.value.length ? e.target.value : null,
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
           </div>
         </CardContent>
       </Card>
+
+      <MarketProductionPolicyPanel
+        exchange={cfg.entitlement_exchange}
+        eeJetonDraft={eeJetonDraft}
+        onEeJetonDraftChange={setEeJetonDraft}
+        onExchangeChange={setEntitlementExchange}
+        onEeBlur={() => setEeJetonDraft(null)}
+      />
 
       <Card>
         <CardHeader className="pb-2">
@@ -1216,139 +910,9 @@ export default function MarketPolicyPage() {
         </CardContent>
       </Card>
 
-      {(
-        [
-          ['iap_android', 'Android (Google Play)'],
-          ['iap_ios', 'iOS (App Store)'],
-        ] as const
-      ).map(([key, title]) => {
-        const side = cfg[key] ?? emptyIap();
-        return (
-          <Card key={key} className="overflow-hidden shadow-sm">
-            <CardHeader className="border-b border-border/60 bg-muted/10">
-              <CardTitle className="text-lg">{title} — uygulama içi satın alma (IAP)</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Mağaza <span className="font-medium text-foreground">product_id</span> eşlemesi: jeton veya ek ders
-                miktarı; isteğe bağlı olarak aynı ürünle{' '}
-                <span className="font-medium text-foreground">yıllık plan / evrak üretim hakkı</span> da tanımlanır
-                (satın alma doğrulanınca öğretmen hesabına eklenir).
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-8">
-              {(['jeton', 'ekders'] as const).map((kind) => (
-                <div key={kind} className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="font-medium capitalize">{kind === 'jeton' ? 'Jeton paketleri' : 'Ek ders paketleri'}</h3>
-                    <Button type="button" variant="outline" size="sm" onClick={() => addPack(key, kind)}>
-                      <Plus className="mr-1 h-4 w-4" />
-                      Satır ekle
-                    </Button>
-                  </div>
-                  {side[kind].length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-border/80 bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
-                      Henüz ürün yok. &quot;Satır ekle&quot; ile mağaza product_id ekleyin.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {side[kind].map((pack, i) => (
-                        <div
-                          key={`${kind}-${i}`}
-                          className="flex flex-col gap-2 rounded-xl border border-border/70 bg-muted/15 p-3 shadow-sm transition-shadow hover:shadow-md sm:flex-row sm:flex-wrap sm:items-end"
-                        >
-                          <div className="w-full min-w-0 flex-1 space-y-1 sm:min-w-[200px]">
-                            <Label>product_id</Label>
-                            <Input
-                              value={pack.product_id}
-                              onChange={(e) =>
-                                setPack(key, kind, i, { product_id: e.target.value })
-                              }
-                              placeholder="com.app.jeton.100"
-                            />
-                          </div>
-                          <div className="w-full space-y-1 sm:w-28 sm:shrink-0">
-                            <Label>Miktar</Label>
-                            <Input
-                              type="number"
-                              inputMode="decimal"
-                              min={0}
-                              step="any"
-                              value={pack.amount}
-                              onChange={(e) =>
-                                setPack(key, kind, i, {
-                                  amount: parseRatioInput(e.target.value),
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="w-full min-w-0 flex-1 space-y-1 sm:min-w-[140px]">
-                            <Label>Etiket (opsiyonel)</Label>
-                            <Input
-                              value={pack.label ?? ''}
-                              onChange={(e) => setPack(key, kind, i, { label: e.target.value })}
-                            />
-                          </div>
-                          <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:max-w-[220px]">
-                            <div className="space-y-1">
-                              <Label className="text-xs">+Plan hak</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                max={IAP_GRANT_INPUT_MAX}
-                                value={pack.grant_yillik_plan_uretim ?? 0}
-                                onChange={(e) =>
-                                  setPack(key, kind, i, {
-                                    grant_yillik_plan_uretim: parseGrantInt(e.target.value),
-                                  })
-                                }
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">+Evrak hak</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                max={IAP_GRANT_INPUT_MAX}
-                                value={pack.grant_evrak_uretim ?? 0}
-                                onChange={(e) =>
-                                  setPack(key, kind, i, { grant_evrak_uretim: parseGrantInt(e.target.value) })
-                                }
-                              />
-                            </div>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="shrink-0 text-destructive"
-                            onClick={() => removePack(key, kind, i)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        );
-      })}
-
       <div className="space-y-2 text-xs text-muted-foreground">
         <p>
           Kamu yapılandırma: <code className="rounded bg-muted px-1">GET /api/content/market-policy</code> (auth yok).
-        </p>
-        <p>
-          Satın alma doğrulama (oturum gerekli):{' '}
-          <code className="rounded bg-muted px-1">POST /api/market/purchases/verify-android</code>,{' '}
-          <code className="rounded bg-muted px-1">POST /api/market/purchases/verify-ios</code> — başarıda jeton/ek ders
-          ve tanımlıysa plan/evrak üretim hakları satın alan kullanıcıya eklenir.
-        </p>
-        <p>
-          İşlem günlüğü / anomali (superadmin veya market_policy modüllü moderator):{' '}
-          <code className="rounded bg-muted px-1">GET /api/market/purchases/ledger</code>,{' '}
-          <code className="rounded bg-muted px-1">GET /api/market/purchases/anomalies</code>
         </p>
         <p>
           Platform aylık/yıllık özet (satın alma kredi + modül tüketim):{' '}

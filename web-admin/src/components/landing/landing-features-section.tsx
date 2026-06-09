@@ -44,7 +44,7 @@ const MODULE_CATEGORY: Record<string, ModuleCategory> = {
   'Optik Okuma': 'sinav',
   'Akıllı Tahta': 'gunluk',
   Ajanda: 'gunluk',
-  'Öğrenci değerlendirme': 'gunluk',
+  'Ders Dağıt': 'plan',
   Bilsem: 'plan',
   'Okul Değerl.': 'iletisim',
   Kertenkele: 'sinav',

@@ -18,13 +18,14 @@ const LABELS: Record<string, string> = {
   withdrawn: 'Geri çekildi',
 };
 
-export function PlanKatkiStatusBadge({ status }: { status: string }) {
+export function PlanKatkiStatusBadge({ status, compact }: { status: string; compact?: boolean }) {
   const cls = STYLES[status] ?? STYLES.draft!;
   const label = LABELS[status] ?? status;
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
+        'inline-flex shrink-0 items-center rounded-full border font-medium',
+        compact ? 'px-1.5 py-px text-[9px] leading-tight sm:px-2 sm:py-0.5 sm:text-[11px]' : 'px-2.5 py-0.5 text-xs',
         cls,
       )}
     >

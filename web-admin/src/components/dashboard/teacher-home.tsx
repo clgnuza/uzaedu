@@ -383,13 +383,6 @@ function buildTeacherQuickSections(enabledModules: string[] | null | undefined):
           accent: 'from-emerald-500/20 to-green-500/10 text-emerald-800 dark:text-emerald-300',
         },
         {
-          href: '/market/rewarded-ad',
-          title: 'Reklam izle · Jeton kazan',
-          desc: 'Mobilde izle, anında jeton',
-          icon: Coins,
-          accent: 'from-violet-500/20 to-purple-500/10 text-violet-800 dark:text-violet-300',
-        },
-        {
           href: '/support',
           title: 'Destek talepleri',
           desc: 'Yardım ve talep oluştur',

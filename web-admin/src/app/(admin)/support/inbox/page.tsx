@@ -23,6 +23,8 @@ import { TicketAttachmentInput, type AttachmentItem } from '@/components/ticket-
 import { SupportStatusBadge } from '@/components/support/support-status-badge';
 import { SupportNotificationHint } from '@/components/support/support-notification-hint';
 import { SupportTeamDialog } from '@/components/support/support-team-dialog';
+import { SupportTicketHeaderCard } from '@/components/support/support-ticket-header-card';
+import { SupportMessageThread } from '@/components/support/support-message-thread';
 import { cn } from '@/lib/utils';
 import { formatSchoolTypeLabel } from '@/lib/school-labels';
 
@@ -31,7 +33,8 @@ type TicketMessage = {
   body: string;
   message_type: 'PUBLIC' | 'INTERNAL_NOTE';
   created_at: string;
-  author?: { display_name: string | null } | null;
+  author_user_id?: string;
+  author?: { display_name: string | null; role?: string | null } | null;
 };
 
 type TicketItem = {
@@ -41,6 +44,7 @@ type TicketItem = {
   status: string;
   priority: string;
   target_type: string;
+  requester_user_id?: string;
   school_id?: string;
   assigned_to_user_id?: string | null;
   escalated_to_ticket_id?: string | null;
@@ -436,38 +440,23 @@ export default function SupportInboxPage() {
                   Bu talep {selectedTicket.status === 'CLOSED' ? 'kapatıldı' : 'çözüldü'}. Yeni yanıt eklenemez.
                 </Alert>
               )}
-              <div className="border-b border-border/50 bg-linear-to-r from-sky-500/10 via-background/90 to-violet-500/8 px-3 py-2.5 sm:p-4">
-                <p className="text-sm font-semibold sm:text-base">{selectedTicket.subject}</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground sm:text-xs">
-                  {selectedTicket.ticket_number} · {selectedTicket.module?.name ?? '-'}
-                </p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground sm:text-xs">
-                  {selectedTicket.school?.name ?? 'Okul bilgisi yok'}
-                  {!!formatSchoolMeta(selectedTicket.school) ? ` · ${formatSchoolMeta(selectedTicket.school)}` : ''}
-                </p>
+              <div className="border-b border-border/50 p-2 sm:p-3">
+                <SupportTicketHeaderCard
+                  ticket={selectedTicket}
+                  messageCount={messages.items.length}
+                  showMetaGrid={false}
+                  className="border-0 shadow-none ring-0"
+                />
               </div>
-              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2.5 sm:space-y-3 sm:p-4">
-                {messages.items.map((m) => (
-                  <Card
-                    key={m.id}
-                    className={m.message_type === 'INTERNAL_NOTE'
-                      ? 'ml-auto max-w-[94%] rounded-2xl border-amber-300/45 bg-linear-to-br from-amber-50/90 to-amber-100/40 shadow-sm dark:border-amber-800/40 dark:from-amber-950/35 dark:to-amber-950/15 sm:max-w-[92%] sm:rounded-3xl'
-                      : 'max-w-[94%] rounded-2xl border-sky-200/50 bg-linear-to-br from-sky-50/70 to-background/95 shadow-sm dark:border-sky-900/40 dark:from-sky-950/25 dark:to-background sm:max-w-[92%] sm:rounded-3xl'}
-                  >
-                    <CardContent className="px-3 py-3 sm:px-4 sm:pb-4 sm:pt-4">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>{m.author?.display_name ?? 'Sistem'}</span>
-                        <span>{new Date(m.created_at).toLocaleString('tr-TR')}</span>
-                      </div>
-                      {m.message_type === 'INTERNAL_NOTE' && (
-                        <span className="inline-flex items-center gap-1 rounded bg-amber-200/80 px-1.5 py-0.5 text-[10px] dark:bg-amber-800/50">
-                          <StickyNote className="size-2.5" /> İç not
-                        </span>
-                      )}
-                      <p className="mt-1.5 whitespace-pre-wrap text-xs sm:text-sm">{m.body}</p>
-                    </CardContent>
-                  </Card>
-                ))}
+              <div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-3">
+                <SupportMessageThread
+                  messages={messages.items}
+                  ticket={{
+                    requester_user_id: selectedTicket.requester_user_id,
+                    target_type: selectedTicket.target_type,
+                  }}
+                  className="border-0 bg-transparent p-0 shadow-none"
+                />
               </div>
               {selectedTicket.status !== 'CLOSED' && selectedTicket.status !== 'RESOLVED' && (
                 <form onSubmit={handleReply} className="space-y-2 border-t border-border/50 bg-muted/10 p-2.5 sm:space-y-3 sm:p-4">

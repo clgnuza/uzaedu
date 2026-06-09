@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { isPwaDisplayMode } from '@/lib/pwa-display';
 import { getNotificationPermission, pushSupported, subscribeWebPush } from '@/lib/web-push';
 import { NotificationPermissionPrompt } from '@/components/notification-permission-prompt';
-import { fetchWebAuthnSupported, registerPasskey } from '@/lib/webauthn';
+import { type AuthPortal, fetchWebAuthnSupported, registerPasskey } from '@/lib/webauthn';
 import { suggestPasskeyDeviceName } from '@/lib/passkey-device-label';
 import { getWebAuthnErrorMessage } from '@/lib/webauthn-error-message';
 import { trackPwaEvent } from '@/lib/pwa-analytics';
@@ -35,7 +35,9 @@ type StepId = 'welcome' | 'push' | 'passkey' | 'done';
 export function PwaOnboarding() {
   const pathname = usePathname();
   const router = useRouter();
-  const token = useAuthOptional()?.token ?? null;
+  const auth = useAuthOptional();
+  const token = auth?.token ?? null;
+  const passkeyPortal: AuthPortal = auth?.me?.role === 'school_admin' ? 'school' : 'teacher';
   const [open, setOpen] = useState(false);
   const [passkeyAvail, setPasskeyAvail] = useState(false);
   const [idx, setIdx] = useState(0);
@@ -115,7 +117,7 @@ export function PwaOnboarding() {
     if (!token) return;
     setBusy(true);
     try {
-      await registerPasskey(token, suggestPasskeyDeviceName());
+      await registerPasskey(token, suggestPasskeyDeviceName(), passkeyPortal);
       setPasskeyOk(true);
       toast.success('Biyometrik giriş eklendi');
       next();

@@ -10,7 +10,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/auth.guard';
 import { RequireSchoolModuleGuard } from '../common/guards/require-school-module.guard';
 import { RequireSchoolModule } from '../common/decorators/require-school-module.decorator';
@@ -20,9 +20,11 @@ import { RequireModule } from '../common/decorators/require-module.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../types/enums';
 import { YillikPlanIcerikService } from './yillik-plan-icerik.service';
+import { YillikPlanGptService, GPT_TASLAK_MODELS } from './yillik-plan-gpt.service';
 import { WorkCalendarService } from '../work-calendar/work-calendar.service';
 import { CreateYillikPlanIcerikDto } from './dto/create-yillik-plan-icerik.dto';
 import { UpdateYillikPlanIcerikDto } from './dto/update-yillik-plan-icerik.dto';
+import { PreviewDraftFromPasteDto } from './dto/preview-draft-from-paste.dto';
 import { MebFetchService, ParsedPlanRow } from '../meb/meb-fetch.service';
 import { generateMebWorkCalendar, hasMebCalendar } from '../config/meb-calendar';
 import { getDersSaatiStatic } from '../config/ders-saati';
@@ -36,6 +38,7 @@ import { resolveAyForYillikPlanRow } from './resolve-ay-for-plan-row.util';
 export class YillikPlanIcerikController {
   constructor(
     private readonly service: YillikPlanIcerikService,
+    private readonly gptService: YillikPlanGptService,
     private readonly workCalendarService: WorkCalendarService,
     private readonly mebFetchService: MebFetchService,
   ) {}
@@ -706,6 +709,94 @@ export class YillikPlanIcerikController {
       section: section?.trim() || null,
       items: enriched,
     };
+  }
+
+  @Get('gpt-models')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('document_templates')
+  gptModels() {
+    return { models: GPT_TASLAK_MODELS };
+  }
+
+  /** structured: JSON/CSV / kazanim_plan. gpt: tam metin → GPT + takvim. */
+  @Post('preview-draft-from-paste')
+  @Throttle({ default: { limit: 25, ttl: 60000 } })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('document_templates')
+  async previewDraftFromPaste(@Body() dto: PreviewDraftFromPasteDto) {
+    if (dto.paste_mode === 'gpt') {
+      return this.gptService.generateDraftFromPastedFullText({
+        subject_code: dto.subject_code,
+        subject_label: dto.subject_label,
+        grade: dto.grade,
+        section: dto.section,
+        school_profile: dto.school_profile,
+        academic_year: dto.academic_year,
+        model: dto.model,
+        pasted_text: dto.payload,
+        curriculum_model: dto.curriculum_model,
+        ana_grup: dto.ana_grup,
+        alt_grup: dto.alt_grup,
+      });
+    }
+    return this.gptService.importPlanDraftNoGpt({
+      subject_code: dto.subject_code,
+      subject_label: dto.subject_label,
+      grade: dto.grade,
+      section: dto.section,
+      academic_year: dto.academic_year,
+      payload: dto.payload,
+    });
+  }
+
+  @Post('save-draft')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.superadmin, UserRole.moderator)
+  @RequireModule('document_templates')
+  async saveDraft(
+    @Body()
+    body: {
+      subject_code: string;
+      subject_label: string;
+      grade: number;
+      section?: string;
+      academic_year: string;
+      items: Array<{
+        week_order: number;
+        unite?: string;
+        konu?: string;
+        kazanimlar?: string;
+        ders_saati?: number;
+        belirli_gun_haftalar?: string;
+        surec_bilesenleri?: string;
+        olcme_degerlendirme?: string;
+        sosyal_duygusal?: string;
+        degerler?: string;
+        okuryazarlik_becerileri?: string;
+        zenginlestirme?: string;
+        okul_temelli_planlama?: string;
+      }>;
+      curriculum_model?: string | null;
+      ana_grup?: string | null;
+      alt_grup?: string | null;
+      plan_grade?: number;
+    },
+  ) {
+    const created = await this.service.bulkCreate({
+      subject_code: body.subject_code,
+      subject_label: body.subject_label,
+      grade: body.grade,
+      plan_grade: body.plan_grade,
+      section: body.section,
+      academic_year: body.academic_year,
+      curriculum_model: body.curriculum_model,
+      ana_grup: body.ana_grup,
+      alt_grup: body.alt_grup,
+      items: body.items,
+    });
+    return { created: created.length, items: created };
   }
 
   /** Superadmin, moderator: Tek kayıt */

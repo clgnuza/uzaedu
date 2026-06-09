@@ -1,4 +1,5 @@
-import { IsString, IsOptional, IsInt, IsIn, Min, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsInt, IsIn, IsArray, IsUUID, Min, MaxLength, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateSorumlulukSessionDto {
   @IsOptional() @IsIn(['yazili', 'uygulama', 'mixed'])
@@ -25,8 +26,22 @@ export class CreateSorumlulukSessionDto {
   notes?: string;
 }
 
+export class SessionProctorEntryDto {
+  @IsUUID()
+  userId: string;
+
+  @IsIn(['komisyon_uye', 'gozcu'])
+  role: 'komisyon_uye' | 'gozcu';
+
+  @IsOptional() @IsInt() @Min(0)
+  sortOrder?: number;
+}
+
 export class SetSessionProctorsDto {
-  proctors: Array<{ userId: string; role: 'komisyon_uye' | 'gozcu'; sortOrder?: number }>;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SessionProctorEntryDto)
+  proctors: SessionProctorEntryDto[];
 }
 
 export class UpdateAttendanceDto {

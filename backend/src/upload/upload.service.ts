@@ -1,5 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
 import { AppConfigService } from '../app-config/app-config.service';
@@ -150,6 +156,49 @@ export class UploadService {
       new PutObjectCommand({ Bucket: r2_bucket, Key: key, Body: buffer, ContentType: contentType }),
     );
     return key;
+  }
+
+  /**
+   * Prefix altındaki, LastModified yaştan eski nesneleri siler.
+   * Evrak `generated/` gibi geçici indirme dosyaları için.
+   */
+  async purgeObjectsOlderThan(
+    prefix: string,
+    maxAgeMs: number,
+  ): Promise<{ deleted: number; scanned: number }> {
+    const p = String(prefix ?? '').trim();
+    if (!p || maxAgeMs < 0) return { deleted: 0, scanned: 0 };
+    const config = await this.appConfig.getR2Config();
+    const { r2_bucket } = config;
+    if (!r2_bucket) return { deleted: 0, scanned: 0 };
+    const client = await this.getS3Client();
+    const cutoff = Date.now() - maxAgeMs;
+    let deleted = 0;
+    let scanned = 0;
+    let token: string | undefined;
+    do {
+      const res = await client.send(
+        new ListObjectsV2Command({
+          Bucket: r2_bucket,
+          Prefix: p,
+          ContinuationToken: token,
+        }),
+      );
+      for (const obj of res.Contents ?? []) {
+        scanned += 1;
+        const key = obj.Key;
+        const lm = obj.LastModified;
+        if (!key || !lm || lm.getTime() > cutoff) continue;
+        try {
+          await this.deleteObject(key);
+          deleted += 1;
+        } catch {
+          void 0;
+        }
+      }
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (token);
+    return { deleted, scanned };
   }
 
   /** R2’den nesneyi siler (yoksa hata vermez). */

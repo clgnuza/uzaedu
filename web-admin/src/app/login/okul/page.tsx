@@ -32,7 +32,7 @@ function SchoolLoginForm() {
   const searchParams = useSearchParams();
   const redirectQuery = searchParams?.get('redirect') ?? null;
   const { setToken } = useAuth();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => getRememberedLoginEmail());
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');

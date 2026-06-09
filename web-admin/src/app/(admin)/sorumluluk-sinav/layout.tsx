@@ -135,35 +135,48 @@ export default function SorumlulukSinavLayout({ children }: { children: React.Re
 
   const activeTab = visible.find((t) => t.match(pathname));
 
+  if (isTeacher) {
+    return (
+      <div className="mx-auto max-w-lg space-y-3 px-0.5 sm:max-w-2xl sm:space-y-4">
+        <header className="flex items-center gap-2.5 rounded-xl border border-teal-200/50 bg-linear-to-r from-teal-500/10 to-cyan-500/5 px-3 py-2.5 dark:border-teal-900/40 dark:from-teal-950/40">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal-600 text-white shadow-sm shadow-teal-500/25">
+            <Bell className="size-4" strokeWidth={2} />
+          </span>
+          <div className="min-w-0">
+            <h1 className="text-sm font-bold tracking-tight text-teal-950 dark:text-teal-50 sm:text-base">
+              Sınav görevlerim
+            </h1>
+            <p className="text-[10px] leading-snug text-muted-foreground sm:text-[11px]">
+              Komisyon ve gözcü atamalarınız
+            </p>
+          </div>
+        </header>
+        {children}
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-5xl space-y-3 px-1 sm:space-y-5 sm:px-0">
-      {/* Header kart */}
       <div className="overflow-hidden rounded-xl border border-indigo-200/50 bg-linear-to-br from-indigo-500/10 via-violet-500/5 to-teal-400/8 shadow-sm dark:border-indigo-900/40 dark:from-indigo-950/55 dark:via-violet-950/25 dark:to-teal-950/15 sm:rounded-2xl">
-
-        {/* Başlık */}
         <div className="px-3 pt-3 pb-2 sm:px-5 sm:pt-5 sm:pb-3">
           <div className="flex items-start justify-between gap-2 sm:gap-3">
             <div className="min-w-0 flex-1">
               <h1 className="text-base font-bold leading-tight tracking-tight text-indigo-950 dark:text-indigo-50 sm:text-xl">
-                {isTeacher ? 'Sorumluluk sınavı — görevlerim' : 'Sorumluluk / Beceri Sınavı'}
+                Sorumluluk / Beceri Sınavı
               </h1>
               <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground sm:text-sm">
-                {isTeacher
-                  ? 'Yalnızca size atanan görevler; okul verilerine genel erişim yoktur.'
-                  : activeTab
-                    ? `${activeTab.step}. adım — ${activeTab.hint}`
-                    : 'Öğrenci-ders girişi, programlama, görevlendirme ve raporlar.'}
+                {activeTab
+                  ? `${activeTab.step}. adım — ${activeTab.hint}`
+                  : 'Öğrenci-ders girişi, programlama, görevlendirme ve raporlar.'}
               </p>
             </div>
-            {!isTeacher && activeTab && (
+            {activeTab && (
               <span className="shrink-0 rounded-lg bg-white/70 px-2 py-1 text-[10px] font-bold text-indigo-700 shadow-sm dark:bg-zinc-900/60 dark:text-indigo-300 sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-sm">
                 {activeTab.step} / {visible.length}
               </span>
             )}
           </div>
-
-          {/* İlerleme çizgisi */}
-          {!isTeacher ? (
           <div className="mt-2 flex gap-0.5 sm:mt-3 sm:gap-1">
             {visible.map((tab) => {
               const isActive = tab.match(pathname);
@@ -177,10 +190,7 @@ export default function SorumlulukSinavLayout({ children }: { children: React.Re
               );
             })}
           </div>
-          ) : null}
         </div>
-
-        {/* Sekme çubuğu */}
         <nav className="flex gap-1 overflow-x-auto overscroll-x-contain px-2 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] sm:gap-1.5 sm:px-3 sm:pb-3 [&::-webkit-scrollbar]:hidden" role="tablist">
           {visible.map((tab) => {
             const isActive = tab.match(pathname);
@@ -192,25 +202,17 @@ export default function SorumlulukSinavLayout({ children }: { children: React.Re
                 role="tab"
                 aria-selected={isActive}
                 className={cn(
-                  'flex flex-1 flex-col items-center gap-1 rounded-lg border px-1.5 py-2 text-center transition-all duration-200 sm:flex-row sm:justify-center sm:gap-2 sm:rounded-xl sm:px-3 sm:py-2',
-                  visible.length === 1 ? 'min-w-0 sm:min-w-[72px]' : 'min-w-[4.5rem] max-sm:flex-none max-sm:min-w-[4.75rem] sm:min-w-[72px]',
+                  'flex min-w-[4.5rem] max-sm:flex-none max-sm:min-w-[4.75rem] flex-1 flex-col items-center gap-1 rounded-lg border px-1.5 py-2 text-center transition-all duration-200 sm:min-w-[72px] sm:flex-row sm:justify-center sm:gap-2 sm:rounded-xl sm:px-3 sm:py-2',
                   isActive ? tab.active : tab.idle,
                 )}>
-                {!isTeacher ? (
                 <span className={cn(
-                  'inline-flex size-3.5 items-center justify-center rounded-full text-[7px] font-bold shrink-0 sm:size-4 sm:text-[8px]',
-                  isActive ? 'bg-white/30 text-white' : 'bg-white/80 dark:bg-zinc-800 text-current opacity-70',
+                  'inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-[7px] font-bold sm:size-4 sm:text-[8px]',
+                  isActive ? 'bg-white/30 text-white' : 'bg-white/80 text-current opacity-70 dark:bg-zinc-800',
                 )}>
                   {tab.step}
                 </span>
-                ) : null}
                 <Icon className="size-3.5 shrink-0 sm:size-4" strokeWidth={2} />
-                <span
-                  className={cn(
-                    'text-[9px] font-semibold leading-tight sm:text-[11px]',
-                    visible.length === 1 ? 'sm:truncate' : 'max-w-[5.5rem] sm:max-w-none sm:truncate',
-                  )}
-                >
+                <span className="max-w-[5.5rem] text-[9px] font-semibold leading-tight sm:max-w-none sm:truncate sm:text-[11px]">
                   {tab.label}
                 </span>
               </Link>
@@ -218,7 +220,6 @@ export default function SorumlulukSinavLayout({ children }: { children: React.Re
           })}
         </nav>
       </div>
-
       {children}
     </div>
   );

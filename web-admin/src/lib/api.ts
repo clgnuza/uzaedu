@@ -125,7 +125,7 @@ function shouldStringifyBody(
   return typeof body === 'object';
 }
 
-function formatApiErrorMessage(msg: unknown): string | undefined {
+export function formatApiErrorMessage(msg: unknown): string | undefined {
   if (typeof msg === 'string') {
     const t = msg.trim();
     return t || undefined;
@@ -167,6 +167,18 @@ export type ApiFetchOptions = Omit<RequestInit, 'body'> & {
   offlineQueue?: boolean;
 };
 
+/** apiFetch ile aynı Bearer / çerez oturumu mantığı (dosya indirme vb.). */
+export function buildApiAuthHeaders(token?: string | null): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (token && token !== COOKIE_SESSION_TOKEN) {
+    headers.Authorization = `Bearer ${token}`;
+  } else if (token === COOKIE_SESSION_TOKEN || token == null) {
+    const bearer = getSessionBearer();
+    if (bearer) headers.Authorization = `Bearer ${bearer}`;
+  }
+  return headers;
+}
+
 export async function apiFetch<T>(
   path: string,
   options: ApiFetchOptions = {}
@@ -178,13 +190,8 @@ export async function apiFetch<T>(
   const headers: Record<string, string> = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(init.headers as Record<string, string>),
+    ...buildApiAuthHeaders(token),
   };
-  if (token && token !== COOKIE_SESSION_TOKEN) {
-    headers['Authorization'] = `Bearer ${token}`;
-  } else if (token === COOKIE_SESSION_TOKEN || token == null) {
-    const bearer = getSessionBearer();
-    if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
-  }
   if (isFormData) delete headers['Content-Type'];
 
   let body = init.body;

@@ -6,6 +6,7 @@
 
 import { WorkCalendar } from '../work-calendar/entities/work-calendar.entity';
 import { YILLIK_PLAN_MAX_WEEK_ORDER } from '../work-calendar/work-calendar.service';
+import { OFFICIAL_WORK_CALENDAR_2025_2026 } from './meb-work-calendar-2025-2026';
 
 export interface MebTatilBlock {
   week_start: string;
@@ -102,8 +103,13 @@ function getAy(d: Date): string {
  * Seminer/uyum haftaları week_order=0.
  */
 export function generateMebWorkCalendar(academicYear: string): WorkCalendarWeek[] {
-  const config = MEB_CALENDAR[academicYear];
-  const [startYearStr, endYearStr] = academicYear.split('-');
+  const year = academicYear.trim();
+  if (year === '2025-2026') {
+    return [...OFFICIAL_WORK_CALENDAR_2025_2026];
+  }
+
+  const config = MEB_CALENDAR[year];
+  const [startYearStr, endYearStr] = year.split('-');
   const startYear = parseInt(startYearStr ?? '2024', 10);
 
   const result: WorkCalendarWeek[] = [];

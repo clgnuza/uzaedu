@@ -9,7 +9,8 @@
       { "include": "dogrudan-temin/data/*.json", "outDir": "dist", "watchAssets": true },
       { "include": "dogrudan-temin/data/*.xls", "outDir": "dist", "watchAssets": true },
       { "include": "dogrudan-temin/data/*.xlsx", "outDir": "dist", "watchAssets": true },
-      { "include": "dogrudan-temin/data/*.csv", "outDir": "dist", "watchAssets": true }
+      { "include": "dogrudan-temin/data/*.csv", "outDir": "dist", "watchAssets": true },
+      { "include": "../templates/yiillik-plan-sablon-2.xlsx", "outDir": "dist", "watchAssets": true }
     ]
   }
 }

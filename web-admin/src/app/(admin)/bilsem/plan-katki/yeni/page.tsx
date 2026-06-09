@@ -283,8 +283,14 @@ export default function BilsemPlanKatkiNewPage() {
           Yıllık plan (Excel)
         </p>
         <PlanKatkiExcelPlanUpload
+          variant="bilsem"
           itemsJson={itemsJson}
           onItemsJsonChange={setItemsJson}
+          templateQuery={{
+            academicYear,
+            subjectCode: selectedCode || undefined,
+            grade: 9,
+          }}
           onParsed={({ weekCount: n, fileName }) => {
             if (n > 0 && fileName) {
               toast.success(`${n} hafta okundu: ${fileName}`);

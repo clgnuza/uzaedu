@@ -18,4 +18,11 @@ class AppConfig {
   /// opencv_dart 2.x + `dart run opencv_dart:setup` (Flutter ≥3.38)
   static const bool omrOpencvEnhance =
       bool.fromEnvironment('OMR_OPENCV_ENHANCE', defaultValue: false);
+
+  /// Google Play doğrulaması — `applicationId` ile aynı olmalı.
+  static String get androidPackageName {
+    const fromEnv = String.fromEnvironment('ANDROID_PACKAGE_NAME');
+    if (fromEnv.isNotEmpty) return fromEnv;
+    return 'com.uzaedu.ogretmenpro_optik';
+  }
 }

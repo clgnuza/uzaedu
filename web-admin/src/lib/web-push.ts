@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api';
-import { iosPushRequiresStandalone, isIos, isPwaDisplayMode } from '@/lib/pwa-display';
+import { evaluatePushDeviceSupport, pushBlockMessage, type PushBlockReason } from '@/lib/push-platform-guide';
 
 function urlBase64ToUint8Array(base64: string): Uint8Array {
   const padding = '='.repeat((4 - (base64.length % 4)) % 4);
@@ -18,12 +18,21 @@ const PERMISSION_MS = 12_000;
 export type PushSubscribeReason =
   | 'unsupported'
   | 'ios_standalone'
+  | 'ios_old_version'
+  | 'ios_other_browser'
+  | 'firefox_android'
+  | 'huawei_gms'
   | 'denied'
   | 'server'
   | 'sw'
   | 'invalid'
   | 'subscribe_failed'
   | 'api_failed';
+
+function blockReasonToSubscribeReason(reason: PushBlockReason): PushSubscribeReason {
+  if (reason === 'unsupported') return 'unsupported';
+  return reason;
+}
 
 export type PushDeviceSnapshot = {
   permission: NotificationPermission;
@@ -146,8 +155,10 @@ export function pushSupported(): boolean {
 }
 
 export function canSubscribePushOnDevice(): { ok: boolean; reason?: PushSubscribeReason } {
-  if (!pushSupported()) return { ok: false, reason: 'unsupported' };
-  if (iosPushRequiresStandalone()) return { ok: false, reason: 'ios_standalone' };
+  const eval_ = evaluatePushDeviceSupport({ pushApiAvailable: pushSupported() });
+  if (!eval_.canSubscribe) {
+    return { ok: false, reason: blockReasonToSubscribeReason(eval_.blockReason ?? 'unsupported') };
+  }
   return { ok: true };
 }
 
@@ -299,9 +310,11 @@ export async function repairPushSubscriptionIfNeeded(token: string): Promise<{ o
 export function pushReasonMessage(reason: PushSubscribeReason | undefined, message?: string): string {
   switch (reason) {
     case 'ios_standalone':
-      return isIos()
-        ? 'iOS: Bildirim için uygulamayı Safari → Paylaş → Ana Ekrana Ekle ile açın (iOS 16.4+).'
-        : 'Bu cihazda push desteklenmiyor.';
+    case 'ios_old_version':
+    case 'ios_other_browser':
+    case 'firefox_android':
+    case 'huawei_gms':
+      return pushBlockMessage(reason);
     case 'denied':
       return 'Bildirim izni verilmedi. Tarayıcı/site ayarlarından izin verin.';
     case 'server':

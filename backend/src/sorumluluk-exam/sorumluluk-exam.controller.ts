@@ -62,9 +62,22 @@ export class SorumlulukExamController {
     return this.service.createGroup(sid, dto);
   }
 
+  @Get('groups/:id')
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
+  getGroup(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q?: string) {
+    const sid = this.sid(p, q);
+    this.service.assertAccess(p.role, p.schoolId, sid);
+    return this.service.getGroup(sid, id);
+  }
+
   @Patch('groups/:id')
   @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
-  updateGroup(@CurrentUser() p: CurrentUserPayload, @Param('id') id: string, @Query('school_id') q: string | undefined, @Body() body: Partial<CreateSorumlulukGroupDto> & { status?: string }) {
+  updateGroup(
+    @CurrentUser() p: CurrentUserPayload,
+    @Param('id') id: string,
+    @Query('school_id') q: string | undefined,
+    @Body() body: Partial<CreateSorumlulukGroupDto> & { status?: string },
+  ) {
     const sid = this.sid(p, q);
     this.service.assertAccess(p.role, p.schoolId, sid);
     return this.service.updateGroup(sid, id, body);
@@ -316,29 +329,27 @@ export class SorumlulukExamController {
       excludeBusy?: boolean;
       balanceLoad?: boolean;
       overwrite?: boolean;
+      useSmartRules?: boolean;
     },
   ) {
     const sid = this.sid(p, q);
     return this.service.autoAssignProctors(sid, groupId, {
-      komisyonPerSession: body.komisyonPerSession ?? 1,
-      gozcuPerSession:    body.gozcuPerSession    ?? 1,
+      komisyonPerSession: body.komisyonPerSession ?? 2,
+      gozcuPerSession:    body.gozcuPerSession    ?? 0,
       preferBranchMatch:  body.preferBranchMatch  ?? true,
       excludeBusy:        body.excludeBusy         ?? true,
       balanceLoad:        body.balanceLoad          ?? true,
       overwrite:          body.overwrite            ?? false,
+      useSmartRules:      body.useSmartRules,
     });
   }
 
   // ── PDF ───────────────────────────────────────────────────────────────────
 
   @Get('sessions/:sessionId/pdf/yoklama')
-  @Roles(UserRole.school_admin, UserRole.teacher, UserRole.superadmin, UserRole.moderator)
+  @Roles(UserRole.school_admin, UserRole.superadmin, UserRole.moderator)
   async pdfYoklama(@CurrentUser() p: CurrentUserPayload, @Param('sessionId') sessionId: string, @Query('school_id') q: string | undefined, @Res() res: Response) {
     const sid = this.sid(p, q);
-    if (p.role === UserRole.teacher) {
-      const ok = await this.service.isUserProctorOnSession(sid, sessionId, p.userId);
-      if (!ok) throw new ForbiddenException();
-    }
     const bytes = await this.service.buildYoklamaPdf(sid, sessionId);
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="yoklama.pdf"' });
     res.send(Buffer.from(bytes));

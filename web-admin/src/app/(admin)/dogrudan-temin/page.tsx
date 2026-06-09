@@ -53,32 +53,18 @@ type DtFileItem = {
   archivedAt?: string | null;
 };
 
-const TEMIN_BG_COLOR: Record<string, string> = {
-  '22a_mal': 'bg-emerald-500/8 hover:bg-emerald-500/15',
-  '22b_hizmet': 'bg-sky-500/8 hover:bg-sky-500/15',
-  '22c_yapim': 'bg-amber-500/8 hover:bg-amber-500/15',
-  '22d_dig_isler': 'bg-violet-500/8 hover:bg-violet-500/15',
-  '22e_danismanlik': 'bg-fuchsia-500/8 hover:bg-fuchsia-500/15',
-  '22f_kirala': 'bg-cyan-500/8 hover:bg-cyan-500/15',
-  '22g_isletme': 'bg-teal-500/8 hover:bg-teal-500/15',
-};
-
-function teminBgColor(code: string) {
-  return TEMIN_BG_COLOR[code] ?? 'bg-slate-500/8 hover:bg-slate-500/15';
-}
-
 const TEMIN_CARD_ACCENT: Record<string, string> = {
-  '22a_mal': 'border-l-emerald-500/75',
-  '22b_hizmet': 'border-l-sky-500/75',
-  '22c_yapim': 'border-l-amber-500/75',
-  '22d_dig_isler': 'border-l-violet-500/75',
-  '22e_danismanlik': 'border-l-fuchsia-500/75',
-  '22f_kirala': 'border-l-cyan-500/75',
-  '22g_isletme': 'border-l-teal-500/75',
+  '22a_mal': 'border-l-emerald-500',
+  '22b_hizmet': 'border-l-sky-500',
+  '22c_yapim': 'border-l-amber-500',
+  '22d_dig_isler': 'border-l-violet-500',
+  '22e_danismanlik': 'border-l-fuchsia-500',
+  '22f_kirala': 'border-l-cyan-500',
+  '22g_isletme': 'border-l-teal-500',
 };
 
 function teminCardAccent(code: string) {
-  return TEMIN_CARD_ACCENT[code] ?? 'border-l-slate-400/55';
+  return TEMIN_CARD_ACCENT[code] ?? 'border-l-slate-400';
 }
 
 export default function DogrudanTeminPage() {
@@ -105,7 +91,7 @@ export default function DogrudanTeminPage() {
     year: String(nowYear),
     file_no: '',
     subject: '',
-    temin_type: '22a_mal',
+    temin_type: '22d_dig_isler',
   });
 
   const fetchFiles = useCallback(async () => {
@@ -369,8 +355,8 @@ export default function DogrudanTeminPage() {
                     </p>
                   </div>
                 ) : (
-                  <div className="divide-y divide-border/40">
-                    <div className="hidden grid-cols-[160px_1fr_140px_120px_92px] gap-2 border-b border-border/40 bg-muted/20 px-3 py-2 text-[10px] font-medium text-muted-foreground sm:grid sm:px-4">
+                  <div className="space-y-2 p-2 sm:space-y-2.5 sm:p-3">
+                    <div className="hidden grid-cols-[minmax(0,150px)_1fr_120px_100px_88px] gap-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground lg:grid">
                       <div>Dosya</div>
                       <div>Konu</div>
                       <div>Durum</div>
@@ -378,58 +364,52 @@ export default function DogrudanTeminPage() {
                       <div className="text-right">İşlem</div>
                     </div>
                     {items.map((item) => (
-                      <div key={item.id} className={cn('transition-colors', teminBgColor(item.teminType))}>
-                        <div className="grid min-w-0 grid-cols-1 gap-2 px-3 py-2.5 sm:grid-cols-[160px_1fr_140px_120px_92px] sm:items-center sm:gap-2 sm:px-4">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <div className={cn('shrink-0 h-9 w-1 rounded-full', teminCardAccent(item.teminType))} />
-                            <div className="min-w-0">
-                              <div className="flex items-baseline gap-1.5">
-                                <span className="text-[11px] font-semibold tabular-nums text-foreground">{item.year}</span>
-                                <span className="text-[11px] font-semibold tabular-nums text-foreground">·</span>
-                                <span className="text-[11px] font-semibold tabular-nums text-foreground">#{item.fileNo}</span>
-                              </div>
-                              <div className="mt-0.5 text-[10px] font-medium text-muted-foreground">
-                                {dtTeminTypeLabel(item.teminType)}
-                                {item.archivedAt ? ' · Arşiv' : ''}
-                              </div>
-                            </div>
-                          </div>
-
+                      <article
+                        key={item.id}
+                        className={cn(
+                          'overflow-hidden rounded-xl border border-border/90 bg-card shadow-sm transition-shadow hover:shadow-md',
+                          'border-l-[3px]',
+                          teminCardAccent(item.teminType),
+                        )}
+                      >
+                        <div className="grid min-w-0 grid-cols-1 gap-2.5 p-3 sm:gap-3 lg:grid-cols-[minmax(0,150px)_1fr_120px_100px_88px] lg:items-center lg:gap-3 lg:px-3 lg:py-2.5">
                           <div className="min-w-0">
-                            <div className="truncate text-[11px] font-medium text-foreground">{item.subject}</div>
-                            <div className="mt-0.5 flex flex-wrap gap-1.5 sm:hidden">
-                              <span
-                                className={cn(
-                                  'inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-medium',
-                                  dtFileStatusBadgeClass(item.status),
-                                )}
-                              >
-                                {dtFileStatusLabel(item.status)}
-                              </span>
-                              <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
-                                <Calendar className="size-3" aria-hidden />
-                                {new Date(item.createdAt).toLocaleDateString('tr-TR')}
-                              </span>
-                            </div>
+                            <p className="text-[11px] font-bold tabular-nums text-foreground sm:text-xs">
+                              {item.year} · #{item.fileNo}
+                            </p>
+                            <p className="mt-0.5 text-[10px] font-medium text-muted-foreground">
+                              {dtTeminTypeLabel(item.teminType)}
+                              {item.archivedAt ? ' · Arşiv' : ''}
+                            </p>
                           </div>
 
-                          <div className="hidden sm:block">
+                          <div className="min-w-0 border-t border-border/50 pt-2 lg:border-t-0 lg:pt-0">
+                            <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground sm:text-xs">
+                              {item.subject}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 lg:block">
                             <span
                               className={cn(
-                                'inline-flex items-center rounded px-2 py-1 text-[10px] font-semibold',
+                                'inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold',
                                 dtFileStatusBadgeClass(item.status),
                               )}
                             >
                               {dtFileStatusLabel(item.status)}
                             </span>
+                            <span className="inline-flex items-center gap-1 rounded-md bg-muted/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground lg:hidden">
+                              <Calendar className="size-3" aria-hidden />
+                              {new Date(item.createdAt).toLocaleDateString('tr-TR')}
+                            </span>
                           </div>
 
-                          <div className="hidden text-[10px] text-muted-foreground sm:flex sm:items-center sm:gap-1">
-                            <Calendar className="size-3.5" aria-hidden />
+                          <div className="hidden text-[10px] text-muted-foreground lg:flex lg:items-center lg:gap-1">
+                            <Calendar className="size-3.5 shrink-0" aria-hidden />
                             <span className="tabular-nums">{new Date(item.createdAt).toLocaleDateString('tr-TR')}</span>
                           </div>
 
-                          <div className="flex items-center justify-end gap-1.5">
+                          <div className="flex items-center justify-end gap-1.5 border-t border-border/50 pt-2 lg:border-t-0 lg:pt-0">
                             <Link
                               href={
                                 isSuperadmin && schoolId
@@ -438,7 +418,7 @@ export default function DogrudanTeminPage() {
                               }
                               className="inline-flex"
                             >
-                              <Button size="sm" variant="outline" className="h-8 px-2 text-[10px]" disabled={busy}>
+                              <Button size="sm" variant="outline" className="h-8 px-2.5 text-[10px]" disabled={busy}>
                                 <ExternalLink className="mr-1 size-3.5" />
                                 Aç
                               </Button>
@@ -446,8 +426,8 @@ export default function DogrudanTeminPage() {
                             <Dialog open={deleteConfirm === item.id} onOpenChange={(open) => setDeleteConfirm(open ? item.id : null)}>
                               <Button
                                 size="sm"
-                                variant="ghost"
-                                className="h-8 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-500/10 dark:text-rose-400 dark:hover:text-rose-300"
+                                variant="outline"
+                                className="h-8 w-8 shrink-0 p-0 text-rose-600 hover:bg-rose-500/10 hover:text-rose-700 dark:text-rose-400"
                                 onClick={() => setDeleteConfirm(item.id)}
                                 disabled={busy}
                                 title="Dosyayı sil"
@@ -481,7 +461,7 @@ export default function DogrudanTeminPage() {
                             </Dialog>
                           </div>
                         </div>
-                      </div>
+                      </article>
                     ))}
                   </div>
                 )}

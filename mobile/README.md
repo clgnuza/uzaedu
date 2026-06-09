@@ -60,7 +60,31 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:4000/api
 
 Fiziksel cihaz (LAN): `API_BASE_URL=http://<PC-IP>:4000/api`
 
-İlk giriş: PWA’daki JWT’yi yapıştırın (geliştirme). Firebase entegrasyonu sonraki adım.
+İlk giriş: PWA’daki JWT’yi yapıştırın (geliştirme) veya Firebase Google giriş.
+
+## Mağaza (IAP)
+
+- Ekran: ana sayfa → cüzdan simgesi → `MarketPage`
+- Ürün listesi: `GET /content/market-policy` (`iap_android` / `iap_ios`)
+- Doğrulama: `POST /market/purchases/verify-android` | `verify-ios`
+
+**Backend `.env` (canlı):**
+
+```env
+GOOGLE_PLAY_PACKAGE_NAME=com.uzaedu.ogretmenpro_optik
+GOOGLE_PLAY_SERVICE_ACCOUNT_JSON=/path/to/play-service-account.json
+APPLE_SHARED_SECRET=...
+```
+
+**Google Play:** Play Console → Monetize → Products (consumable) → product_id’leri Market Politikasına girin. Service account + “View financial data” API erişimi.
+
+**App Store:** App Store Connect → In-App Purchases (Consumable) → Shared Secret → `APPLE_SHARED_SECRET`. Xcode → Signing & Capabilities → **In-App Purchase**.
+
+**Test:** Android license testers; iOS Sandbox hesabı. Emülatörde IAP sınırlı — gerçek cihaz önerilir.
+
+```powershell
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:4000/api --dart-define=ANDROID_PACKAGE_NAME=com.uzaedu.ogretmenpro_optik
+```
 
 ## PWA
 

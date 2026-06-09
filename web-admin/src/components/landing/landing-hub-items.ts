@@ -13,7 +13,7 @@ import {
   ClipboardCheck,
   MessageSquare,
   Package,
-  NotebookPen,
+  LayoutGrid,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -37,7 +37,7 @@ export const LANDING_HUB_ITEMS: LandingHubItem[] = [
   { label: 'Optik Okuma', slug: 'optik-okuma', href: '/login?redirect=%2Foptik-formlar', icon: ScanLine, description: 'Optik form üretin, okutun ve sonuçları hızlıca raporlayın.', detail: 'Form tasarımından sonuç yorumuna kadar ölçme sürecini sadeleştiren hızlı bir optik okuma deneyimi sunar.', tags: ['Form üret', 'Oku', 'Raporla'] },
   { label: 'Akıllı Tahta', slug: 'akilli-tahta', href: '/login?redirect=%2Fakilli-tahta', icon: Monitor, description: 'Akıllı tahta oturumları, cihaz yönetimi ve sınıf içi akışı merkezden yönetin.', detail: 'Cihaz erişimi, oturum kurgusu ve sınıf içi kullanım adımlarını tek merkezde toplar.', tags: ['Cihaz', 'Oturum', 'Sınıf içi'] },
   { label: 'Ajanda', slug: 'ogretmen-ajandasi', href: '/login?redirect=%2Fogretmen-ajandasi', icon: CalendarClock, description: 'Öğretmen ajandası ile not, görüşme, etkinlik ve takip kayıtlarını düzenleyin.', detail: 'Günlük okul temposunu daha düzenli hale getirir; görüşme, not ve takip adımlarını tek ekranda toplar.', tags: ['Notlar', 'Görüşmeler', 'Takip'] },
-  { label: 'Öğrenci değerlendirme', slug: 'ogrenci-degerlendirme', href: '/login?redirect=%2Fogretmen-ajandasi%2Fdegerlendirme', icon: NotebookPen, description: 'Sınıf ve öğrenci bazında değerlendirme kayıtlarını ajanda ile birlikte yürütün.', detail: 'Ölçütler, notlar ve takip adımlarını düzenli tutar; veli görüşmeleri ve dönem özeti için veri üretir.', tags: ['Sınıf', 'Kayıt', 'Takip'] },
+  { label: 'Ders Dağıt', slug: 'ders-dagit', href: '/login?redirect=%2Fders-dagit', icon: LayoutGrid, description: 'Ders programı üretimi, öğretmen atamaları ve stüdyo kurallarıyla dağıtımı yönetin.', detail: 'Program stüdyosu, yerleşim motoru ve yayın akışı ile haftalık çizelgeyi kurallara uygun üretir ve okula yayınlar.', tags: ['Program', 'Atama', 'Stüdyo'] },
   { label: 'Bilsem', slug: 'bilsem', href: '/login?redirect=%2Fbilsem%2Ftakvim', icon: Sparkles, description: 'Bilsem takvimi, planlar ve ilgili okul süreçlerini tek ekranda yürütün.', detail: 'Bilsem özelindeki takvim ve içerik akışını düzenler; öğretim planını daha görünür kılar.', tags: ['Takvim', 'Plan', 'Özel süreç'] },
   { label: 'Okul Değerl.', slug: 'okul-degerlendirme', href: '/okul-degerlendirmeleri', icon: Star, description: 'Okul değerlendirme sayfasını inceleyin, görünürlüğü ve geri bildirimleri takip edin.', detail: 'Okul algısını, yorumları ve görünürlük etkisini daha anlaşılır hale getirir.', tags: ['Geri bildirim', 'Görünürlük', 'Analiz'] },
   { label: 'Kertenkele', slug: 'kelebek-sinav', href: '/login?redirect=%2Fkelebek-sinav', icon: Bug, description: 'Kelebek sınav yerleşimi, salon düzeni ve planlama adımlarını otomatikleştirin.', detail: 'Sınav organizasyonunu daha kontrollü hale getirir; salon, dağılım ve yerleşim süreçlerini hızlandırır.', tags: ['Yerleşim', 'Salon planı', 'Otomasyon'] },

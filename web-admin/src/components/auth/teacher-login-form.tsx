@@ -56,7 +56,7 @@ export function TeacherLoginForm() {
     const q = p.toString();
     router.replace(q ? `/login/ogretmen?${q}` : '/login/ogretmen', { scroll: false });
   }, [searchParams, router]);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => getRememberedLoginEmail());
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');

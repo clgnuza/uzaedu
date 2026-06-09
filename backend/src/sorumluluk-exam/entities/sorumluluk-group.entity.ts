@@ -1,4 +1,5 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import type { SorumlulukProctorRules } from '../sorumluluk-proctor-rules';
 
 @Entity('sorumluluk_groups')
 export class SorumlulukGroup {
@@ -22,6 +23,9 @@ export class SorumlulukGroup {
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;
+
+  @Column({ name: 'proctor_rules', type: 'jsonb', nullable: true })
+  proctorRules: SorumlulukProctorRules | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

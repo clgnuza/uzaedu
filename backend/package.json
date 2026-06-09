@@ -106,7 +106,8 @@
     "typeorm": "^0.3.19",
     "uuid": "^9.0.1",
     "web-push": "^3.6.7",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.3.0",

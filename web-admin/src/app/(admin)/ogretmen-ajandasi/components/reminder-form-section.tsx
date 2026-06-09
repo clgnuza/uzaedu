@@ -27,8 +27,8 @@ export function ReminderFormSection({
   const value = enabled ? (remindAt ?? '') : '';
 
   return (
-    <div className="space-y-1.5 sm:space-y-2">
-      <label className="flex cursor-pointer items-center gap-2">
+    <div className="space-y-1">
+      <label className="flex cursor-pointer items-center gap-1.5">
         <input
           type="checkbox"
           checked={enabled}
@@ -39,22 +39,24 @@ export function ReminderFormSection({
             onEnabledChange?.(on);
           }}
           disabled={disabled}
-          className="rounded"
+          className="size-3.5 rounded border-input"
         />
         {showLeadingBell ? (
-          <Bell className="size-3.5 shrink-0 text-muted-foreground sm:size-4" />
+          <Bell className="size-3 shrink-0 text-muted-foreground" />
         ) : null}
-        <span className="text-xs font-medium sm:text-sm">Hatırlatıcı ekle</span>
+        <span className="text-[11px] font-medium">Hatırlatıcı ekle</span>
       </label>
       {enabled && (
         <div>
-          <Label className="text-[11px] sm:text-xs">Hatırlatma tarihi ve saati</Label>
+          <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Tarih ve saat
+          </Label>
           <Input
             type="datetime-local"
             value={value}
             onChange={(e) => onChange(e.target.value || undefined)}
             disabled={disabled}
-            className="mt-1 min-h-10 text-sm sm:min-h-11"
+            className="mt-0.5 h-8 rounded-md border-border/80 px-2.5 text-xs"
           />
         </div>
       )}

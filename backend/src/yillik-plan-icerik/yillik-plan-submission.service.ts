@@ -12,8 +12,34 @@ import { parsePlanPastePayload } from './plan-paste-parser';
 import { User } from '../users/entities/user.entity';
 import { CreateYillikPlanSubmissionDto } from './dto/create-yillik-plan-submission.dto';
 import { UpdateYillikPlanSubmissionDto } from './dto/update-yillik-plan-submission.dto';
+import { isBilsemSubjectCode } from '../bilsem/bilsem-puy-plan-constants';
 import { YillikPlanSubmission, YillikPlanSubmissionStatus } from './entities/yillik-plan-submission.entity';
 import { YillikPlanSubmissionEvent } from './entities/yillik-plan-submission-event.entity';
+
+export type MebPlanModerationQueueRow = {
+  id: string;
+  status: string;
+  subjectCode: string;
+  subjectLabel: string;
+  grade: number;
+  section: string | null;
+  academicYear: string;
+  tabloAltiNot: string | null;
+  weekCount: number;
+  submittedAt: string | null;
+  updatedAt: string;
+  createdAt: string;
+  authorUserId: string;
+  authorEmail: string | null;
+  authorDisplayName: string | null;
+};
+
+export type MebPlanModerationHistoryRow = MebPlanModerationQueueRow & {
+  reviewerLabel: string | null;
+  reviewNote: string | null;
+  decidedAt: string | null;
+  publishedAt: string | null;
+};
 
 @Injectable()
 export class YillikPlanSubmissionService {
@@ -59,7 +85,17 @@ export class YillikPlanSubmissionService {
     await this.eventRepo.save(this.eventRepo.create({ submissionId, actorUserId, fromStatus: from, toStatus: to, note: note?.trim() || null }));
   }
 
+  private assertMebPlanSubject(subjectCode: string): void {
+    if (isBilsemSubjectCode(subjectCode)) {
+      throw new BadRequestException({
+        code: 'BILSEM_SUBJECT_ON_MEB',
+        message: 'BİLSEM ders kodu MEB plan katkısına kaydedilemez. BİLSEM menüsünden yükleyin.',
+      });
+    }
+  }
+
   async createDraft(authorUserId: string, schoolId: string | null, dto: CreateYillikPlanSubmissionDto): Promise<YillikPlanSubmission> {
+    this.assertMebPlanSubject(dto.subject_code);
     const itemsJson = this.itemsJsonFromImportOrItems(dto);
     this.parseItemsJson(itemsJson);
     const row = this.submissionRepo.create({
@@ -141,13 +177,52 @@ export class YillikPlanSubmissionService {
     return saved;
   }
 
-  async listPending(q?: string): Promise<YillikPlanSubmission[]> {
-    const qb = this.submissionRepo.createQueryBuilder('s').leftJoinAndSelect('s.author', 'author').where('s.status = :st', { st: 'pending_review' });
-    if (q?.trim()) {
-      const like = `%${q.trim()}%`;
-      qb.andWhere('(s.subjectLabel ILIKE :l OR s.subjectCode ILIKE :l OR author.email ILIKE :l OR author.display_name ILIKE :l)', { l: like });
+  private weekCountFromItemsJson(raw: string): number {
+    try {
+      const j = JSON.parse(raw) as unknown;
+      return Array.isArray(j) ? j.length : 0;
+    } catch {
+      return 0;
     }
-    return qb.orderBy('s.submittedAt', 'ASC').addOrderBy('s.createdAt', 'ASC').take(200).getMany();
+  }
+
+  private toModerationQueueRow(s: YillikPlanSubmission): MebPlanModerationQueueRow {
+    const author = s.author as User | null | undefined;
+    return {
+      id: s.id,
+      status: s.status,
+      subjectCode: s.subjectCode,
+      subjectLabel: s.subjectLabel,
+      grade: s.grade,
+      section: s.section,
+      academicYear: s.academicYear,
+      tabloAltiNot: s.tabloAltiNot,
+      weekCount: this.weekCountFromItemsJson(s.itemsJson),
+      submittedAt: s.submittedAt ? s.submittedAt.toISOString() : null,
+      updatedAt: s.updatedAt.toISOString(),
+      createdAt: s.createdAt.toISOString(),
+      authorUserId: s.authorUserId,
+      authorEmail: author?.email ?? null,
+      authorDisplayName: author?.display_name?.trim() || null,
+    };
+  }
+
+  async listPending(filters?: { q?: string; academic_year?: string }): Promise<MebPlanModerationQueueRow[]> {
+    const qb = this.submissionRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.author', 'author')
+      .where('s.status = :st', { st: 'pending_review' });
+    if (filters?.academic_year?.trim()) {
+      qb.andWhere('s.academicYear = :ay', { ay: filters.academic_year.trim() });
+    }
+    if (filters?.q?.trim()) {
+      const like = `%${filters.q.trim()}%`;
+      qb.andWhere('(s.subjectLabel ILIKE :l OR s.subjectCode ILIKE :l OR author.email ILIKE :l OR author.display_name ILIKE :l)', {
+        l: like,
+      });
+    }
+    const rows = await qb.orderBy('s.submittedAt', 'ASC').addOrderBy('s.createdAt', 'ASC').take(200).getMany();
+    return rows.map((s) => this.toModerationQueueRow(s));
   }
 
   async getModerationDashboard(): Promise<{ pending: number; published: number; rejected: number; withdrawn: number }> {
@@ -160,20 +235,43 @@ export class YillikPlanSubmissionService {
     return { pending, published, rejected, withdrawn };
   }
 
-  async listModerationHistory(limit = 30, q?: string): Promise<YillikPlanSubmission[]> {
+  async listModerationHistory(
+    limit = 30,
+    filters?: { q?: string; academic_year?: string },
+  ): Promise<MebPlanModerationHistoryRow[]> {
     const n = Math.min(100, Math.max(1, limit));
-    const qb = this.submissionRepo.createQueryBuilder('s').leftJoinAndSelect('s.author', 'author').leftJoinAndSelect('s.reviewer', 'reviewer').where('s.status IN (:...st)', { st: ['published', 'rejected'] as const });
-    if (q?.trim()) {
-      const like = `%${q.trim()}%`;
-      qb.andWhere('(s.subjectLabel ILIKE :l OR s.subjectCode ILIKE :l OR author.email ILIKE :l OR author.display_name ILIKE :l)', { l: like });
+    const qb = this.submissionRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.author', 'author')
+      .leftJoinAndSelect('s.reviewer', 'reviewer')
+      .where('s.status IN (:...st)', { st: ['published', 'rejected'] as const });
+    if (filters?.academic_year?.trim()) {
+      qb.andWhere('s.academicYear = :ay', { ay: filters.academic_year.trim() });
     }
-    return qb.orderBy('s.decidedAt', 'DESC', 'NULLS LAST').addOrderBy('s.updatedAt', 'DESC').take(n).getMany();
+    if (filters?.q?.trim()) {
+      const like = `%${filters.q.trim()}%`;
+      qb.andWhere('(s.subjectLabel ILIKE :l OR s.subjectCode ILIKE :l OR author.email ILIKE :l OR author.display_name ILIKE :l)', {
+        l: like,
+      });
+    }
+    const rows = await qb.orderBy('s.decidedAt', 'DESC', 'NULLS LAST').addOrderBy('s.updatedAt', 'DESC').take(n).getMany();
+    return rows.map((s) => {
+      const rev = s.reviewer as User | null | undefined;
+      return {
+        ...this.toModerationQueueRow(s),
+        reviewerLabel: YillikPlanSubmissionService.reviewerLabel(rev),
+        reviewNote: s.reviewNote,
+        decidedAt: s.decidedAt ? s.decidedAt.toISOString() : null,
+        publishedAt: s.publishedAt ? s.publishedAt.toISOString() : null,
+      };
+    });
   }
 
   async publish(id: string, reviewerUserId: string, body: { review_note?: string | null }): Promise<{ submission: YillikPlanSubmission; imported_weeks: number }> {
     const s = await this.submissionRepo.findOne({ where: { id } });
     if (!s) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Gönderim bulunamadı.' });
     if (s.status !== 'pending_review') throw new ConflictException({ code: 'INVALID_STATE', message: 'Yalnızca incelemedeki kayıt yayınlanır.' });
+    this.assertMebPlanSubject(s.subjectCode);
     const items = this.parseItemsJson(s.itemsJson);
     const created = await this.yillikPlanIcerikService.bulkCreate({
       subject_code: s.subjectCode,

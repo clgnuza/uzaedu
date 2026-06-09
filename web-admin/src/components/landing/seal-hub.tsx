@@ -331,14 +331,30 @@ function HubDetailModal({ item, onClose, hubRect }: { item: HubItem; onClose: ()
   );
 }
 
-const Node3D = memo(function Node3D({ item, onSelect }: { item: HubItem; onSelect: (item: HubItem) => void }) {
+function hubNodeLabelAbove(index: number, total: number): boolean {
+  const angle = -Math.PI / 2 + (index / total) * Math.PI * 2;
+  return Math.sin(angle) < -0.1;
+}
+
+const Node3D = memo(function Node3D({
+  item,
+  onSelect,
+  labelAbove,
+}: {
+  item: HubItem;
+  onSelect: (item: HubItem) => void;
+  labelAbove: boolean;
+}) {
   const Icon = item.icon;
   return (
     <button
       type="button"
       onClick={() => onSelect(item)}
       aria-label={`${item.label} bilgi kartını aç`}
-      className="group flex max-w-full flex-col items-center gap-0.5 outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 sm:gap-1"
+      className={cn(
+        'group flex max-w-full items-center gap-0.5 outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 sm:gap-1',
+        labelAbove ? 'flex-col-reverse' : 'flex-col',
+      )}
     >
       <span className="relative flex h-[clamp(36px,7.2vmin,50px)] w-[clamp(36px,7.2vmin,50px)] shrink-0 items-center justify-center overflow-hidden rounded-full transition-transform duration-200 group-hover:scale-105 sm:h-[clamp(40px,7.5vmin,56px)] sm:w-[clamp(40px,7.5vmin,56px)] sm:group-hover:scale-110">
         {/* Metallic base */}
@@ -489,16 +505,20 @@ export function SealHub() {
           </g>
         </svg>
 
-        {/* Module nodes */}
-        <div className="absolute inset-[4%] sm:inset-[3%] md:inset-[2.5%]">
-          <div className="relative h-full min-h-0 w-full min-w-0">
+        {/* Module nodes — z-10: kenar etiketleri orta logonun altında kalmasın */}
+        <div className="landing-seal-hub-nodes absolute inset-[3%] z-10 sm:inset-[3%] md:inset-[2.5%]">
+          <div className="landing-seal-hub-nodes-ring relative h-full min-h-0 w-full min-w-0 origin-center">
             {ITEMS.map((item, i) => (
               <div
                 key={item.href}
                 className="absolute flex w-[15%] min-w-0 max-w-[15%] -translate-x-1/2 -translate-y-1/2 justify-center sm:w-[16%] sm:max-w-[16%] md:w-[17%] md:max-w-[17%] lg:w-[17.5%] lg:max-w-[17.5%]"
                 style={NODE_POSITIONS[i]}
               >
-                <Node3D item={item} onSelect={handleSelect} />
+                <Node3D
+                  item={item}
+                  onSelect={handleSelect}
+                  labelAbove={hubNodeLabelAbove(i, ITEMS.length)}
+                />
               </div>
             ))}
           </div>
@@ -509,7 +529,7 @@ export function SealHub() {
         )}
 
         {/* Orta logo */}
-        <div className="pointer-events-none absolute inset-[30%] flex items-center justify-center">
+        <div className="landing-seal-hub-center pointer-events-none absolute inset-[30%] z-1 flex items-center justify-center max-sm:inset-[33%]">
           <div className="seal-hub-logo-breathe relative flex h-[84%] w-[84%] items-center justify-center overflow-hidden rounded-full">
             <div className="absolute inset-[8%] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.98)_0%,rgba(255,255,255,0.78)_30%,rgba(255,255,255,0.24)_52%,rgba(255,255,255,0)_72%)] blur-md" />
             <Image

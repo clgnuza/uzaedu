@@ -16,29 +16,26 @@ export type BilsemPlanWeekItem = {
   okul_temelli_planlama: string | null;
 };
 
-/** Örnek şablon (yiillik-plan-sablon.xlsx) sütunları ↔ API / Word (MEB sıra: AY, HAFTA, DERS SAATİ, ÜNİTE, KONU, …) */
+/** API şablonu: SÜRE (AY, HAFTA, DERS SAATİ) + içerik sütunları; öğretmen 36 hafta doldurur */
+export const YILLIK_PLAN_UPLOAD_MAX_WEEKS = 36;
+
+/** yiillik-plan-sablon-2.xlsx: Excel 1–2 başlık, 3–38 veri (0-indeks 2–37) */
+const SABLON2_HEADER_ROW = 1;
+const SABLON2_DATA_START = 2;
+const SABLON2_DATA_END = 37;
+
 export const YILLIK_PLAN_SABLON_COLUMN_HELP: { excel: string; api: string; note: string }[] = [
-  { excel: 'AY', api: '—', note: 'Word’de ay alanı çalışma takviminden gelir.' },
-  {
-    excel: 'HAFTA',
-    api: 'week_order',
-    note: 'N. Hafta / 6-7. Hafta aralığı; tatil (tarih) satırları veritabanına yazılmaz, yalnız 1–38 öğretim haftaları.',
-  },
-  { excel: 'DERS SAATİ', api: 'ders_saati', note: 'Word tablosunda haftadan sonra; tatilde 0.' },
-  { excel: 'ÜNİTE / TEMA', api: 'unite', note: 'Ders saatinden sonra' },
-  { excel: 'KONU (İÇERİK ÇERÇEVESİ)', api: 'konu', note: 'Word → konu' },
-  { excel: 'ÖĞRENME ÇIKTILARI', api: 'kazanimlar', note: 'Word tablosunda öğrenme çıktıları / ogrenme_ciktilari' },
-  { excel: 'SÜREÇ BİLEŞENLERİ', api: 'surec_bilesenleri', note: 'Word → surec_bilesenleri' },
-  { excel: 'ÖLÇME VE DEĞERLENDİRME', api: 'olcme_degerlendirme', note: 'Word → olcme_degerlendirme' },
-  { excel: 'SOSYAL - DUYGUSAL …', api: 'sosyal_duygusal', note: 'Word → sosyal_duygusal' },
-  { excel: 'DEĞERLER', api: 'degerler', note: 'Word → degerler' },
-  { excel: 'OKURYAZARLIK BECERİLERİ', api: 'okuryazarlik_becerileri', note: 'Word → okuryazarlik_becerileri' },
-  { excel: 'BELİRLİ GÜN VE HAFTALAR', api: 'belirli_gun_haftalar', note: 'Word → belirli_gun_haftalar' },
-  {
-    excel: 'FARKLILAŞTIRMA (+ isteğe okul temelli aynı sütun)',
-    api: 'zenginlestirme / okul_temelli_planlama',
-    note: 'İki ayrı sütun varsa satırda ayrı; tek Excel sütununda aynı metin her iki alana yazılır. Word’de dikey birleşik hücrede tek metin gösterilir (haftalara göre tekrarlanmaz).',
-  },
+  { excel: 'ÜNİTE / TEMA', api: 'unite', note: 'Doldurulacak' },
+  { excel: 'KONU (İÇERİK ÇERÇEVESİ)', api: 'konu', note: 'Doldurulacak' },
+  { excel: 'ÖĞRENME ÇIKTILARI', api: 'kazanimlar', note: 'Doldurulacak' },
+  { excel: 'SÜREÇ BİLEŞENLERİ', api: 'surec_bilesenleri', note: 'Doldurulacak' },
+  { excel: 'ÖLÇME VE DEĞERLENDİRME', api: 'olcme_degerlendirme', note: 'Doldurulacak' },
+  { excel: 'SOSYAL - DUYGUSAL …', api: 'sosyal_duygusal', note: 'Doldurulacak' },
+  { excel: 'DEĞERLER', api: 'degerler', note: 'Doldurulacak' },
+  { excel: 'OKURYAZARLIK BECERİLERİ', api: 'okuryazarlik_becerileri', note: 'Doldurulacak' },
+  { excel: 'BELİRLİ GÜN VE HAFTALAR', api: 'belirli_gun_haftalar', note: 'Doldurulacak' },
+  { excel: 'FARKLILAŞTIRMA', api: 'zenginlestirme', note: 'Doldurulacak' },
+  { excel: 'OKUL TEMELLİ PLANLAMA', api: 'okul_temelli_planlama', note: 'Doldurulacak' },
 ];
 
 function cell(v: unknown): string {
@@ -54,13 +51,46 @@ function nullIfEmpty(s: string): string | null {
 }
 
 const HOLIDAY_PHRASE_RE =
-  /(TAT[İI]L|YARIYIL|D[ÖO]NEM\s+ARA|D[ÖO]NEM\s+SONU|KARNE|BAYRAM|RESM[İI]\s+TAT[İI]L|ARA\s+TAT[İI]L[İI])/i;
+  /(TAT[İI]L|YARIYIL|D[ÖO]NEM\s+ARA|D[ÖO]NEM\s+SONU|KARNE|BAYRAM|RESM[İI]\s+TAT[İI]L|ARA\s+TAT[İI]L[İI]|SEMINER|UYUM\s+HAFTASI)/i;
 
 function isHolidayLabel(ay: string, hafta: string): boolean {
   return HOLIDAY_PHRASE_RE.test(`${ay} ${hafta}`);
 }
 
-/** "10 - 14 Kasım" / "19 Ocak - 30 Ocak" (N. Hafta yok) — lastWeek+1 ile öğretim haftası sayılmamalı. */
+function isNonTeachingSureRow(ay: string, hafta: string, dersSaati: number): boolean {
+  if (dersSaati === 0) return true;
+  if (isHolidayLabel(ay, hafta)) return true;
+  if (isTatilRowByDateShape(ay, hafta)) return true;
+  return false;
+}
+
+function isGuideRow(r: unknown[], colFark: number, colOkul: number): boolean {
+  const f = cell(r[colFark] ?? '');
+  const o = cell(r[colOkul] ?? '');
+  return f.length > 120 || o.length > 120;
+}
+
+/** Sağ sütunlarda rehber metni var; 1. veri satırı (3. Excel satırı) her zaman hafta satırıdır */
+function isGuideOnlyRow(
+  sh: XLSX.WorkSheet,
+  rowIdx: number,
+  r: unknown[],
+  c: ColMap,
+  noMerge: Set<number>,
+  dataStart: number,
+): boolean {
+  if (isHeaderLabelsRow(sh, rowIdx, r, c, noMerge, dataStart)) return true;
+  if (rowIdx === dataStart) return false;
+  const okulCol = c.okul_temelli >= 0 ? c.okul_temelli : c.zenginlestirme;
+  if (!isGuideRow(r, c.zenginlestirme, okulCol)) return false;
+  return !rowHasPlanBody(sh, rowIdx, r, c, noMerge, dataStart);
+}
+
+function isSablon2FixedLayout(rows: unknown[][], headerRow: number): boolean {
+  return headerRow === SABLON2_HEADER_ROW && rows.length >= SABLON2_DATA_END + 1;
+}
+
+/** "10 - 14 Kasım" (N. Hafta yok) — tatil satırı */
 function isTatilRowByDateShape(ay: string, ha: string): boolean {
   const t = `${ay} ${ha}`.replace(/\s+/g, ' ').trim();
   if (!t) return false;
@@ -94,7 +124,7 @@ function normHeader(v: unknown): string {
 
 type WeekParse = { kind: 'holiday' } | { kind: 'weeks'; weeks: number[] } | { kind: 'unknown' };
 
-function parseWeekLine(ayRaw: unknown, haftaRaw: unknown, lastWeek: number): WeekParse {
+function parseWeekLine(ayRaw: unknown, haftaRaw: unknown): WeekParse {
   const ay = cell(ayRaw);
   const oneHa = String(haftaRaw ?? '').replace(/\r\n/g, ' ').replace(/\r/g, ' ');
   if (isHolidayLabel(ay, oneHa)) return { kind: 'holiday' };
@@ -105,7 +135,7 @@ function parseWeekLine(ayRaw: unknown, haftaRaw: unknown, lastWeek: number): Wee
   if (rangeDash) {
     const a = parseInt(rangeDash[1], 10);
     const b = parseInt(rangeDash[2], 10);
-    if (Number.isFinite(a) && Number.isFinite(b) && a >= 1 && b >= a && b <= 38) {
+    if (Number.isFinite(a) && Number.isFinite(b) && a >= 1 && b >= a && b <= YILLIK_PLAN_UPLOAD_MAX_WEEKS) {
       const weeks: number[] = [];
       for (let w = a; w <= b; w++) weeks.push(w);
       return { kind: 'weeks', weeks };
@@ -115,7 +145,7 @@ function parseWeekLine(ayRaw: unknown, haftaRaw: unknown, lastWeek: number): Wee
   if (rangeVe) {
     const a = parseInt(rangeVe[1], 10);
     const b = parseInt(rangeVe[2], 10);
-    if (Number.isFinite(a) && Number.isFinite(b) && a >= 1 && b >= a && b <= 38) {
+    if (Number.isFinite(a) && Number.isFinite(b) && a >= 1 && b >= a && b <= YILLIK_PLAN_UPLOAD_MAX_WEEKS) {
       const weeks: number[] = [];
       for (let w = a; w <= b; w++) weeks.push(w);
       return { kind: 'weeks', weeks };
@@ -123,10 +153,9 @@ function parseWeekLine(ayRaw: unknown, haftaRaw: unknown, lastWeek: number): Wee
   }
   const fromH = parseWeekOrderFromHaftaCell(haftaRaw) ?? parseWeekOrderFromHaftaCell(ayRaw);
   if (fromH != null) {
-    if (fromH < 1 || fromH > 38) return { kind: 'unknown' };
+    if (fromH < 1 || fromH > YILLIK_PLAN_UPLOAD_MAX_WEEKS) return { kind: 'unknown' };
     return { kind: 'weeks', weeks: [fromH] };
   }
-  if (lastWeek > 0 && lastWeek < 38) return { kind: 'weeks', weeks: [lastWeek + 1] };
   return { kind: 'unknown' };
 }
 
@@ -152,16 +181,41 @@ function mergedValueAt(
   row: number,
   col: number,
   raw: unknown,
+  opts?: { noMerge?: boolean; mergeFloorRow?: number },
 ): unknown {
   const hasRaw = String(raw ?? '').trim().length > 0;
-  if (hasRaw) return raw;
+  if (hasRaw || opts?.noMerge) return raw;
   const merges = (sh['!merges'] ?? []) as XLSX.Range[];
   for (const m of merges) {
     if (row < m.s.r || row > m.e.r || col < m.s.c || col > m.e.c) continue;
+    if (opts?.mergeFloorRow != null && m.s.r < opts.mergeFloorRow) continue;
     const addr = XLSX.utils.encode_cell({ r: m.s.r, c: m.s.c });
     return sh[addr]?.v ?? raw;
   }
   return raw;
+}
+
+function readCell(
+  sh: XLSX.WorkSheet,
+  row: number,
+  col: number,
+  raw: unknown,
+  noMergeCols: Set<number>,
+  mergeFloorRow?: number,
+): string {
+  const v = mergedValueAt(sh, row, col, raw, {
+    noMerge: noMergeCols.has(col),
+    mergeFloorRow,
+  });
+  return cell(v);
+}
+
+function headerHasSureColumns(hrow: unknown[]): boolean {
+  const cells = hrow.map((c) => normHeader(c).toUpperCase());
+  return (
+    cells.some((s) => s === 'AY' || /^AY(\s|\/)/.test(s)) &&
+    cells.some((s) => s.includes('HAFTA') && !s.includes('BELİRLİ') && !s.includes('BELIRLI'))
+  );
 }
 
 function resolveColMap(hrow: unknown[]): ColMap {
@@ -173,6 +227,7 @@ function resolveColMap(hrow: unknown[]): ColMap {
     }
     return fb;
   };
+  const hasSure = headerHasSureColumns(hrow);
   const f = find(
     (s) =>
       s.includes('FARKLILAŞTIRMA') ||
@@ -184,22 +239,33 @@ function resolveColMap(hrow: unknown[]): ColMap {
   if (oi === f) oi = -1;
 
   return {
-    ay: find((s) => s === 'AY' || /^AY(\s|\/)/.test(s), 0),
-    hafta: find(
-      (s) => s.includes('HAFTA') && !s.includes('BELİRLİ') && !s.includes('BELIRLI') && !s.includes('BELIRLI GUN'),
-      1,
-    ),
-    ders_saati: find((s) => s.includes('DERS') && (s.includes('SAAT') || s.includes('SAATİ')), 2),
-    unite: find((s) => s.includes('ÜNİTE') || s.includes('UNITE') || (s.includes('TEMA') && s.length < 32), 3),
+    ay: hasSure ? find((s) => s === 'AY' || /^AY(\s|\/)/.test(s), 0) : -1,
+    hafta: hasSure
+      ? find(
+          (s) => s.includes('HAFTA') && !s.includes('BELİRLİ') && !s.includes('BELIRLI') && !s.includes('BELIRLI GUN'),
+          1,
+        )
+      : -1,
+    ders_saati: hasSure ? find((s) => s.includes('DERS') && (s.includes('SAAT') || s.includes('SAATİ')), 2) : -1,
+    unite: find((s) => s.includes('ÜNİTE') || s.includes('UNITE') || (s.includes('TEMA') && s.length < 32), hasSure ? 3 : 0),
     konu: find(
-      (s) => s.includes('KONU') || s.includes('İÇERİK') || s.includes('ICERIK') || s.includes('ÇERÇEVE') || s.includes('CERCEVE'),
+      (s) =>
+        s.includes('KONU') &&
+        (s.includes('İÇERİK') || s.includes('ICERIK') || s.includes('ÇERÇEVE') || s.includes('CERCEVE') || s.length < 24),
       4,
     ),
     kazanimlar: find(
-      (s) => s.includes('ÖĞRENME') || s.includes('OGRENME') || s.includes('ÇIKTI') || s.includes('CIKTI'),
+      (s) =>
+        (s.includes('ÖĞRENME') || s.includes('OGRENME')) &&
+        (s.includes('ÇIKTI') || s.includes('CIKTI') || s.length < 28),
       5,
     ),
-    surec_bilesenleri: find((s) => s.includes('SÜREÇ') || s.includes('SUREC'), 6),
+    surec_bilesenleri: find(
+      (s) =>
+        (s.includes('SÜREÇ') || s.includes('SUREC')) &&
+        (s.includes('BİLEŞEN') || s.includes('BILESEN') || s.length < 24),
+      6,
+    ),
     olcme_degerlendirme: find(
       (s) => s.includes('ÖLÇME') || s.includes('OLCME') || (s.includes('DEĞERLEND') && s.length < 48),
       7,
@@ -242,111 +308,328 @@ export function parseWeekOrderFromHaftaCell(haftaRaw: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function dersSaatiCell(v: unknown): number {
+function dersSaatiCell(v: unknown, fallback = 2): number {
   if (typeof v === 'number' && Number.isFinite(v)) return Math.max(0, Math.round(v));
   const n = parseInt(String(v ?? '').replace(/\D/g, ''), 10);
-  return Number.isFinite(n) ? Math.max(0, n) : 2;
+  return Number.isFinite(n) ? Math.max(0, n) : Math.max(0, Math.round(fallback));
 }
 
-/** “yiillik-plan-sablon” düzeni: 1. satır başlık birleşik, 2. satır sütun adları, veri 3. satırdan. */
-export function parseYillikPlanSablonXlsx(buf: ArrayBuffer): { items: BilsemPlanWeekItem[] } {
+function isHeaderLikeCell(t: string): boolean {
+  return isColumnTitleCell(t);
+}
+
+/** Sütun başlığı / şablon etiketi (veri değil) */
+export function isColumnTitleCell(t: string): boolean {
+  const u = String(t ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+  if (!u || u.length > 72) return false;
+  if (u.includes('ÜNİTE') && u.includes('TEMA') && u.length < 48) return true;
+  if (u.startsWith('KONU') || (u.includes('KONU') && (u.includes('İÇERİK') || u.includes('ÇERÇEVE')))) return true;
+  if (u.includes('ÖĞRENME') && u.includes('ÇIKTI') && u.length < 48) return true;
+  if (u.includes('SÜREÇ') && u.includes('BİLEŞEN') && u.length < 48) return true;
+  if (u.includes('ÖLÇME') && u.includes('DEĞERLEND') && u.length < 56) return true;
+  if (u === 'DEĞERLER' || u === 'DEGERLER' || u.startsWith('DEĞERLER ') || u.startsWith('DEGERLER ')) return true;
+  if (u.includes('OKURYAZAR') && u.includes('BECER') && u.length < 56) return true;
+  if (u.includes('BELİRLİ') && u.includes('GÜN') && u.length < 56) return true;
+  if (u.includes('FARKLILAŞTIRMA') || u.includes('FARKLILASTIRMA')) return true;
+  if (u.includes('OKUL') && u.includes('TEMELL') && u.includes('PLAN') && u.length < 56) return true;
+  if (u.includes('SOSYAL') && u.includes('DUYGUSAL') && u.length < 56) return true;
+  return false;
+}
+
+export function isPlanWeekItemHeaderNoise(item: BilsemPlanWeekItem): boolean {
+  const texts = [
+    item.unite,
+    item.konu,
+    item.kazanimlar,
+    item.surec_bilesenleri,
+    item.olcme_degerlendirme,
+    item.sosyal_duygusal,
+    item.degerler,
+    item.okuryazarlik_becerileri,
+    item.belirli_gun_haftalar,
+    item.zenginlestirme,
+    item.okul_temelli_planlama,
+  ].filter((v): v is string => !!v && String(v).trim().length > 0);
+  let titleHits = 0;
+  for (const t of texts) {
+    if (isColumnTitleCell(t)) titleHits++;
+  }
+  return titleHits >= 2;
+}
+
+/** Şablondaki örnek 1,2,3… satırları (dört çekirdek sütun yalnızca rakam) */
+function isPlaceholderDemoRow(r: unknown[], c: ColMap): boolean {
+  const core = [c.unite, c.konu, c.kazanimlar, c.surec_bilesenleri].map((col) => cell(r[col] ?? ''));
+  if (!core.every((v) => /^\d{1,2}$/.test(v))) return false;
+  const extraCols = [
+    c.olcme_degerlendirme,
+    c.sosyal_duygusal,
+    c.degerler,
+    c.okuryazarlik_becerileri,
+    c.belirli_gun_haftalar,
+    c.zenginlestirme,
+    ...(c.okul_temelli >= 0 ? [c.okul_temelli] : []),
+  ];
+  return !extraCols.some((col) => {
+    const t = cell(r[col] ?? '');
+    return t.length > 0 && !/^\d{1,2}$/.test(t);
+  });
+}
+
+function rowHasPlanBody(
+  sh: XLSX.WorkSheet,
+  rowIdx: number,
+  r: unknown[],
+  c: ColMap,
+  noMerge: Set<number>,
+  mergeFloorRow: number,
+): boolean {
+  const cols = [
+    c.unite,
+    c.konu,
+    c.kazanimlar,
+    c.surec_bilesenleri,
+    c.olcme_degerlendirme,
+    c.sosyal_duygusal,
+    c.degerler,
+    c.okuryazarlik_becerileri,
+    c.belirli_gun_haftalar,
+    c.zenginlestirme,
+    ...(c.okul_temelli >= 0 ? [c.okul_temelli] : []),
+  ];
+  for (const col of cols) {
+    const t = nullIfEmpty(readCell(sh, rowIdx, col, r[col], noMerge, mergeFloorRow));
+    if (t && !isHeaderLikeCell(t)) return true;
+  }
+  return false;
+}
+
+/** Birleşik üst başlık satırı (satır 0) — veri satırı değil */
+function isMergedSuperHeaderRow(cells: string[]): boolean {
+  const joined = cells.filter(Boolean).join(' ');
+  const hasKonuCol = cells.some(
+    (s) => /^KONU(\s|\(|$)/.test(s) || (s.includes('KONU') && s.length < 48),
+  );
+  if (hasKonuCol) return false;
+  return (
+    joined.includes('ÜNİTE') &&
+    joined.includes('TEMA') &&
+    (joined.includes('ÇERÇEVE') || joined.includes('CERCEVE') || joined.includes('ÖĞRENME ÇIKTILARI'))
+  );
+}
+
+function isSubHeaderRow(cells: string[]): boolean {
+  const hasUniteCol = cells.some(
+    (s) =>
+      (s.includes('ÜNİTE') || s.includes('UNITE')) &&
+      s.includes('TEMA') &&
+      !s.includes('ÇERÇEVE') &&
+      !s.includes('CERCEVE') &&
+      s.length < 40,
+  );
+  const hasKonuCol = cells.some(
+    (s) =>
+      s.includes('KONU') &&
+      (s.includes('İÇERİK') || s.includes('ICERIK') || s.includes('ÇERÇEVE') || s.includes('CERCEVE')),
+  );
+  return hasUniteCol && hasKonuCol;
+}
+
+function isHeaderLabelsRow(
+  sh: XLSX.WorkSheet,
+  rowIdx: number,
+  r: unknown[],
+  c: ColMap,
+  noMerge: Set<number>,
+  mergeFloorRow: number,
+): boolean {
+  const cols = [
+    c.unite,
+    c.konu,
+    c.kazanimlar,
+    c.surec_bilesenleri,
+    c.olcme_degerlendirme,
+    c.sosyal_duygusal,
+    c.degerler,
+    c.okuryazarlik_becerileri,
+    c.belirli_gun_haftalar,
+    c.zenginlestirme,
+    ...(c.okul_temelli >= 0 ? [c.okul_temelli] : []),
+  ];
+  let titleHits = 0;
+  for (const col of cols) {
+    const t = readCell(sh, rowIdx, col, r[col], noMerge, mergeFloorRow);
+    if (isColumnTitleCell(t)) titleHits++;
+  }
+  return titleHits >= 2;
+}
+
+function findHeaderRow(rows: unknown[][]): { row: number; hasSure: boolean } {
+  for (let i = 0; i < Math.min(15, rows.length); i++) {
+    const r = rows[i];
+    if (!r || r.length < 6) continue;
+    const cells = r.map((c) => normHeader(c).toUpperCase());
+    if (isMergedSuperHeaderRow(cells)) continue;
+    if (!isSubHeaderRow(cells)) continue;
+    const hasSure =
+      cells.some((s) => s === 'AY' || /^AY(\s|\/)/.test(s)) &&
+      cells.some((s) => s.includes('HAFTA') && !s.includes('BELİRLİ') && !s.includes('BELIRLI'));
+    return { row: i, hasSure };
+  }
+  return { row: -1, hasSure: false };
+}
+
+export type YillikPlanUploadCurriculum = 'meb' | 'bilsem';
+
+function noMergeColsFor(C: ColMap, curriculum: YillikPlanUploadCurriculum): Set<number> {
+  if (curriculum !== 'meb') return new Set<number>();
+  const s = new Set<number>();
+  for (const col of [
+    C.sosyal_duygusal,
+    C.degerler,
+    C.okuryazarlik_becerileri,
+    C.belirli_gun_haftalar,
+    C.zenginlestirme,
+    C.okul_temelli,
+  ]) {
+    if (col >= 0) s.add(col);
+  }
+  return s;
+}
+
+function pushItem(
+  items: BilsemPlanWeekItem[],
+  sh: XLSX.WorkSheet,
+  rowIdx: number,
+  r: unknown[],
+  C: ColMap,
+  weekOrder: number,
+  ds: number,
+  noMerge: Set<number>,
+  mergeFloorRow: number,
+  curriculum: YillikPlanUploadCurriculum,
+): void {
+  if (weekOrder < 1 || weekOrder > YILLIK_PLAN_UPLOAD_MAX_WEEKS) return;
+  const uniteVal = nullIfEmpty(readCell(sh, rowIdx, C.unite, r[C.unite], noMerge, mergeFloorRow));
+  const konuVal = nullIfEmpty(readCell(sh, rowIdx, C.konu, r[C.konu], noMerge, mergeFloorRow));
+  const zenginlestirme = nullIfEmpty(
+    readCell(sh, rowIdx, C.zenginlestirme, r[C.zenginlestirme], noMerge, mergeFloorRow),
+  );
+  const okul_temelli_planlama =
+    C.okul_temelli >= 0
+      ? nullIfEmpty(readCell(sh, rowIdx, C.okul_temelli, r[C.okul_temelli], noMerge, mergeFloorRow))
+      : curriculum === 'bilsem'
+        ? zenginlestirme
+        : null;
+  const item: BilsemPlanWeekItem = {
+    week_order: weekOrder,
+    unite: uniteVal,
+    konu: konuVal,
+    kazanimlar: nullIfEmpty(readCell(sh, rowIdx, C.kazanimlar, r[C.kazanimlar], noMerge, mergeFloorRow)),
+    ders_saati: ds,
+    belirli_gun_haftalar: nullIfEmpty(
+      readCell(sh, rowIdx, C.belirli_gun_haftalar, r[C.belirli_gun_haftalar], noMerge, mergeFloorRow),
+    ),
+    surec_bilesenleri: nullIfEmpty(
+      readCell(sh, rowIdx, C.surec_bilesenleri, r[C.surec_bilesenleri], noMerge, mergeFloorRow),
+    ),
+    olcme_degerlendirme: nullIfEmpty(
+      readCell(sh, rowIdx, C.olcme_degerlendirme, r[C.olcme_degerlendirme], noMerge, mergeFloorRow),
+    ),
+    sosyal_duygusal: nullIfEmpty(
+      readCell(sh, rowIdx, C.sosyal_duygusal, r[C.sosyal_duygusal], noMerge, mergeFloorRow),
+    ),
+    degerler: nullIfEmpty(readCell(sh, rowIdx, C.degerler, r[C.degerler], noMerge, mergeFloorRow)),
+    okuryazarlik_becerileri: nullIfEmpty(
+      readCell(sh, rowIdx, C.okuryazarlik_becerileri, r[C.okuryazarlik_becerileri], noMerge, mergeFloorRow),
+    ),
+    zenginlestirme: zenginlestirme,
+    okul_temelli_planlama: okul_temelli_planlama,
+  };
+  if (isPlanWeekItemHeaderNoise(item)) return;
+  items.push(item);
+}
+
+/** Sabit şablon (.xlsx): başlık satırından sonra kullanıcı doldurur; satır sırası = hafta. */
+export function parseYillikPlanSablonXlsx(
+  buf: ArrayBuffer,
+  options?: { defaultDersSaati?: number; curriculum?: YillikPlanUploadCurriculum },
+): { items: BilsemPlanWeekItem[] } {
+  const curriculum: YillikPlanUploadCurriculum = options?.curriculum === 'bilsem' ? 'bilsem' : 'meb';
+  const defaultDersSaati =
+    options?.defaultDersSaati != null && Number.isFinite(options.defaultDersSaati)
+      ? Math.max(0, Math.round(options.defaultDersSaati))
+      : 2;
   const wb = XLSX.read(buf, { type: 'array' });
   const sheetName = wb.SheetNames.includes('Sayfa1') ? 'Sayfa1' : wb.SheetNames[0];
   if (!sheetName) throw new Error('Excel dosyasında sayfa yok.');
   const sh = wb.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(sh, { header: 1, defval: '' }) as unknown[][];
 
-  let headerRow = -1;
-  for (let i = 0; i < Math.min(15, rows.length); i++) {
-    const r = rows[i];
-    if (!r || r.length < 5) continue;
-    const h1 = String(r[1] ?? '').toUpperCase();
-    const h3 = String(r[3] ?? '').toUpperCase();
-    if (h1.includes('HAFT') && (h3.includes('ÜNİTE') || h3.includes('UNITE') || h3.includes('TEMA'))) {
-      headerRow = i;
-      break;
-    }
-  }
+  const { row: headerRow, hasSure } = findHeaderRow(rows);
   if (headerRow < 0) {
-    throw new Error(
-      'Bu Excel Bilsem yıllık plan şablonu gibi görünmüyor (HAFTA ve ÜNİTE/TEMA başlıkları bulunamadı). Örnek şablonu indirip düzenleyin.',
-    );
+    throw new Error('Geçersiz şablon. «Şablon indir» ile sabit dosyayı alın.');
   }
 
   const hrow = rows[headerRow] as unknown[];
   const C = resolveColMap(hrow);
-  const minLen = Math.max(8, C.zenginlestirme, C.okul_temelli >= 0 ? C.okul_temelli : 0) + 1;
+  const noMerge = noMergeColsFor(C, curriculum);
   const items: BilsemPlanWeekItem[] = [];
-  let lastWeek = 0;
 
-  for (let i = headerRow + 1; i < rows.length; i++) {
-    const r = rows[i];
-    if (!r || r.length < minLen) continue;
-    const ay = cell(mergedValueAt(sh, i, C.ay, r[C.ay]));
-    const ha = cell(mergedValueAt(sh, i, C.hafta, r[C.hafta]));
-    const hasBody =
-      isHolidayLabel(ay, ha) ||
-      !!ha ||
-      !!nullIfEmpty(cell(mergedValueAt(sh, i, C.unite, r[C.unite]))) ||
-      !!nullIfEmpty(cell(mergedValueAt(sh, i, C.konu, r[C.konu]))) ||
-      !!nullIfEmpty(cell(mergedValueAt(sh, i, C.kazanimlar, r[C.kazanimlar]))) ||
-      !!nullIfEmpty(cell(mergedValueAt(sh, i, C.surec_bilesenleri, r[C.surec_bilesenleri])));
-    if (!hasBody) continue;
+  const sablon2 = curriculum === 'meb' && isSablon2FixedLayout(rows, headerRow);
+  const dataStart = sablon2 ? SABLON2_DATA_START : headerRow + 1;
+  const dataEnd = sablon2 ? SABLON2_DATA_END : rows.length - 1;
 
-    const wp = parseWeekLine(
-      mergedValueAt(sh, i, C.ay, r[C.ay]),
-      mergedValueAt(sh, i, C.hafta, r[C.hafta]),
-      lastWeek,
-    );
-    if (wp.kind === 'unknown') continue;
+  if (!hasSure) {
+    for (let i = dataStart; i <= dataEnd; i++) {
+      const r = rows[i];
+      if (!r) continue;
+      const weekOrder = i - dataStart + 1;
+      if (weekOrder > YILLIK_PLAN_UPLOAD_MAX_WEEKS) break;
+      if (isGuideOnlyRow(sh, i, r, C, noMerge, dataStart)) continue;
+      if (isHeaderLabelsRow(sh, i, r, C, noMerge, dataStart)) continue;
+      if (isPlaceholderDemoRow(r, C)) continue;
+      if (!rowHasPlanBody(sh, i, r, C, noMerge, dataStart)) continue;
 
-    if (wp.kind === 'holiday') {
-      continue;
+      pushItem(items, sh, i, r, C, weekOrder, defaultDersSaati, noMerge, dataStart, curriculum);
     }
+  } else {
+    for (let i = dataStart; i <= dataEnd; i++) {
+      const r = rows[i];
+      if (!r) continue;
+      if (isGuideOnlyRow(sh, i, r, C, noMerge, dataStart)) continue;
+      if (isHeaderLabelsRow(sh, i, r, C, noMerge, dataStart)) continue;
+      if (isPlaceholderDemoRow(r, C)) continue;
 
-    const rr = [...r];
-    rr[C.zenginlestirme] = mergedValueAt(sh, i, C.zenginlestirme, r[C.zenginlestirme]);
-    if (C.okul_temelli >= 0) {
-      rr[C.okul_temelli] = mergedValueAt(sh, i, C.okul_temelli, r[C.okul_temelli]);
-    }
-    const fo = pairFarkOkul(rr, C);
+      const ay = readCell(sh, i, C.ay, r[C.ay], noMerge, dataStart);
+      const ha = readCell(sh, i, C.hafta, r[C.hafta], noMerge, dataStart);
+      const ds = dersSaatiCell(
+        mergedValueAt(sh, i, C.ders_saati, r[C.ders_saati], { mergeFloorRow: dataStart }),
+        defaultDersSaati,
+      );
 
-    for (const weekOrder of wp.weeks) {
-      if (weekOrder < 1 || weekOrder > 38) continue;
-      items.push({
-        week_order: weekOrder,
-        unite: nullIfEmpty(cell(mergedValueAt(sh, i, C.unite, r[C.unite]))),
-        konu: nullIfEmpty(cell(mergedValueAt(sh, i, C.konu, r[C.konu]))),
-        kazanimlar: nullIfEmpty(cell(mergedValueAt(sh, i, C.kazanimlar, r[C.kazanimlar]))),
-        ders_saati: dersSaatiCell(mergedValueAt(sh, i, C.ders_saati, r[C.ders_saati])),
-        belirli_gun_haftalar: nullIfEmpty(
-          cell(mergedValueAt(sh, i, C.belirli_gun_haftalar, r[C.belirli_gun_haftalar])),
-        ),
-        surec_bilesenleri: nullIfEmpty(
-          cell(mergedValueAt(sh, i, C.surec_bilesenleri, r[C.surec_bilesenleri])),
-        ),
-        olcme_degerlendirme: nullIfEmpty(
-          cell(mergedValueAt(sh, i, C.olcme_degerlendirme, r[C.olcme_degerlendirme])),
-        ),
-        sosyal_duygusal: nullIfEmpty(
-          cell(mergedValueAt(sh, i, C.sosyal_duygusal, r[C.sosyal_duygusal])),
-        ),
-        degerler: nullIfEmpty(cell(mergedValueAt(sh, i, C.degerler, r[C.degerler]))),
-        okuryazarlik_becerileri: nullIfEmpty(
-          cell(mergedValueAt(sh, i, C.okuryazarlik_becerileri, r[C.okuryazarlik_becerileri])),
-        ),
-        zenginlestirme: fo.zenginlestirme,
-        okul_temelli_planlama: fo.okul_temelli_planlama,
-      });
-      lastWeek = weekOrder;
+      if (isNonTeachingSureRow(ay, ha, ds)) continue;
+      if (!rowHasPlanBody(sh, i, r, C, noMerge, dataStart)) continue;
+
+      const wp = parseWeekLine(
+        mergedValueAt(sh, i, C.ay, r[C.ay], { mergeFloorRow: dataStart }),
+        mergedValueAt(sh, i, C.hafta, r[C.hafta], { mergeFloorRow: dataStart }),
+      );
+      if (wp.kind !== 'weeks') continue;
+
+      for (const weekOrder of wp.weeks) {
+        pushItem(items, sh, i, r, C, weekOrder, ds, noMerge, dataStart, curriculum);
+      }
     }
   }
 
   if (!items.length) {
-    throw new Error('Geçerli hafta satırı çıkarılamadı. HAFTA sütununda “1. Hafta:” biçimini kullanın.');
-  }
-  if (!items.some((x) => x.week_order >= 1)) {
-    throw new Error('Yalnızca tatil satırları algılandı. Öğretim haftaları için “N. Hafta:” veya AY+HAFTA sütunlarını doldurun.');
+    throw new Error(
+      'Öğretim haftası içeriği bulunamadı. Şablondaki örnek 1,2,3… satırlarını silmeyin; ÜNİTE/KONU ve diğer sütunlara gerçek metin yazın (yalnızca rakam bırakmayın).',
+    );
   }
   return { items };
 }

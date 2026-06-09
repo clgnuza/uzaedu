@@ -12,7 +12,7 @@ import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { toast } from 'sonner';
 import {
-  Plus, MoreVertical, Trash2, Eye, Edit2, X, ClipboardList,
+  Plus, MoreVertical, Trash2, Edit2, X, ClipboardList,
   BookOpen, CalendarDays, BarChart2, ArrowRight, CalendarRange,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -54,10 +54,12 @@ type Plan = {
 };
 
 export default function SinavTakvimPage() {
-  const { token, me } = useAuth();
+  const { token, me, role } = useAuth();
   const searchParams = useSearchParams();
   const schoolQ = butterflyExamApiQuery(me?.role ?? null, searchParams.get('school_id'));
-  const isAdmin = me?.role === 'school_admin' || me?.role === 'superadmin' || me?.role === 'moderator';
+  const isTeacher = role === 'teacher';
+  const isAdmin =
+    role === 'school_admin' || role === 'superadmin' || role === 'moderator';
 
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -90,9 +92,10 @@ export default function SinavTakvimPage() {
     setLoading(true);
     try {
       const all = await apiFetch<Plan[]>(`/butterfly-exam/plans${schoolQ}`, { token });
-      const periods = all
+      let periods = all
         .filter((p) => (p.rules as Record<string, unknown>)?.planType === 'period')
         .sort((a, b) => new Date(a.examStartsAt).getTime() - new Date(b.examStartsAt).getTime());
+      if (isTeacher) periods = periods.filter((p) => p.status === 'published');
       setPlans(periods);
       const countMap: Record<string, number> = {};
       let orphans = 0;
@@ -110,7 +113,7 @@ export default function SinavTakvimPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, schoolQ]);
+  }, [token, schoolQ, isTeacher]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -262,38 +265,40 @@ export default function SinavTakvimPage() {
 
   return (
     <div className="min-w-0 space-y-4">
-      <div className="rounded-2xl border border-teal-200/50 bg-gradient-to-br from-teal-500/[0.08] via-white/80 to-emerald-500/[0.06] p-3 shadow-sm dark:border-teal-900/35 dark:from-teal-950/30 dark:via-zinc-900/50 dark:to-emerald-950/20 sm:p-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-800/90 dark:text-teal-200/90">
-          Önerilen akış
-        </p>
-        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
-          <div className="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm">
-            <span className="inline-flex items-center gap-1 rounded-full bg-teal-600 px-2.5 py-1 font-semibold text-white shadow-md shadow-teal-500/25">
-              <CalendarDays className="size-3.5 shrink-0" />
-              1. Dönem takvimi (buradasınız)
-            </span>
-            <ArrowRight className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-medium text-teal-950 shadow-sm ring-1 ring-teal-500/15 dark:bg-zinc-900/80 dark:text-teal-100 dark:ring-teal-400/20">
-              <CalendarRange className="size-3.5 shrink-0" />
-              2. Sınav oturumları
-            </span>
-            <ArrowRight className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-medium text-teal-950 shadow-sm ring-1 ring-teal-500/15 dark:bg-zinc-900/80 dark:text-teal-100 dark:ring-teal-400/20">
-              <BookOpen className="size-3.5 shrink-0" />
-              3. Yerleştirme ve PDF
-            </span>
+      {isAdmin && (
+        <div className="rounded-2xl border border-teal-200/50 bg-gradient-to-br from-teal-500/[0.08] via-white/80 to-emerald-500/[0.06] p-3 shadow-sm dark:border-teal-900/35 dark:from-teal-950/30 dark:via-zinc-900/50 dark:to-emerald-950/20 sm:p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-800/90 dark:text-teal-200/90">
+            Önerilen akış
+          </p>
+          <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm">
+              <span className="inline-flex items-center gap-1 rounded-full bg-teal-600 px-2.5 py-1 font-semibold text-white shadow-md shadow-teal-500/25">
+                <CalendarDays className="size-3.5 shrink-0" />
+                1. Dönem takvimi (buradasınız)
+              </span>
+              <ArrowRight className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-medium text-teal-950 shadow-sm ring-1 ring-teal-500/15 dark:bg-zinc-900/80 dark:text-teal-100 dark:ring-teal-400/20">
+                <CalendarRange className="size-3.5 shrink-0" />
+                2. Sınav oturumları
+              </span>
+              <ArrowRight className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-medium text-teal-950 shadow-sm ring-1 ring-teal-500/15 dark:bg-zinc-900/80 dark:text-teal-100 dark:ring-teal-400/20">
+                <BookOpen className="size-3.5 shrink-0" />
+                3. Yerleştirme ve PDF
+              </span>
+            </div>
+            <Button asChild size="sm" variant="outline" className="h-8 w-full gap-1 text-xs sm:ml-auto sm:w-auto sm:text-sm">
+              <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}>Oturumlara geç</Link>
+            </Button>
           </div>
-          <Button asChild size="sm" variant="outline" className="h-8 w-full gap-1 text-xs sm:ml-auto sm:w-auto sm:text-sm">
-            <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}>Oturumlara geç</Link>
-          </Button>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
+            Bu sayfada dönem planı <strong className="text-foreground">adı</strong> ve raporlarda kullanılacak <strong className="text-foreground">açıklama maddeleri</strong> tutulur.
+            Kesin sınav gün ve saatleri <strong className="text-foreground">Sınav İşlemleri</strong> oturumlarıyla belirlenir.
+          </p>
         </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
-          Bu sayfada dönem planı <strong className="text-foreground">adı</strong> ve raporlarda kullanılacak <strong className="text-foreground">açıklama maddeleri</strong> tutulur.
-          Kesin sınav gün ve saatleri <strong className="text-foreground">Sınav İşlemleri</strong> oturumlarıyla belirlenir.
-        </p>
-      </div>
+      )}
 
-      {orphanSessionCount > 0 && (
+      {isAdmin && orphanSessionCount > 0 && (
         <Alert variant="warning" className="rounded-xl text-[13px] leading-relaxed">
           <strong className="text-foreground">{orphanSessionCount} bağımsız sınav oturumu</strong> bulundu; hiçbir dönem planına bağlı değil.
           Bu oturumlar bu sayfadaki dönem planı raporlarına dahil edilmez.{' '}
@@ -307,7 +312,11 @@ export default function SinavTakvimPage() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold sm:text-base">Sınav takvimi</h2>
-          <p className="text-xs text-muted-foreground">Dönem planı adı ve rapor/duyuru maddeleri; oturum tarihleri Sınav İşlemleri’nde.</p>
+          <p className="text-xs text-muted-foreground">
+            {isTeacher
+              ? 'Okul yönetiminin yayınladığı sınav takvimi ve duyuru maddeleri.'
+              : 'Dönem planı adı ve rapor/duyuru maddeleri; oturum tarihleri Sınav İşlemleri’nde.'}
+          </p>
         </div>
         {isAdmin && (
           <Button size="sm" className="w-full gap-1.5 sm:w-auto" onClick={openCreateDialog}>
@@ -319,21 +328,26 @@ export default function SinavTakvimPage() {
       {plans.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 py-14 text-center dark:border-slate-700">
           <ClipboardList className="mx-auto size-12 text-slate-400 mb-3" />
-          <p className="text-sm font-medium">Henüz dönem planı yok.</p>
+          <p className="text-sm font-medium">
+            {isTeacher ? 'Yayınlanmış sınav takvimi henüz yok.' : 'Henüz dönem planı yok.'}
+          </p>
           <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto px-2">
-            Önce burada dönem planını oluşturun; ardından Sınav İşlemleri üzerinden her gün için oturum ekleyin.
-            Eski kayıtlar yalnızca oturum listesinde görünüyorsa burada yeni bir dönem planı tanımlayın.
+            {isTeacher
+              ? 'Okul yönetimi takvimi yayınladığında burada görüntülenir.'
+              : 'Önce burada dönem planını oluşturun; ardından Sınav İşlemleri üzerinden her gün için oturum ekleyin. Eski kayıtlar yalnızca oturum listesinde görünüyorsa burada yeni bir dönem planı tanımlayın.'}
           </p>
           {isAdmin && (
-            <Button size="sm" className="mt-4" onClick={openCreateDialog}>
-              <Plus className="size-4 mr-1.5" /> Dönem planı oluştur
-            </Button>
+            <>
+              <Button size="sm" className="mt-4" onClick={openCreateDialog}>
+                <Plus className="size-4 mr-1.5" /> Dönem planı oluştur
+              </Button>
+              <div className="mt-4">
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}>Doğrudan oturum listesine git</Link>
+                </Button>
+              </div>
+            </>
           )}
-          <div className="mt-4">
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}>Doğrudan oturum listesine git</Link>
-            </Button>
-          </div>
         </div>
       ) : (
         <div className="space-y-3" ref={menuRef}>
@@ -374,16 +388,20 @@ export default function SinavTakvimPage() {
                           → {new Date(p.examEndsAt).toLocaleDateString('tr-TR')} bitiş
                         </span>
                       )}
-                      <span className={cn('rounded-full px-2 py-0.5 font-medium',
-                        p.status === 'published' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300')}>
-                        {p.status === 'published' ? 'Aktif' : 'Taslak'}
-                      </span>
-                      <Link
-                        href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}
-                        className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800/50 dark:bg-indigo-950/30 dark:text-indigo-300">
-                        <CalendarRange className="size-3" />
-                        {sessionCountByParent[p.id] ?? 0} oturum
-                      </Link>
+                      {!isTeacher && (
+                        <>
+                          <span className={cn('rounded-full px-2 py-0.5 font-medium',
+                            p.status === 'published' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300')}>
+                            {p.status === 'published' ? 'Aktif' : 'Taslak'}
+                          </span>
+                          <Link
+                            href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800/50 dark:bg-indigo-950/30 dark:text-indigo-300">
+                            <CalendarRange className="size-3" />
+                            {sessionCountByParent[p.id] ?? 0} oturum
+                          </Link>
+                        </>
+                      )}
                     </div>
                   </div>
                   </div>
@@ -417,26 +435,19 @@ export default function SinavTakvimPage() {
                       )}
                     </div>
                   )}
-                  {!isAdmin && (
-                    <div className="flex justify-end sm:contents">
-                      <Button asChild variant="ghost" size="icon" className="size-8">
-                        <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}><Eye className="size-4" /></Link>
-                      </Button>
-                    </div>
-                  )}
                 </div>
-                <div className="flex flex-wrap gap-2 border-t border-slate-200/70 px-3 pb-3 pt-2.5 dark:border-zinc-800/70 sm:px-4">
-                  <Button asChild variant="secondary" size="sm" className="h-8 gap-1 text-xs">
-                    <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}>Oturum listesine geç</Link>
-                  </Button>
-                  {isAdmin ? (
+                {isAdmin && (
+                  <div className="flex flex-wrap gap-2 border-t border-slate-200/70 px-3 pb-3 pt-2.5 dark:border-zinc-800/70 sm:px-4">
+                    <Button asChild variant="secondary" size="sm" className="h-8 gap-1 text-xs">
+                      <Link href={`/kelebek-sinav/sinav-islemleri${schoolQ}`}>Oturum listesine geç</Link>
+                    </Button>
                     <Button asChild variant="outline" size="sm" className="h-8 gap-1 text-xs">
                       <Link href={`/kelebek-sinav/sinav-olustur${schoolQ}`}>
                         <Plus className="size-3.5" /> Yeni oturum
                       </Link>
                     </Button>
-                  ) : null}
-                </div>
+                  </div>
+                )}
               </div>
             );
           })}

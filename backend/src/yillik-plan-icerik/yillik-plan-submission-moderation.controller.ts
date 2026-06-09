@@ -18,8 +18,8 @@ export class YillikPlanSubmissionModerationController {
   constructor(private readonly service: YillikPlanSubmissionService) {}
 
   @Get('pending')
-  async listPending(@Query('q') q?: string) {
-    return this.service.listPending(q);
+  async listPending(@Query('q') q?: string, @Query('academic_year') academicYear?: string) {
+    return this.service.listPending({ q, academic_year: academicYear });
   }
 
   @Get('summary')
@@ -28,9 +28,13 @@ export class YillikPlanSubmissionModerationController {
   }
 
   @Get('history')
-  async moderationHistory(@Query('limit') limit?: string, @Query('q') q?: string) {
+  async moderationHistory(
+    @Query('limit') limit?: string,
+    @Query('q') q?: string,
+    @Query('academic_year') academicYear?: string,
+  ) {
     const n = limit ? parseInt(limit, 10) : 30;
-    return this.service.listModerationHistory(Number.isFinite(n) ? n : 30, q);
+    return this.service.listModerationHistory(Number.isFinite(n) ? n : 30, { q, academic_year: academicYear });
   }
 
   @Get(':id')

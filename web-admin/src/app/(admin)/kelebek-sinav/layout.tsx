@@ -105,20 +105,20 @@ const TABS = [
 export default function KelebekSinavLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { me } = useAuth();
+  const { me, role } = useAuth();
   const canSalon =
     me?.role === 'school_admin' || me?.role === 'superadmin' || me?.role === 'moderator';
   const schoolQ = butterflyExamApiQuery(me?.role, searchParams.get('school_id'));
   const baseTabs = TABS.filter((t) => !t.adminOnly || canSalon);
-  const teacherTabPaths = [
-  '/kelebek-sinav/ogrenci-sorgu',
-  '/kelebek-sinav/sinav-planlama',
-  '/kelebek-sinav/sinav-islemleri',
-] as const;
-  const visibleTabs =
-    me?.role === 'teacher'
-      ? baseTabs.filter((t) => teacherTabPaths.includes(t.path as (typeof teacherTabPaths)[number]))
-      : baseTabs;
+  const isTeacher = role === 'teacher';
+
+  if (isTeacher) {
+    return (
+      <div className="mx-auto w-full min-w-0 max-w-5xl space-y-3 px-0 sm:space-y-6 sm:px-0">
+        <div className="min-w-0">{children}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-5xl space-y-3 px-0 sm:space-y-6 sm:px-0">
@@ -148,7 +148,7 @@ export default function KelebekSinavLayout({ children }: { children: React.React
           role="tablist"
           aria-label="Kertenkele sınav bölümleri"
         >
-          {visibleTabs.map((tab) => {
+          {baseTabs.map((tab) => {
             const active = tab.match(pathname);
             const Icon = tab.icon;
             const href = `${tab.path}${schoolQ}`;

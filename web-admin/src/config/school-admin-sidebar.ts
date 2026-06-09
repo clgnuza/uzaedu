@@ -120,12 +120,7 @@ const DERS_DAGIT_CHILDREN: MenuItem[] = [
 const MODULE_CHILDREN: Record<SchoolModuleKey, MenuItem[]> = {
   duty: [modChild('Nöbet planı', '/duty', CalendarClock, 'duty')],
   tv: [modChild('Duyuru TV', '/tv', Tv, 'tv')],
-  extra_lesson: [
-    modChild('Hesaplamalar özeti', '/hesaplamalar', Calculator, 'extra_lesson'),
-    modChild('Ek ders hesaplama', '/ek-ders-hesaplama', Calculator, 'extra_lesson'),
-    modChild('Sınav görev ücretleri', '/sinav-gorev-ucretleri', ClipboardList, 'extra_lesson'),
-    modChild('Yolluk (okul)', '/yolluk-hesaplama/okul', Banknote, 'extra_lesson'),
-  ],
+  extra_lesson: [],
   document: [modChild('Plan katkısı', '/evrak/plan-katki', ClipboardList, 'document')],
   outcome: [],
   optical: [
@@ -218,10 +213,29 @@ export function buildSchoolAdminModuleMenuItems(): MenuItem[] {
   });
 }
 
-/** Modül dışı: haber, market, destek */
-export const SCHOOL_ADMIN_OTHER_MENU: MenuItem[] = [
+export const SCHOOL_ADMIN_CALC_MENU: MenuItem[] = [
   {
-    heading: 'Diğer',
+    heading: 'Hesaplamalar',
+    allowedRoles: [...SA],
+  },
+  {
+    title: 'Hesaplamalar',
+    icon: Calculator,
+    allowedRoles: [...SA],
+    menuGroup: 'violet',
+    requiredSchoolModule: 'extra_lesson',
+    children: [
+      { title: 'Özet', path: '/hesaplamalar', icon: Calculator, allowedRoles: [...SA], requiredSchoolModule: 'extra_lesson' },
+      { title: 'Ek ders hesaplama', path: '/ek-ders-hesaplama', icon: Calculator, allowedRoles: [...SA], requiredSchoolModule: 'extra_lesson' },
+      { title: 'Sınav görev ücretleri', path: '/sinav-gorev-ucretleri', icon: ClipboardList, allowedRoles: [...SA], requiredSchoolModule: 'extra_lesson' },
+      { title: 'Yolluk (okul)', path: '/yolluk-hesaplama/okul', icon: Banknote, allowedRoles: [...SA], requiredSchoolModule: 'extra_lesson' },
+    ],
+  },
+];
+
+export const SCHOOL_ADMIN_NEWS_MENU: MenuItem[] = [
+  {
+    heading: 'Haberler',
     allowedRoles: [...SA],
   },
   {
@@ -233,6 +247,14 @@ export const SCHOOL_ADMIN_OTHER_MENU: MenuItem[] = [
       { title: 'Haberler', path: '/haberler', icon: Newspaper, allowedRoles: [...SA] },
       { title: 'Haber yayın', path: '/haberler/yayin', icon: Megaphone, allowedRoles: [...SA] },
     ],
+  },
+];
+
+/** Modül dışı: market, destek */
+export const SCHOOL_ADMIN_OTHER_MENU: MenuItem[] = [
+  {
+    heading: 'Diğer',
+    allowedRoles: [...SA],
   },
   {
     title: 'Hesap ve destek',
@@ -250,5 +272,7 @@ export const SCHOOL_ADMIN_SIDEBAR_SECTION: MenuItem[] = [
   ...SCHOOL_ADMIN_CORE_MENU,
   { heading: 'Modüller', allowedRoles: [...SA] },
   ...buildSchoolAdminModuleMenuItems(),
+  ...SCHOOL_ADMIN_CALC_MENU,
+  ...SCHOOL_ADMIN_NEWS_MENU,
   ...SCHOOL_ADMIN_OTHER_MENU,
 ];

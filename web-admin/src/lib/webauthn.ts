@@ -18,6 +18,15 @@ export type AuthPortal = 'teacher' | 'school';
 
 export const LAST_LOGIN_EMAIL_KEY = 'uzaedu_last_login_email';
 
+const PASSKEY_HINT_PREFIX = 'uzaedu_passkey_hint_';
+
+let supportedCache: boolean | null = null;
+let supportedInflight: Promise<boolean> | null = null;
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 export function isWebAuthnAvailable(): boolean {
   if (typeof window === 'undefined') return false;
   return window.isSecureContext && browserSupportsWebAuthn();
@@ -39,13 +48,53 @@ export function getRememberedLoginEmail(): string {
   }
 }
 
-export async function fetchWebAuthnSupported(): Promise<boolean> {
+export function getPasskeyHint(portal: AuthPortal): string {
   try {
-    const r = await apiFetch<{ supported: boolean }>('/auth/webauthn/supported');
-    return r.supported && isWebAuthnAvailable();
+    return localStorage.getItem(`${PASSKEY_HINT_PREFIX}${portal}`) ?? '';
   } catch {
-    return false;
+    return '';
   }
+}
+
+export function setPasskeyHint(portal: AuthPortal, email: string): void {
+  try {
+    const e = normalizeEmail(email);
+    if (e) localStorage.setItem(`${PASSKEY_HINT_PREFIX}${portal}`, e);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function hasPasskeyHint(portal: AuthPortal, email?: string): boolean {
+  const hint = getPasskeyHint(portal);
+  if (!hint) return false;
+  if (!email?.trim()) return true;
+  return hint === normalizeEmail(email);
+}
+
+export function clearPasskeyHint(portal: AuthPortal): void {
+  try {
+    localStorage.removeItem(`${PASSKEY_HINT_PREFIX}${portal}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function fetchWebAuthnSupported(): Promise<boolean> {
+  if (!isWebAuthnAvailable()) return false;
+  if (supportedCache !== null) return supportedCache;
+  if (!supportedInflight) {
+    supportedInflight = apiFetch<{ supported: boolean }>('/auth/webauthn/supported')
+      .then((r) => {
+        supportedCache = r.supported && isWebAuthnAvailable();
+        return supportedCache;
+      })
+      .catch(() => false)
+      .finally(() => {
+        supportedInflight = null;
+      });
+  }
+  return supportedInflight;
 }
 
 export async function hasPasskeyForEmail(email: string, portal: AuthPortal): Promise<boolean> {
@@ -73,7 +122,7 @@ export async function loginWithPasskey(
     const assertion = await startAuthentication({
       optionsJSON: options as Parameters<typeof startAuthentication>[0]['optionsJSON'],
     });
-    return apiFetch('/auth/webauthn/login/verify', {
+    const result = await apiFetch<{ token: string }>('/auth/webauthn/login/verify', {
       method: 'POST',
       body: JSON.stringify({
         email: email.trim(),
@@ -82,10 +131,12 @@ export async function loginWithPasskey(
         remember_me: rememberMe === true,
       }),
     });
+    setPasskeyHint(portal, email);
+    return result;
   });
 }
 
-export async function registerPasskey(token: string, name?: string): Promise<void> {
+export async function registerPasskey(token: string, name?: string, portal?: AuthPortal): Promise<void> {
   return wrapWebAuthn('register', async () => {
     const options = await apiFetch('/auth/webauthn/register/options', {
       method: 'POST',
@@ -99,6 +150,10 @@ export async function registerPasskey(token: string, name?: string): Promise<voi
       token,
       body: JSON.stringify({ response: attestation, name }),
     });
+    if (portal) {
+      const remembered = getRememberedLoginEmail();
+      if (remembered) setPasskeyHint(portal, remembered);
+    }
   });
 }
 

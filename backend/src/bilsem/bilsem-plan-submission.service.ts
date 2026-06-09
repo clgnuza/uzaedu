@@ -18,6 +18,7 @@ import type { ParsedPlanRow } from '../meb/meb-fetch.service';
 import { parsePlanPastePayload } from '../yillik-plan-icerik/plan-paste-parser';
 import { BilsemPlanCreatorRewardService } from './bilsem-plan-creator-reward.service';
 import { BilsemYillikPlanService } from './bilsem-yillik-plan.service';
+import { isBilsemSubjectCode } from './bilsem-puy-plan-constants';
 import type {
   BilsemModerationDashboard,
   BilsemModerationHistoryRow,
@@ -286,6 +287,12 @@ export class BilsemPlanSubmissionService {
     schoolId: string | null,
     dto: CreateBilsemPlanSubmissionDto,
   ): Promise<BilsemPlanSubmission> {
+    if (!isBilsemSubjectCode(dto.subject_code)) {
+      throw new BadRequestException({
+        code: 'NOT_BILSEM_SUBJECT',
+        message: 'BİLSEM plan katkısı yalnızca BİLSEM ders kodlarıyla kaydedilir (bilsem_…). MEB planı için Evrak menüsünü kullanın.',
+      });
+    }
     const itemsJson = this.itemsJsonFromImportOrItems(dto);
     const row = this.submissionRepo.create({
       authorUserId,

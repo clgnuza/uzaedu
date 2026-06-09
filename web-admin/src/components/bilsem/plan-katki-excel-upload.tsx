@@ -1,10 +1,43 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { parseYillikPlanSablonXlsx, YILLIK_PLAN_SABLON_COLUMN_HELP, type BilsemPlanWeekItem } from '@/lib/parse-yillik-plan-sablon-xlsx';
+import {
+  parseYillikPlanSablonXlsx,
+  YILLIK_PLAN_SABLON_COLUMN_HELP,
+  type BilsemPlanWeekItem,
+  type YillikPlanUploadCurriculum,
+} from '@/lib/parse-yillik-plan-sablon-xlsx';
+import { buildApiAuthHeaders, formatApiErrorMessage, getApiUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Check, ChevronDown, Download, FileUp, Table2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/use-auth';
+
+export type PlanKatkiTemplateQuery = {
+  academicYear: string;
+  subjectCode?: string;
+  grade?: number;
+  /** Şablon SÜRE sütunu için başlangıç haftalık ders saati */
+  weeklyHours?: number;
+};
+
+const PREVIEW_COLUMNS: {
+  key: keyof BilsemPlanWeekItem;
+  label: string;
+  clip?: number;
+  mono?: boolean;
+}[] = [
+  { key: 'week_order', label: 'Hf', mono: true },
+  { key: 'ders_saati', label: 'Saat', mono: true },
+  { key: 'unite', label: 'Ünite / tema', clip: 28 },
+  { key: 'konu', label: 'Konu', clip: 32 },
+  { key: 'kazanimlar', label: 'Öğrenme çıktıları', clip: 44 },
+  { key: 'surec_bilesenleri', label: 'Süreç', clip: 28 },
+  { key: 'olcme_degerlendirme', label: 'Ölçme', clip: 28 },
+  { key: 'belirli_gun_haftalar', label: 'Belirli gün', clip: 24 },
+];
 
 function clip(s: string | null | undefined, n = 42) {
   const t = String(s ?? '')
@@ -27,46 +60,32 @@ function parseItems(json: string): BilsemPlanWeekItem[] {
 export function PlanKatkiExcelPlanUpload({
   itemsJson,
   onItemsJsonChange,
-  autoLoadTemplateUrl,
+  templateQuery,
   onParsed,
+  variant = 'bilsem',
 }: {
   itemsJson: string;
   onItemsJsonChange: (json: string) => void;
-  autoLoadTemplateUrl?: string;
-  /** Yükleme / otomatik şablon sonrası (önizleme ve akış için) */
+  templateQuery: PlanKatkiTemplateQuery;
   onParsed?: (p: { weekCount: number; fileName: string | null; source: 'file' | 'template' }) => void;
+  variant?: YillikPlanUploadCurriculum;
 }) {
+  const { token } = useAuth();
   const [info, setInfo] = useState<string | null>(null);
-  const [loadingTemplate, setLoadingTemplate] = useState(!!autoLoadTemplateUrl);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+  const [weeklyHours, setWeeklyHours] = useState(() =>
+    templateQuery.weeklyHours != null && Number.isFinite(templateQuery.weeklyHours)
+      ? Math.max(0, Math.round(templateQuery.weeklyHours))
+      : 2,
+  );
   const [fileName, setFileName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!autoLoadTemplateUrl) return;
-    let alive = true;
-    void fetch(autoLoadTemplateUrl)
-      .then((r) => {
-        if (!r.ok) throw new Error(String(r.status));
-        return r.arrayBuffer();
-      })
-      .then((buf) => {
-        const { items } = parseYillikPlanSablonXlsx(buf);
-        if (!alive) return;
-        onItemsJsonChange(JSON.stringify(items));
-        setFileName('örnek şablon (otomatik)');
-        onParsed?.({ weekCount: items.length, fileName: null, source: 'template' });
-      })
-      .catch(() => {
-        if (alive) {
-        }
-      })
-      .finally(() => {
-        if (alive) setLoadingTemplate(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [autoLoadTemplateUrl, onItemsJsonChange, onParsed]);
+    if (templateQuery.weeklyHours != null && Number.isFinite(templateQuery.weeklyHours)) {
+      setWeeklyHours(Math.max(0, Math.round(templateQuery.weeklyHours)));
+    }
+  }, [templateQuery.weeklyHours, templateQuery.subjectCode, templateQuery.grade]);
 
   const items = useMemo(() => parseItems(itemsJson), [itemsJson]);
   const weekCount = items.length;
@@ -80,21 +99,52 @@ export function PlanKatkiExcelPlanUpload({
         })()
       : null;
 
+  async function downloadTemplate() {
+    setDownloadingTemplate(true);
+    setInfo(null);
+    try {
+      const res = await fetch(getApiUrl('/yillik-plan-icerik/upload-template.xlsx'), {
+        headers: buildApiAuthHeaders(token),
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+        throw new Error(formatApiErrorMessage(body.message) ?? `İndirme başarısız (${res.status})`);
+      }
+      const buf = await res.arrayBuffer();
+      const blob = new Blob([buf], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'yiillik-plan-sablon-2.xlsx';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setInfo(e instanceof Error ? e.message : 'Şablon indirilemedi.');
+    } finally {
+      setDownloadingTemplate(false);
+    }
+  }
+
   function readFile(f: File) {
     setFileName(f.name);
     const r = new FileReader();
     r.onload = () => {
       try {
         const buf = r.result instanceof ArrayBuffer ? r.result : null;
-        if (!buf) {
-          return;
-        }
-        const { items: parsed } = parseYillikPlanSablonXlsx(buf);
+        if (!buf) return;
+        const { items: parsed } = parseYillikPlanSablonXlsx(buf, {
+          defaultDersSaati: weeklyHours,
+          curriculum: variant,
+        });
         onItemsJsonChange(JSON.stringify(parsed));
-        setInfo(``);
+        setInfo(null);
         onParsed?.({ weekCount: parsed.length, fileName: f.name, source: 'file' });
       } catch (err) {
-        setInfo(err instanceof Error ? '' : '');
+        const msg = err instanceof Error ? err.message : 'Excel okunamadı.';
+        setInfo(msg);
         onParsed?.({ weekCount: 0, fileName: f.name, source: 'file' });
       }
     };
@@ -109,7 +159,7 @@ export function PlanKatkiExcelPlanUpload({
             1
           </span>
           <span>
-            <span className="text-foreground">Şablonu indirin</span> ve Excel’de doldurun.
+            <span className="text-foreground">Sabit şablonu indirin</span>, sütunları doldurun.
           </span>
         </li>
         <li
@@ -125,7 +175,7 @@ export function PlanKatkiExcelPlanUpload({
           ) : (
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">2</span>
           )}
-          <span>Bu ekrandan .xlsx seçin; haftalar otomatik okunur.</span>
+          <span>Doldurulmuş .xlsx dosyasını seçin.</span>
         </li>
         <li
           className={cn(
@@ -140,7 +190,7 @@ export function PlanKatkiExcelPlanUpload({
           ) : (
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">3</span>
           )}
-          <span>Tabloyu kontrol edin, sonra «Kaydet» (sayfa altı).</span>
+          <span>Önizlemeyi kontrol edin, kaydedin.</span>
         </li>
       </ol>
 
@@ -150,17 +200,45 @@ export function PlanKatkiExcelPlanUpload({
             <Table2 className="h-4 w-4 shrink-0 text-fuchsia-600" />
             Yıllık plan
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="plan-katki-weekly-hours" className="text-[10px] text-muted-foreground sm:text-xs">
+                Haftalık ders saati (yüklemede)
+              </Label>
+              <Input
+                id="plan-katki-weekly-hours"
+                type="number"
+                min={0}
+                max={40}
+                step={1}
+                className="h-8 w-20 tabular-nums"
+                value={weeklyHours}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10);
+                  setWeeklyHours(Number.isFinite(n) && n >= 0 ? n : 0);
+                }}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              disabled={downloadingTemplate}
+              onClick={() => void downloadTemplate()}
+            >
+              <Download className="h-3.5 w-3.5" />
+              {downloadingTemplate ? 'Hazırlanıyor…' : 'Şablon indir'}
+            </Button>
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="h-8 gap-1.5"
               onClick={() => fileRef.current?.click()}
-              disabled={loadingTemplate}
             >
               <FileUp className="h-3.5 w-3.5" />
-              {weekCount > 0 ? 'Başka dosya seç' : 'Excel dosyası seç'}
+              {weekCount > 0 ? 'Başka dosya seç' : 'Excel yükle'}
             </Button>
             <input
               ref={fileRef}
@@ -174,12 +252,6 @@ export function PlanKatkiExcelPlanUpload({
                 readFile(f);
               }}
             />
-            <Button type="button" variant="ghost" size="sm" className="h-8 gap-1 text-fuchsia-700 dark:text-fuchsia-300" asChild>
-              <a href="/yillik-plan-sablon.xlsx" download>
-                <Download className="h-3.5 w-3.5" />
-                Şablon indir
-              </a>
-            </Button>
           </div>
         </div>
         <div
@@ -198,7 +270,10 @@ export function PlanKatkiExcelPlanUpload({
         </div>
       </div>
 
-      {info && <p className="text-xs text-muted-foreground sm:text-sm">{info}</p>}
+      {info && <p className="text-xs text-destructive sm:text-sm">{info}</p>}
+      {fileName && weekCount > 0 && (
+        <p className="text-[10px] text-muted-foreground">Dosya: {fileName}</p>
+      )}
 
       {weekCount > 0 && (
         <div className="space-y-2">
@@ -209,26 +284,38 @@ export function PlanKatkiExcelPlanUpload({
             )}
           </div>
           <div className="overflow-x-auto rounded-lg border border-border/80 bg-background shadow-inner">
-            <table className="w-full min-w-[520px] text-left text-[10px] sm:min-w-0 sm:text-xs">
+            <table className="w-full min-w-[720px] text-left text-[10px] sm:text-xs">
               <thead>
                 <tr className="border-b border-border/80 bg-muted/40 text-[9px] uppercase tracking-wide text-muted-foreground sm:text-[10px]">
-                  <th className="whitespace-nowrap px-2 py-2 font-medium">Hf</th>
-                  <th className="px-2 py-2 font-medium">Ünite / tema</th>
-                  <th className="px-2 py-2 font-medium">Konu</th>
-                  <th className="px-2 py-2 font-medium">Öğr. çıktıları</th>
+                  {PREVIEW_COLUMNS.map((col) => (
+                    <th key={col.key} className="whitespace-nowrap px-2 py-2 font-medium">
+                      {col.label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {previewRows.map((r, i) => (
                   <tr key={i} className="border-b border-border/40 last:border-0">
-                    <td className="whitespace-nowrap px-2 py-1.5 font-mono text-[10px] font-medium tabular-nums sm:py-2 sm:text-xs">
-                      {r.week_order}
-                    </td>
-                    <td className="max-w-[140px] px-2 py-1.5 sm:max-w-none sm:py-2">{clip(r.unite, 36)}</td>
-                    <td className="max-w-[140px] px-2 py-1.5 sm:max-w-none sm:py-2">{clip(r.konu, 40)}</td>
-                    <td className="max-w-[200px] px-2 py-1.5 text-muted-foreground sm:max-w-none sm:py-2">
-                      {clip(r.kazanimlar, 52)}
-                    </td>
+                    {PREVIEW_COLUMNS.map((col) => {
+                      const raw = r[col.key];
+                      const text =
+                        col.key === 'week_order' || col.key === 'ders_saati'
+                          ? String(raw ?? '—')
+                          : clip(typeof raw === 'string' ? raw : raw != null ? String(raw) : null, col.clip ?? 36);
+                      return (
+                        <td
+                          key={col.key}
+                          className={cn(
+                            'max-w-[160px] px-2 py-1.5 sm:py-2',
+                            col.mono && 'whitespace-nowrap font-mono text-[10px] font-medium tabular-nums sm:text-xs',
+                            col.key === 'kazanimlar' && 'text-muted-foreground',
+                          )}
+                        >
+                          {text}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
@@ -239,15 +326,11 @@ export function PlanKatkiExcelPlanUpload({
 
       <details className="group rounded-lg border border-dashed border-border/80 bg-muted/20">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-2.5 py-2 text-xs font-medium sm:px-3 sm:text-sm [&::-webkit-details-marker]:hidden">
-          <span>Şablon düzeni (sütun eşlemesi + notlar)</span>
+          <span>Sütun eşlemesi</span>
           <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
         </summary>
         <div className="space-y-2 border-t border-border/60 px-2.5 pb-3 pt-1 text-[10px] leading-relaxed text-muted-foreground sm:px-3 sm:text-xs">
-          <p>
-            2. satırda <strong>HAFTA</strong> ve <strong>ÜNİTE / TEMA</strong> bulunmalı; veri 3. satırdan itibaren. Örnek:{' '}
-            <code className="rounded bg-muted px-1 font-mono text-[10px]">yiillik-plan-sablon.xlsx</code>
-          </p>
-          <ul className="grid max-h-48 gap-1 overflow-y-auto sm:max-h-64 sm:grid-cols-1">
+          <ul className="grid max-h-48 gap-1 overflow-y-auto sm:max-h-64">
             {YILLIK_PLAN_SABLON_COLUMN_HELP.map((c) => (
               <li key={c.excel} className="flex flex-wrap items-baseline gap-x-1 border-b border-border/30 py-0.5 last:border-0">
                 <span className="shrink-0 font-medium text-foreground">{c.excel}</span>

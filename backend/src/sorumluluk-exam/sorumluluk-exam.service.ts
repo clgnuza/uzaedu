@@ -31,6 +31,12 @@ import {
   subjectMatchKey,
   uniqueSubjectDisplayNames,
 } from './sorumluluk-subject.util';
+import {
+  computeSessionProctorNeeds,
+  mergeProctorRules,
+  sessionsOverlapForProctorConflict,
+  type SorumlulukProctorRules,
+} from './sorumluluk-proctor-rules';
 
 @Injectable()
 export class SorumlulukExamService {
@@ -86,6 +92,8 @@ export class SorumlulukExamService {
       groupId: string;
       groupTitle: string;
       examType: string;
+      academicYear: string | null;
+      groupStatus: string;
       proctorRole: 'komisyon_uye' | 'gozcu';
       proctorRoleLabel: string;
       subjectName: string;
@@ -109,6 +117,8 @@ export class SorumlulukExamService {
         groupId: g.id,
         groupTitle: g.title,
         examType: g.examType,
+        academicYear: g.academicYear,
+        groupStatus: g.status,
         proctorRole: pr.role,
         proctorRoleLabel: roleLabel(pr.role),
         subjectName: s.subjectName,
@@ -155,11 +165,30 @@ export class SorumlulukExamService {
     return this.groupRepo.save(g);
   }
 
-  async updateGroup(schoolId: string, id: string, dto: Partial<CreateSorumlulukGroupDto> & { status?: string }) {
+  async getGroup(schoolId: string, id: string) {
     const g = await this.groupRepo.findOne({ where: { id, schoolId } });
     if (!g) throw new NotFoundException();
-    Object.assign(g, dto);
-    return this.groupRepo.save(g);
+    return { ...g, proctorRules: mergeProctorRules(g.proctorRules) };
+  }
+
+  async updateGroup(
+    schoolId: string,
+    id: string,
+    dto: Partial<CreateSorumlulukGroupDto> & { status?: string; proctorRules?: Partial<SorumlulukProctorRules> },
+  ) {
+    const g = await this.groupRepo.findOne({ where: { id, schoolId } });
+    if (!g) throw new NotFoundException();
+    const { proctorRules, ...rest } = dto;
+    Object.assign(g, rest);
+    if (proctorRules !== undefined) {
+      g.proctorRules = mergeProctorRules({ ...mergeProctorRules(g.proctorRules), ...proctorRules });
+    }
+    const saved = await this.groupRepo.save(g);
+    return { ...saved, proctorRules: mergeProctorRules(saved.proctorRules) };
+  }
+
+  private _proctorRules(group: SorumlulukGroup | null | undefined): SorumlulukProctorRules {
+    return mergeProctorRules(group?.proctorRules);
   }
 
   async deleteGroup(schoolId: string, id: string) {
@@ -484,7 +513,8 @@ export class SorumlulukExamService {
   // ── Oturumlar ─────────────────────────────────────────────────────────────
 
   async listSessions(schoolId: string, groupId: string) {
-    await this._requireGroup(schoolId, groupId);
+    const group = await this._requireGroup(schoolId, groupId);
+    const proctorRules = this._proctorRules(group);
     const sessions = await this.sessionRepo.find({ where: { groupId }, order: { sessionDate: 'ASC', startTime: 'ASC' } });
     const pairedIds = sessions.map((s) => s.pairedSessionId).filter((id): id is string => !!id);
     const pairedRows =
@@ -492,6 +522,7 @@ export class SorumlulukExamService {
         ? await this.sessionRepo.find({ where: { id: In(pairedIds) } })
         : [];
     const pairedMap = new Map(pairedRows.map((p) => [p.id, p]));
+    const companionIds = await this._companionSessionIds(groupId);
     return Promise.all(sessions.map(async (s) => {
       const studentCount = await this.ssRepo.count({ where: { sessionId: s.id } });
       const proctors = await this.proctorRepo.find({ where: { sessionId: s.id }, order: { sortOrder: 'ASC' } });
@@ -499,9 +530,13 @@ export class SorumlulukExamService {
       const users = userIds.length ? await this.userRepo.find({ where: { id: In(userIds) } }) : [];
       const uMap = new Map(users.map((u) => [u.id, u]));
       const companion = s.pairedSessionId ? pairedMap.get(s.pairedSessionId) : undefined;
+      const needs = computeSessionProctorNeeds(s, sessions, studentCount, companionIds, proctorRules);
       return {
         ...s,
         studentCount,
+        recommendedKomisyon: needs.komisyon,
+        recommendedGozcu: needs.gozcu,
+        proctorNeedReason: needs.reason,
         proctors: proctors.map((p) => ({ ...p, displayName: uMap.get(p.userId)?.display_name ?? uMap.get(p.userId)?.email ?? '' })),
         uygulamaCompanion: companion
           ? {
@@ -1248,9 +1283,14 @@ export class SorumlulukExamService {
       excludeBusy: boolean;
       balanceLoad: boolean;
       overwrite: boolean;
+      useSmartRules?: boolean;
     },
   ) {
-    await this._requireGroup(schoolId, groupId);
+    const group = await this._requireGroup(schoolId, groupId);
+    const proctorRules = mergeProctorRules({
+      ...this._proctorRules(group),
+      ...(opts.useSmartRules === false ? { useSmartRules: false } : {}),
+    });
     const sessions = await this.sessionRepo.find({ where: { groupId }, order: { sessionDate: 'ASC', startTime: 'ASC' } });
     const teachers = await this.userRepo.find({ where: { school_id: schoolId, role: UserRole.teacher }, order: { display_name: 'ASC' } });
     if (!teachers.length) return { assigned: 0, sessions: 0 };
@@ -1317,9 +1357,31 @@ export class SorumlulukExamService {
 
     let assignedSessions = 0;
 
-    const groupMeta = await this.groupRepo.findOne({ where: { id: groupId } });
-    const groupTitle = groupMeta?.title?.trim() || 'Sorumluluk / beceri sınavı';
+    const groupTitle = group.title?.trim() || 'Sorumluluk / beceri sınavı';
     const companionIds = await this._companionSessionIds(groupId);
+
+    const studentCountBySession = new Map<string, number>();
+    for (const s of sessions) {
+      studentCountBySession.set(s.id, await this.ssRepo.count({ where: { sessionId: s.id } }));
+    }
+
+    /** Aynı saatte çakışan oturumlarda öğretmen tekrar atanmasın */
+    const assignedBySession = new Map<string, Set<string>>();
+
+    const teachersBusyAtSession = (session: SorumlulukSession): Set<string> => {
+      const busy = new Set<string>();
+      for (const other of sessions) {
+        if (other.id === session.id) continue;
+        if (!sessionsOverlapForProctorConflict(session, other)) continue;
+        const ids = assignedBySession.get(other.id);
+        if (ids) for (const id of ids) busy.add(id);
+      }
+      return busy;
+    };
+
+    const markTeachersAssigned = (session: SorumlulukSession, userIds: string[]) => {
+      assignedBySession.set(session.id, new Set(userIds));
+    };
 
     for (const session of sessions) {
       if (companionIds.has(session.id)) continue;
@@ -1336,11 +1398,30 @@ export class SorumlulukExamService {
       const bellSchedule = getBellSchedule(session.sessionDate);
       const overlappingLessonNums = this._lessonNumsOverlappingExam(bellSchedule, examStart, examEnd);
 
+      const studentCount = studentCountBySession.get(session.id) ?? 0;
+      const needs = computeSessionProctorNeeds(
+        session,
+        sessions,
+        studentCount,
+        companionIds,
+        proctorRules,
+      );
+      const komisyonTarget = proctorRules.useSmartRules
+        ? needs.komisyon
+        : opts.komisyonPerSession;
+      const gozcuTarget = proctorRules.useSmartRules
+        ? needs.gozcu
+        : opts.gozcuPerSession;
+
+      const sameTimeBusy = teachersBusyAtSession(session);
+
       // Normalize subject for branch matching
       const subjNorm = session.subjectName.toLowerCase().replace(/[^a-züğışöçı]/gi, '');
 
       const scored = teachers.map((t) => {
         let score = 0;
+        if (sameTimeBusy.has(t.id)) return { t, score: -9999 };
+
         const teacherLessons = timetable.get(t.id) ?? [];
         const busyAllDay = teacherLessons.length > 0;
         const busyAtExam =
@@ -1368,8 +1449,8 @@ export class SorumlulukExamService {
       scored.sort((a, b) => b.score - a.score);
       const eligible = scored.filter((s) => s.score > -9999);
 
-      const komisyon = eligible.slice(0, opts.komisyonPerSession).map((s) => s.t);
-      const gozcu    = eligible.slice(opts.komisyonPerSession, opts.komisyonPerSession + opts.gozcuPerSession).map((s) => s.t);
+      const komisyon = eligible.slice(0, komisyonTarget).map((s) => s.t);
+      const gozcu = eligible.slice(komisyonTarget, komisyonTarget + gozcuTarget).map((s) => s.t);
 
       if (komisyon.length === 0 && gozcu.length === 0) continue;
 
@@ -1408,6 +1489,11 @@ export class SorumlulukExamService {
           metadata: { group_id: session.groupId, session_id: session.id, school_id: schoolId },
         });
       }
+
+      markTeachersAssigned(
+        session,
+        [...komisyon, ...gozcu].map((t) => t.id),
+      );
 
       if (session.pairedSessionId) {
         await this._copyProctorsToSession(session.id, session.pairedSessionId, { notify: false });

@@ -461,8 +461,14 @@ export default function BilsemPlanKatkiDetailPage() {
               <div className="overflow-hidden rounded-2xl border border-fuchsia-200/50 bg-gradient-to-b from-fuchsia-500/[0.06] to-transparent p-0.5 dark:border-fuchsia-900/30">
                 <div className="rounded-[14px] bg-card p-2.5 sm:p-4">
                   <PlanKatkiExcelPlanUpload
+                    variant="bilsem"
                     itemsJson={itemsJson}
                     onItemsJsonChange={setItemsJson}
+                    templateQuery={{
+                      academicYear: row.academicYear,
+                      subjectCode: row.subjectCode,
+                      grade: row.planGrade ?? 9,
+                    }}
                     onParsed={({ weekCount: n, source, fileName }) => {
                       if (n > 0) {
                         toast.success(

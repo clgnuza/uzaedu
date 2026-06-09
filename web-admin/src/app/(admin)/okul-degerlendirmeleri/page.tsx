@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useRef, Suspense, startTransition } from 'react';
 import Link from 'next/link';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { useAuth, type Me } from '@/hooks/use-auth';
 import { getApiUrl } from '@/lib/api';
 import { COOKIE_SESSION_TOKEN } from '@/lib/auth-session';
@@ -21,8 +21,6 @@ import {
   ShareIcon,
   SchoolIcon,
   MapPinIcon,
-  TrendingUpIcon,
-  HelpIcon,
   PencilIcon,
   TrashIcon,
   ThumbsUpIcon,
@@ -41,6 +39,27 @@ import { SchoolReviewScorePicker } from '@/components/school-reviews/school-revi
 import { formatTrDateTimeMedium } from '@/lib/format-tr-datetime';
 import { cn } from '@/lib/utils';
 import { AppShellLoadingCard } from '@/components/ui/app-shell-loading-card';
+import {
+  SrChip,
+  SrFeedItem,
+  SrFilterChip,
+  SrHero,
+  SrIcon,
+  SrListItem,
+  SrPage,
+  SrPanel,
+  SrAuthorBadge,
+  SrSectionLabel,
+  SrThreadCard,
+  SrThreadKindLabel,
+  srAuthorTone,
+  SrStat,
+  SrStatGrid,
+  SrTab,
+  SrTabBar,
+  SrTeacherModuleNav,
+} from '@/components/school-reviews/school-reviews-ui';
+import { School, Star, MessageCircle, TrendingUp, HelpCircle, Search } from 'lucide-react';
 
 const FALLBACK_REPORT_REASON_OPTIONS: { value: string; label: string; hint: string }[] = [
   { value: 'spam', label: 'Spam veya tekrar', hint: 'Çoklanan veya istenmeyen içerik' },
@@ -313,14 +332,10 @@ const ACTIVITY_SHORT: Record<ActivityItem['type'], string> = {
   answer: 'Cevap',
 };
 
-/** Mobil: pastel kart; md+: klasik yoğun chip */
-const ACTIVITY_COLORS = {
-  review:
-    'max-md:border max-md:border-amber-200/60 max-md:bg-linear-to-br max-md:from-amber-50 max-md:to-orange-50/90 max-md:shadow-md max-md:text-amber-950 dark:max-md:from-amber-950/35 dark:max-md:to-orange-950/25 dark:max-md:border-amber-800/45 dark:max-md:text-amber-100 md:border-0 md:bg-amber-100 md:text-amber-800 md:shadow-none dark:md:bg-amber-900/40 dark:md:text-amber-200',
-  question:
-    'max-md:border max-md:border-teal-200/60 max-md:bg-linear-to-br max-md:from-cyan-50 max-md:to-teal-50/90 max-md:shadow-md max-md:text-teal-950 dark:max-md:from-teal-950/35 dark:max-md:to-cyan-950/25 dark:max-md:border-teal-800/45 dark:max-md:text-teal-100 md:border-0 md:bg-teal-100 md:text-teal-800 md:shadow-none dark:md:bg-teal-900/40 dark:md:text-teal-200',
-  answer:
-    'max-md:border max-md:border-emerald-200/60 max-md:bg-linear-to-br max-md:from-emerald-50 max-md:to-sky-50/80 max-md:shadow-md max-md:text-emerald-950 dark:max-md:from-emerald-950/35 dark:max-md:to-sky-950/25 dark:max-md:border-emerald-800/45 dark:max-md:text-emerald-100 md:border-0 md:bg-emerald-100 md:text-emerald-800 md:shadow-none dark:md:bg-emerald-900/40 dark:md:text-emerald-200',
+const ACTIVITY_CARD_CLASS = {
+  review: 'sr-activity-card sr-activity-card--review',
+  question: 'sr-activity-card sr-activity-card--question',
+  answer: 'sr-activity-card sr-activity-card--answer',
 } as const;
 
 function RecentActivitiesSection({
@@ -364,37 +379,28 @@ function RecentActivitiesSection({
       type="button"
       onClick={() => onOpenSchool(act.school_id)}
       className={cn(
-        'group shrink-0 text-left shadow-sm transition-all duration-200',
-        'flex w-[min(15.5rem,calc(100vw-1.25rem))] flex-col gap-0.5 rounded-lg px-2 py-1.5',
-        'cursor-pointer hover:scale-[1.02] hover:shadow-md active:scale-[0.99]',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:focus-visible:ring-offset-slate-900',
-        'md:w-[min(22rem,100%)] md:max-w-md md:gap-1 md:rounded-2xl md:px-3.5 md:py-2',
-        'max-md:backdrop-blur-[2px]',
-        ACTIVITY_COLORS[act.type],
+        'group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 focus-visible:ring-offset-2',
+        ACTIVITY_CARD_CLASS[act.type],
       )}
       title={`${act.school_name} — detay ve yorumlar`}
     >
-      <span className="max-md:text-[10px] break-words text-xs font-semibold leading-snug tracking-tight text-foreground/95 underline decoration-transparent underline-offset-2 transition-colors group-hover:decoration-current md:text-sm">
+      <span className="break-words text-[10px] font-semibold leading-snug text-foreground">
         {act.author_display_name}
       </span>
-      <span className="max-md:text-[10px] break-words text-[11px] leading-snug md:text-sm">
-        <span className="font-bold underline decoration-transparent underline-offset-2 transition-colors group-hover:decoration-current">
-          {act.school_name}
-        </span>{' '}
-        <span className="font-medium opacity-90">{ACTIVITY_LABELS[act.type]}</span>
+      <span className="break-words text-[10px] leading-snug text-muted-foreground">
+        <span className="font-semibold text-foreground">{act.school_name}</span>{' '}
+        {ACTIVITY_LABELS[act.type]}
       </span>
-      <span className="text-[9px] font-medium opacity-75 max-md:leading-tight md:text-[11px]">
+      <span className="text-[9px] font-medium text-muted-foreground">
         {ACTIVITY_SHORT[act.type]} · {formatRelativeTime(act.created_at)}
       </span>
     </button>
   );
 
   return (
-    <div className="border-y border-slate-100 py-1.5 dark:border-slate-800 max-md:border-violet-100/80 max-md:bg-linear-to-b max-md:from-sky-50/70 max-md:via-violet-50/40 max-md:to-teal-50/50 dark:max-md:border-violet-900/40 dark:max-md:from-sky-950/50 dark:max-md:via-violet-950/35 dark:max-md:to-teal-950/40 md:bg-slate-50/50 md:py-2 dark:md:bg-slate-900/30">
-      <div className="mx-auto max-w-7xl px-2 sm:px-3 md:px-6">
-        <p className="mb-1 text-center text-[9px] font-semibold uppercase tracking-wider text-violet-600/90 dark:text-violet-300/90 md:mb-1.5 md:text-[11px] md:text-slate-500 dark:md:text-slate-400">
-          Son aktiviteler
-        </p>
+    <div className="sr-activity-strip">
+      <div className="mx-auto max-w-7xl px-2 sm:px-4">
+        <p className="sr-eyebrow mb-1.5 text-center">Son aktiviteler</p>
 
         {/* Mobil: içerik iki kez + translate -50% (WebKit scrollLeft sorunu yok) */}
         <div
@@ -437,6 +443,7 @@ function OkulDegerlendirmeleriContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { token, me } = useAuth();
+  const pathname = usePathname();
   const detailSectionRef = useRef<HTMLDivElement>(null);
   const ownReviewCardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -561,12 +568,6 @@ function OkulDegerlendirmeleriContent() {
     const idx = selectedSchool ? schools.findIndex((s) => s.id === selectedSchool.id) : -1;
     setSelectedListIndex(idx >= 0 ? idx : -1);
   }, [selectedSchool, schools]);
-
-  useEffect(() => {
-    if (selectedSchool && detailSectionRef.current && window.innerWidth < 1024) {
-      detailSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, [selectedSchool?.id]);
 
   useEffect(() => {
     setSchoolHeaderImageFailed(false);
@@ -738,6 +739,27 @@ function OkulDegerlendirmeleriContent() {
     [token, me, reviewSort, questionSort]
   );
 
+  const scrollToSchoolDetail = useCallback(() => {
+    requestAnimationFrame(() => {
+      detailSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, []);
+
+  const openSchool = useCallback(
+    async (id: string) => {
+      if (selectedSchoolRef.current?.id !== id) {
+        await fetchSchoolDetail(id);
+        const params = new URLSearchParams(searchParams?.toString() ?? '');
+        params.set('id', id);
+        if (searchParams?.get('id') !== id) {
+          router.replace(`${PAGE_PATH}?${params.toString()}`, { scroll: false });
+        }
+      }
+      scrollToSchoolDetail();
+    },
+    [fetchSchoolDetail, router, scrollToSchoolDetail, searchParams],
+  );
+
   const refreshAfterMutation = useCallback(
     async (schoolId: string) => {
       await fetchSchoolDetail(schoolId);
@@ -794,9 +816,9 @@ function OkulDegerlendirmeleriContent() {
   const schoolIdFromUrl = searchParams?.get('id') || searchParams?.get('school');
   useEffect(() => {
     if (schoolIdFromUrl && selectedSchool?.id !== schoolIdFromUrl) {
-      fetchSchoolDetail(schoolIdFromUrl);
+      void fetchSchoolDetail(schoolIdFromUrl).then(() => scrollToSchoolDetail());
     }
-  }, [schoolIdFromUrl, selectedSchool?.id, fetchSchoolDetail]);
+  }, [schoolIdFromUrl, selectedSchool?.id, fetchSchoolDetail, scrollToSchoolDetail]);
 
   const handleSubmitReview = async () => {
     if (!token || !selectedSchool) {
@@ -1336,10 +1358,10 @@ function OkulDegerlendirmeleriContent() {
         setSelectedListIndex((i) => (i > 0 ? i - 1 : i));
       } else if (e.key === 'Enter' && selectedListIndex >= 0 && schools[selectedListIndex]) {
         e.preventDefault();
-        fetchSchoolDetail(schools[selectedListIndex].id);
+        void openSchool(schools[selectedListIndex].id);
       }
     },
-    [schools, selectedListIndex, fetchSchoolDetail]
+    [schools, selectedListIndex, openSchool]
   );
 
   useEffect(() => {
@@ -1391,80 +1413,63 @@ function OkulDegerlendirmeleriContent() {
   );
 
   return (
-    <div className="min-h-screen w-full min-w-0 overflow-x-clip">
-      {/* Hero – modern anasayfa üst alan */}
-      <div className="relative overflow-x-clip bg-gradient-to-br from-sky-600 via-teal-600 to-emerald-700 dark:from-sky-800 dark:via-teal-800 dark:to-emerald-900">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIvPjwvZz48L2c+PC9zdmc+')] opacity-50" />
-        <div className="relative mx-auto w-full min-w-0 max-w-7xl px-3 py-4 sm:px-6 sm:py-6 lg:py-8">
-          <div className="text-center">
-            <div className="flex items-start justify-center gap-1.5 sm:gap-2">
-              <h1 className="text-lg font-bold tracking-tight text-white sm:text-2xl lg:text-3xl drop-shadow-sm">
-                Okul Değerlendirmeleri
-              </h1>
-              {token && (me?.role === 'teacher' || me?.role === 'moderator') && (
-                <Link
-                  href="/favoriler"
-                  className="mt-0.5 shrink-0 rounded-full p-1.5 text-white/90 transition-colors hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/80"
-                  title="Favorilerim"
-                  aria-label="Favorilerim"
-                >
-                  <HeartIcon className="text-white" filled size={22} />
-                </Link>
-              )}
-              <button
-                type="button"
-                onClick={() => toggleInfo('hero')}
-                className="mt-0.5 shrink-0 rounded-full p-1.5 text-white/90 hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/80"
-                aria-expanded={!!infoOpen.hero}
-                aria-label="Sayfa hakkında bilgi"
+    <SrPage>
+      <SrHero
+        title="Okul Değerlendirmeleri"
+        description={
+          infoOpen.hero ? (
+            <p>Türkiye&apos;deki okulları keşfedin. Deneyimleri okuyun, kendi değerlendirmenizi paylaşın.</p>
+          ) : undefined
+        }
+        actions={
+          <>
+            {token && (me?.role === 'teacher' || me?.role === 'moderator') && (
+              <Link
+                href="/favoriler"
+                className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-rose-500"
+                title="Favorilerim"
+                aria-label="Favorilerim"
               >
-                <InfoIcon className="size-5 sm:size-6" size={22} />
-              </button>
-            </div>
-            {infoOpen.hero && (
-              <p className="mx-auto mt-2 max-w-2xl text-sm text-sky-100/90 sm:mt-2 sm:text-base">
-                Türkiye&apos;deki okulları keşfedin. Kullanıcı deneyimlerini okuyun, kendi değerlendirmenizi paylaşın.
-              </p>
+                <HeartIcon filled size={18} />
+              </Link>
             )}
-          </div>
-
-          {/* İstatistikler */}
-          {homeStats && (
-            <div className="mx-auto mt-3 grid max-w-3xl grid-cols-3 gap-1.5 sm:mt-4 sm:gap-2.5">
-              <div className="rounded-md bg-white/10 px-1.5 py-1.5 text-center backdrop-blur sm:rounded-lg sm:px-3 sm:py-2">
-                <SchoolIcon className="mx-auto size-4 text-sky-200 sm:size-5" />
-                <p className="mt-0.5 text-sm font-bold tabular-nums text-white sm:mt-0.5 sm:text-xl">{homeStats.school_count.toLocaleString('tr-TR')}</p>
-                <p className="text-[9px] text-sky-100/80 sm:text-[11px]">Okul</p>
-              </div>
-              <div className="rounded-md bg-white/10 px-1.5 py-1.5 text-center backdrop-blur sm:rounded-lg sm:px-3 sm:py-2">
-                <StarIcon className="mx-auto size-4 text-amber-300 sm:size-5" filled />
-                <p className="mt-0.5 text-sm font-bold tabular-nums text-white sm:mt-0.5 sm:text-xl">{homeStats.review_count.toLocaleString('tr-TR')}</p>
-                <p className="text-[9px] text-sky-100/80 sm:text-[11px]">Değerlendirme</p>
-              </div>
-              <div className="rounded-md bg-white/10 px-1.5 py-1.5 text-center backdrop-blur sm:rounded-lg sm:px-3 sm:py-2">
-                <MessageIcon className="mx-auto size-4 text-emerald-200 sm:size-5" />
-                <p className="mt-0.5 text-sm font-bold tabular-nums text-white sm:mt-0.5 sm:text-xl">{homeStats.question_count.toLocaleString('tr-TR')}</p>
-                <p className="text-[9px] text-sky-100/80 sm:text-[11px]">Soru</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+            <button
+              type="button"
+              onClick={() => toggleInfo('hero')}
+              className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
+              aria-expanded={!!infoOpen.hero}
+              aria-label="Sayfa hakkında bilgi"
+            >
+              <InfoIcon className="size-4" size={16} />
+            </button>
+          </>
+        }
+        stats={
+          homeStats ? (
+            <SrStatGrid>
+              <SrStat icon={School} value={homeStats.school_count.toLocaleString('tr-TR')} label="Okul" tone="sky" />
+              <SrStat icon={Star} value={homeStats.review_count.toLocaleString('tr-TR')} label="Değerlendirme" tone="amber" />
+              <SrStat icon={MessageCircle} value={homeStats.question_count.toLocaleString('tr-TR')} label="Soru" tone="emerald" />
+            </SrStatGrid>
+          ) : undefined
+        }
+      />
 
       {/* Son aktiviteler: gösterim adı + okul; kart tıklanınca okul detayı; mobilde marquee */}
       <RecentActivitiesSection
         activities={recentActivitiesList}
         onOpenSchool={(id) => {
-          void fetchSchoolDetail(id);
+          void openSchool(id);
         }}
       />
 
-      <div className="mx-auto w-full min-w-0 max-w-7xl px-2 py-2 sm:px-4 sm:py-3 lg:px-6 lg:py-4">
-      {/* Arama – hero dışında, renk hiyerarşisi */}
-      <Card className="mb-2 border-slate-200/80 bg-white/80 shadow-sm backdrop-blur-sm dark:border-slate-800 dark:bg-slate-900/50 sm:mb-3 max-md:border-violet-200/50 max-md:bg-linear-to-b max-md:from-white max-md:via-sky-50/45 max-md:to-violet-50/35 max-md:shadow-md max-md:shadow-violet-200/25 dark:max-md:border-violet-900/40 dark:max-md:from-slate-950 dark:max-md:via-sky-950/35 dark:max-md:to-violet-950/30 dark:max-md:shadow-violet-950/25">
-          <CardContent className="p-2 sm:p-3 sm:py-2.5">
+      <div className="mx-auto w-full min-w-0 max-w-7xl px-2 py-2 sm:px-4 sm:py-3 lg:px-5 lg:py-4">
+      <SrPanel className="mb-2 sm:mb-3">
+          <div className="p-2.5 sm:p-3">
             <div className="mb-1.5 flex items-center gap-2 sm:mb-2">
-              <span className="text-[10px] font-semibold text-slate-700 dark:text-slate-200 sm:text-xs">Arama ve filtre</span>
+              <SrSectionLabel icon={Search} tone="violet">
+                Arama ve filtre
+              </SrSectionLabel>
               <button
                 type="button"
                 onClick={() => toggleInfo('search')}
@@ -1502,15 +1507,13 @@ function OkulDegerlendirmeleriContent() {
                 )}
               >
                 {recentSearches.filter((r) => r.search.trim() || r.city || r.district).map((r, i) => (
-                  <button
+                  <SrFilterChip
                     key={i}
-                    type="button"
                     onClick={() => applyRecentSearch(r)}
-                    className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-sky-700 dark:hover:bg-sky-950/50"
                     aria-label={`Son arama: ${[r.search, r.city, r.district].filter(Boolean).join(', ')}`}
                   >
                     {[r.search, r.city, r.district].filter(Boolean).join(' · ')}
-                  </button>
+                  </SrFilterChip>
                 ))}
               </div>
             )}
@@ -1528,7 +1531,7 @@ function OkulDegerlendirmeleriContent() {
                       applySearch();
                     }
                   }}
-                  className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-[13px] focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white md:py-2 md:pl-10 md:pr-3 md:text-sm"
+                  className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-xs focus:border-primary focus:ring-2 focus:ring-primary/20 sm:text-[13px]"
                   aria-label="Okul adı arama"
                   autoComplete="off"
                 />
@@ -1577,7 +1580,7 @@ function OkulDegerlendirmeleriContent() {
                   <button
                     type="button"
                     onClick={applySearch}
-                    className="min-h-9 flex-1 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-500 md:min-h-9 md:flex-none md:px-4 md:py-1.5 md:text-sm"
+                    className="sr-btn-search min-h-9 flex-1 px-3 py-1.5 text-xs md:min-h-9 md:flex-none md:px-4 md:py-1.5 md:text-sm"
                     aria-label="Ara"
                   >
                     Ara
@@ -1602,15 +1605,11 @@ function OkulDegerlendirmeleriContent() {
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
-      {/* Arama sonucu bilgisi – ton farkı */}
+          </div>
+        </SrPanel>
       {!moduleDisabled && !loading && (
-        <div
-          className="mb-2 rounded-lg border border-slate-200/60 bg-slate-50 px-3 py-1.5 dark:border-slate-700/50 dark:bg-slate-800/30 sm:mb-3 sm:px-3 sm:py-2"
-          aria-live="polite"
-        >
-          <p className="text-[11px] font-medium leading-snug text-slate-700 dark:text-slate-300 sm:text-xs">
+        <div className="sr-panel mb-2 px-3 py-1.5 sm:mb-3" aria-live="polite">
+          <p className="text-[10px] font-medium leading-snug text-muted-foreground sm:text-[11px]">
             Arama sonucu: <span className="text-sky-600 dark:text-sky-400">{total.toLocaleString('tr-TR')}</span> okul bulundu.
             {schools.length > 0 && (
               <span className="mt-0.5 block text-slate-500 dark:text-slate-400 sm:ml-2 sm:mt-0 sm:inline">
@@ -1632,39 +1631,32 @@ function OkulDegerlendirmeleriContent() {
       ) : null}
 
       {!moduleDisabled && (
-      <div className="grid min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] lg:gap-6">
-        {/* Sol: Modern keşif paneli */}
-        <aside className="flex min-w-0 flex-col overflow-x-clip lg:sticky lg:top-6 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto">
-          <div className="space-y-2 rounded-xl border border-slate-200/80 bg-white shadow-md shadow-slate-200/40 dark:border-slate-700/60 dark:bg-slate-900/60 dark:shadow-slate-950/50 backdrop-blur-sm sm:space-y-5 lg:rounded-2xl lg:shadow-lg">
-            {/* Hızlı istatistikler (masaüstü; mobilde hero ile çakışmasın) */}
+      <div className="grid min-w-0 max-w-full gap-3 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] lg:gap-5">
+        <aside className="flex min-w-0 flex-col gap-2 overflow-x-clip lg:sticky lg:top-4 lg:max-h-[calc(100dvh-3.5rem)] lg:overflow-y-auto lg:overscroll-contain lg:pb-3">
+          {me?.role === 'teacher' && (
+            <SrTeacherModuleNav
+              activePath={pathname}
+              showFavorites={
+                !me.school?.enabled_modules?.length ||
+                me.school.enabled_modules.includes('school_reviews')
+              }
+            />
+          )}
+          <SrPanel className="space-y-0">
             {homeStats && (
-              <div className="hidden grid-cols-3 gap-2 px-4 pt-5 lg:grid">
-                <div className="rounded-xl bg-gradient-to-br from-sky-500/10 to-teal-500/10 px-3 py-2.5 text-center dark:from-sky-500/15 dark:to-teal-500/15">
-                  <SchoolIcon className="mx-auto size-5 text-sky-600 dark:text-sky-400" />
-                  <p className="mt-1 text-lg font-bold text-slate-800 dark:text-white tabular-nums">{homeStats.school_count.toLocaleString('tr-TR')}</p>
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Okul</p>
-                </div>
-                <div className="rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 px-3 py-2.5 text-center dark:from-amber-500/15 dark:to-orange-500/15">
-                  <StarIcon className="mx-auto size-5 text-amber-600 dark:text-amber-400" filled />
-                  <p className="mt-1 text-lg font-bold text-slate-800 dark:text-white tabular-nums">{homeStats.review_count.toLocaleString('tr-TR')}</p>
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Yorum</p>
-                </div>
-                <div className="rounded-xl bg-gradient-to-br from-emerald-500/10 to-teal-500/10 px-3 py-2.5 text-center dark:from-emerald-500/15 dark:to-teal-500/15">
-                  <MessageIcon className="mx-auto size-5 text-emerald-600 dark:text-emerald-400" />
-                  <p className="mt-1 text-lg font-bold text-slate-800 dark:text-white tabular-nums">{homeStats.question_count.toLocaleString('tr-TR')}</p>
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Soru</p>
-                </div>
+              <div className="hidden border-b border-border/80 px-3 pt-3 pb-3 lg:grid lg:grid-cols-3 lg:gap-2">
+                <SrStat icon={School} value={homeStats.school_count.toLocaleString('tr-TR')} label="Okul" tone="sky" />
+                <SrStat icon={Star} value={homeStats.review_count.toLocaleString('tr-TR')} label="Yorum" tone="amber" />
+                <SrStat icon={MessageCircle} value={homeStats.question_count.toLocaleString('tr-TR')} label="Soru" tone="emerald" />
               </div>
             )}
 
-            {/* Arama sonucu – Okul listesi */}
-            <section className="px-2 pt-2 sm:px-4 sm:pt-5 lg:pt-0">
-              <div className="mb-2 flex items-center justify-between gap-2 max-lg:border-b max-lg:border-slate-100 max-lg:pb-2 dark:max-lg:border-slate-800 lg:mb-2 lg:border-b-0 lg:pb-0">
-                <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-                  <h3 className="flex items-center gap-1.5 text-[13px] font-bold tracking-tight text-slate-800 dark:text-white sm:gap-2 sm:text-sm">
-                    <SchoolIcon className="size-4 shrink-0 text-sky-500 sm:size-4" />
+            <section className="px-2.5 pt-2.5 sm:px-3 sm:pt-3 lg:pt-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <SrSectionLabel icon={School} tone="sky">
                     Okul listesi
-                  </h3>
+                  </SrSectionLabel>
                   <button
                     type="button"
                     onClick={() => toggleInfo('schoolList')}
@@ -1676,18 +1668,13 @@ function OkulDegerlendirmeleriContent() {
                   </button>
                 </div>
                 {!loading && (
-                  <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-sky-700 dark:bg-sky-400/20 dark:text-sky-300 sm:px-2.5 sm:text-xs">
+                  <SrChip tone="sky" className="tabular-nums">
                     {total.toLocaleString('tr-TR')} sonuç
-                  </span>
+                  </SrChip>
                 )}
               </div>
-              <p
-                className="mb-2 text-[10px] leading-snug text-slate-500 dark:text-slate-400 sm:mb-2.5 sm:text-[11px]"
-                role="note"
-              >
-                Okul adı ve yerleşim bilgileri, internette herkese açık kaynaklardan ve kullanıcı katkılarından
-                derlenmiştir; ticari veri tabanı veya telif korumalı okul envanteri niteliğinde değildir. Liste
-                yalnızca bilgilendirme amaçlıdır.
+              <p className="mb-2 line-clamp-2 text-[10px] leading-snug text-muted-foreground" role="note" title="Bilgilendirme amaçlı liste">
+                Okul bilgileri herkese açık kaynaklardan derlenmiştir; yalnızca bilgilendirme amaçlıdır.
               </p>
               {infoOpen.schoolList && (
                 <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400 sm:mb-3 sm:text-xs">Arama veya filtre ile bulun, listeden seçin.</p>
@@ -1713,9 +1700,7 @@ function OkulDegerlendirmeleriContent() {
                   tabIndex={0}
                   onKeyDown={handleListKeyDown}
                   className={cn(
-                    'max-h-none overflow-visible overscroll-y-contain outline-none focus-visible:ring-2 focus-visible:ring-primary/30',
-                    'max-lg:flex max-lg:flex-col max-lg:gap-2.5 max-lg:bg-linear-to-b max-lg:from-violet-50/50 max-lg:via-sky-50/30 max-lg:to-teal-50/20 max-lg:p-2.5 max-lg:ring-1 max-lg:ring-violet-200/30 dark:max-lg:from-violet-950/30 dark:max-lg:via-sky-950/20 dark:max-lg:to-teal-950/15 dark:max-lg:ring-violet-800/30',
-                    'lg:max-h-[min(320px,calc(100vh-10rem))] lg:overflow-y-auto lg:bg-transparent lg:p-0',
+                    'flex max-h-[min(240px,36dvh)] flex-col gap-1 overflow-y-auto overscroll-contain p-2 outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:max-h-[min(280px,40dvh)] sm:p-2.5 lg:max-h-[min(260px,34dvh)] lg:p-2',
                   )}
                 >
                   {schools.map((s, idx) => {
@@ -1723,62 +1708,40 @@ function OkulDegerlendirmeleriContent() {
                     const isSelected = selectedSchool?.id === s.id;
                     const isFocused = selectedListIndex === idx;
                     return (
-                      <li
+                      <SrListItem
                         key={s.id}
-                        role="option"
                         aria-selected={isSelected}
                         aria-label={`${s.name}${s.city ? `, ${s.city}` : ''}${sw.avg_rating != null ? `, ${sw.avg_rating.toFixed(1)} puan` : ''}`}
-                        className={cn(
-                          'cursor-pointer transition-colors duration-150',
-                          'max-lg:rounded-2xl max-lg:border max-lg:border-sky-200/50 max-lg:bg-linear-to-br max-lg:from-white max-lg:via-sky-50/40 max-lg:to-violet-50/50 max-lg:px-3.5 max-lg:py-3.5 max-lg:shadow-md max-lg:shadow-sky-200/25 max-lg:active:scale-[0.99] max-lg:active:from-sky-50 dark:max-lg:border-sky-800/40 dark:max-lg:from-slate-900 dark:max-lg:via-sky-950/40 dark:max-lg:to-violet-950/35 dark:max-lg:shadow-sky-950/20',
-                          'lg:border-b lg:border-slate-100 lg:px-4 lg:py-3 lg:shadow-none dark:lg:border-slate-800 lg:last:border-b-0',
-                          isSelected
-                            ? cn(
-                                'max-lg:border-cyan-300/70 max-lg:bg-linear-to-br max-lg:from-sky-100 max-lg:to-cyan-50 max-lg:ring-2 max-lg:ring-sky-300/40 dark:max-lg:border-cyan-600/50 dark:max-lg:from-sky-900/50 dark:max-lg:to-cyan-950/40 dark:max-lg:ring-sky-500/30',
-                                'lg:border-l-4 lg:border-l-sky-500 lg:bg-linear-to-r lg:from-sky-50 lg:to-teal-50/50 dark:lg:border-l-sky-400 dark:lg:from-sky-950/40 dark:lg:to-teal-950/20',
-                              )
-                            : cn(
-                                'max-lg:hover:border-sky-300/80 max-lg:hover:shadow-lg max-lg:hover:shadow-sky-200/20 dark:max-lg:hover:border-sky-600/50',
-                                'lg:border-l-4 lg:border-l-transparent lg:hover:bg-slate-50 dark:lg:hover:bg-slate-800/50',
-                              ),
-                          !isSelected &&
-                            isFocused &&
-                            cn('max-lg:bg-sky-50/80 dark:max-lg:bg-sky-950/40', 'lg:bg-slate-50 dark:lg:bg-slate-800/70'),
-                        )}
-                        onClick={() => fetchSchoolDetail(s.id)}
+                        selected={isSelected}
+                        focused={isFocused}
+                        onClick={() => void openSchool(s.id)}
                       >
-                        <div className="flex items-start gap-2.5 lg:block">
+                        <div className="flex items-start gap-2">
+                          <SrIcon icon={School} tone="sky" size="sm" className="mt-0.5" />
                           <div className="min-w-0 flex-1">
-                            <div className="wrap-break-word text-[15px] font-semibold leading-snug text-slate-900 dark:text-white lg:text-base">
+                            <div className="wrap-break-word text-xs font-semibold leading-snug text-foreground sm:text-[13px]">
                               {s.name}
                             </div>
-                            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400 lg:mt-2 lg:text-xs">
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
                               {s.city && <span className="tabular-nums">{s.city}</span>}
                               {s.district && <span className="tabular-nums">· {s.district}</span>}
                               {sw.avg_rating != null && (
-                                <span
-                                  className="inline-flex items-center gap-0.5 rounded-md bg-amber-500/10 px-1.5 py-0.5 font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-                                  title={`Ortalama: ${sw.avg_rating.toFixed(1)}`}
-                                >
-                                  <StarIcon className="size-3" filled aria-hidden />
+                                <SrChip tone="amber" title={`Ortalama: ${sw.avg_rating.toFixed(1)}`}>
+                                  <StarIcon className="size-2.5" filled aria-hidden />
                                   {sw.avg_rating.toFixed(1)}
-                                </span>
+                                </SrChip>
                               )}
                               {sw.question_count != null && sw.question_count > 0 && (
-                                <span className="inline-flex items-center gap-0.5 rounded-md bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200">
-                                  <MessageIcon className="size-3" aria-hidden />
-                                  {sw.question_count} soru
-                                </span>
+                                <SrChip tone="emerald">
+                                  <MessageIcon className="size-2.5" aria-hidden />
+                                  {sw.question_count}
+                                </SrChip>
                               )}
                             </div>
                           </div>
-                          <ChevronRightIcon
-                            size={18}
-                            className="mt-0.5 shrink-0 text-sky-300 dark:text-sky-600 lg:hidden"
-                            aria-hidden
-                          />
+                          <ChevronRightIcon size={16} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden />
                         </div>
-                      </li>
+                      </SrListItem>
                     );
                   })}
                 </ul>
@@ -1826,40 +1789,39 @@ function OkulDegerlendirmeleriContent() {
 
             {/* En çok görüntülenen okullar */}
             {topSchools.length > 0 && (
-              <section className="border-t border-slate-100 px-3 py-3 dark:border-slate-800 lg:px-4 lg:py-4">
-                <h3 className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-white lg:mb-3 lg:text-sm">
-                  <TrendingUpIcon className="size-3.5 text-amber-500 lg:size-4" />
+              <section className="border-t border-border/80 px-2.5 py-2.5 sm:px-3">
+                <SrSectionLabel icon={TrendingUp} tone="amber">
                   En çok görüntülenen
-                </h3>
-                <ul className="space-y-2">
+                </SrSectionLabel>
+                <ul className="mt-2 space-y-1.5">
                   {topSchools.slice(0, 5).map((s) => {
                     const sw = s as SchoolWithStats & { review_view_count?: number };
                     const views = sw.review_view_count ?? 0;
                     const isSelected = selectedSchool?.id === s.id;
                     return (
-                      <li
-                        key={s.id}
-                        onClick={() => fetchSchoolDetail(s.id)}
-                        className={`group cursor-pointer rounded-lg border p-2 transition-all duration-200 hover:border-sky-300 hover:shadow-md hover:shadow-sky-100/50 dark:hover:border-sky-700 dark:hover:shadow-sky-950/30 lg:rounded-xl lg:p-2.5 ${
-                          isSelected ? 'border-sky-400 bg-sky-50/80 dark:border-sky-600 dark:bg-sky-950/40' : 'border-slate-200 bg-slate-50/30 dark:border-slate-700 dark:bg-slate-800/30'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="truncate font-medium text-slate-800 dark:text-white group-hover:text-sky-700 dark:group-hover:text-sky-300">{s.name}</span>
-                          <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300" title={`${views} kez görüntülendi`}>
-                            <EyeIcon className="size-3" aria-hidden />
-                            {views >= 1000 ? `${(views / 1000).toFixed(1)}k` : views}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                          {sw.avg_rating != null && (
-                            <span className="inline-flex items-center gap-0.5 font-medium text-amber-600 dark:text-amber-400">
-                              <StarIcon className="size-3" filled aria-hidden />
-                              {sw.avg_rating.toFixed(1)}
-                            </span>
-                          )}
-                          {sw.review_count != null && <span>{sw.review_count} değerlendirme</span>}
-                        </div>
+                      <li key={s.id}>
+                        <button
+                          type="button"
+                          onClick={() => void openSchool(s.id)}
+                          className={cn('sr-feed-item w-full', isSelected && 'border-sky-400/50 bg-sky-500/5')}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="line-clamp-2 min-w-0 flex-1 text-left text-[11px] font-semibold leading-snug text-foreground">{s.name}</span>
+                            <SrChip tone="violet" title={`${views} görüntülenme`}>
+                              <EyeIcon className="size-2.5" aria-hidden />
+                              {views >= 1000 ? `${(views / 1000).toFixed(1)}k` : views}
+                            </SrChip>
+                          </div>
+                          <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                            {sw.avg_rating != null && (
+                              <SrChip tone="amber">
+                                <StarIcon className="size-2.5" filled aria-hidden />
+                                {sw.avg_rating.toFixed(1)}
+                              </SrChip>
+                            )}
+                            {sw.review_count != null && <span>{sw.review_count} yorum</span>}
+                          </div>
+                        </button>
                       </li>
                     );
                   })}
@@ -1869,26 +1831,21 @@ function OkulDegerlendirmeleriContent() {
 
             {/* Popüler yorumlar */}
             {recentReviews.length > 0 && (
-              <section className="border-t border-slate-100 px-3 py-3 dark:border-slate-800 lg:px-4 lg:py-4">
-                <h3 className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-white lg:mb-3 lg:text-sm">
-                  <StarIcon className="size-3.5 text-amber-500 lg:size-4" filled />
+              <section className="border-t border-border/80 px-2.5 py-2.5 sm:px-3">
+                <SrSectionLabel icon={Star} tone="amber">
                   Popüler yorumlar
-                </h3>
-                <ul className="space-y-2">
+                </SrSectionLabel>
+                <ul className="mt-2 space-y-1.5">
                   {recentReviews.slice(0, 4).map((r) => (
                     <li key={r.id}>
-                      <button
-                        type="button"
-                        onClick={() => fetchSchoolDetail(r.school_id)}
-                        className="w-full rounded-lg border border-slate-200/80 bg-amber-50/30 p-2 text-left text-[11px] transition-all duration-200 hover:border-amber-300 hover:bg-amber-50/60 dark:border-slate-700 dark:bg-amber-950/20 dark:hover:border-amber-700 dark:hover:bg-amber-950/40 lg:rounded-xl lg:p-3 lg:text-xs"
-                      >
-                        <p className="line-clamp-2 text-xs text-slate-700 dark:text-slate-200">{r.comment || 'Puan verildi'}</p>
-                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
-                          <span className="inline-flex items-center gap-0.5 font-semibold text-amber-600 dark:text-amber-400">
-                            <StarIcon className="size-3" filled aria-hidden />
+                      <button type="button" onClick={() => void openSchool(r.school_id)} className="sr-feed-item w-full">
+                        <p className="line-clamp-2 text-[10px] leading-snug text-foreground">{r.comment || 'Puan verildi'}</p>
+                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                          <SrChip tone="amber">
+                            <StarIcon className="size-2.5" filled aria-hidden />
                             {r.rating.toFixed(1)}
-                          </span>
-                          <span className="truncate font-medium text-slate-600 dark:text-slate-400">{r.school_name}</span>
+                          </SrChip>
+                          <span className="truncate text-[10px] font-medium text-muted-foreground">{r.school_name}</span>
                         </div>
                       </button>
                     </li>
@@ -1899,21 +1856,16 @@ function OkulDegerlendirmeleriContent() {
 
             {/* Son sorulan sorular */}
             {recentQuestions.length > 0 && (
-              <section className="border-t border-slate-100 px-3 py-3 dark:border-slate-800 lg:px-4 lg:py-4">
-                <h3 className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-white lg:mb-3 lg:text-sm">
-                  <HelpIcon className="size-3.5 text-teal-500 lg:size-4" />
-                  Son sorulan sorular
-                </h3>
-                <ul className="space-y-2">
+              <section className="border-t border-border/80 px-2.5 py-2.5 sm:px-3">
+                <SrSectionLabel icon={HelpCircle} tone="teal">
+                  Son sorular
+                </SrSectionLabel>
+                <ul className="mt-2 space-y-1.5">
                   {recentQuestions.slice(0, 4).map((q) => (
                     <li key={q.id}>
-                      <button
-                        type="button"
-                        onClick={() => fetchSchoolDetail(q.school_id)}
-                        className="w-full rounded-lg border border-slate-200/80 bg-teal-50/30 p-2 text-left text-[11px] transition-all duration-200 hover:border-teal-300 hover:bg-teal-50/60 dark:border-slate-700 dark:bg-teal-950/20 dark:hover:border-teal-700 dark:hover:bg-teal-950/40 lg:rounded-xl lg:p-3 lg:text-xs"
-                      >
-                        <p className="line-clamp-2 text-xs text-slate-700 dark:text-slate-200">{q.question}</p>
-                        <p className="mt-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-400">{q.school_name}</p>
+                      <button type="button" onClick={() => void openSchool(q.school_id)} className="sr-feed-item w-full">
+                        <p className="line-clamp-2 text-[10px] leading-snug text-foreground">{q.question}</p>
+                        <p className="mt-1 text-[10px] font-medium text-muted-foreground">{q.school_name}</p>
                       </button>
                     </li>
                   ))}
@@ -1921,27 +1873,29 @@ function OkulDegerlendirmeleriContent() {
               </section>
             )}
 
-            {/* Nasıl kullanılır */}
-            <section className="rounded-b-2xl border-t border-slate-100 bg-slate-50/50 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900/30 lg:px-4 lg:py-3">
-              <h3 className="mb-1.5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 lg:mb-2 lg:text-xs">
-                <HelpIcon className="size-3.5" aria-hidden />
+            <section className="border-t border-border/80 bg-muted/20 px-2.5 py-2.5 sm:px-3">
+              <SrSectionLabel icon={HelpCircle} tone="violet">
                 Nasıl kullanılır?
-              </h3>
-              <ul className="space-y-0.5 text-[10px] leading-snug text-slate-500 dark:text-slate-400 lg:space-y-1 lg:text-[11px]">
-                <li>• Yukarıdan arayın; il/ilçe için &quot;Filtre&quot;yü açın</li>
-                <li>• Listeden okul seçin veya ↑↓ ve Enter (masaüstü)</li>
-                <li>• Giriş yaparak puan, yorum ve soru ekleyin</li>
+              </SrSectionLabel>
+              <ul className="mt-1.5 space-y-0.5 text-[10px] leading-snug text-muted-foreground">
+                <li>• Arayın; mobilde Filtre ile il/ilçe seçin</li>
+                <li>• Listeden okul seçin</li>
+                <li>• Giriş yaparak puan ve yorum ekleyin</li>
               </ul>
             </section>
-          </div>
+          </SrPanel>
         </aside>
 
         {/* Sağ: Okul detay */}
-        <div ref={detailSectionRef} className="min-w-0 max-w-full space-y-4 overflow-x-clip lg:space-y-6">
+        <div
+          id="okul-detay"
+          ref={detailSectionRef}
+          className="min-w-0 max-w-full scroll-mt-24 space-y-4 overflow-x-clip lg:space-y-6"
+        >
           {selectedSchool ? (
             <div className="min-w-0 space-y-4 lg:space-y-6">
-              <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200/70 shadow-sm ring-1 ring-slate-900/[0.04] dark:border-slate-700/60 dark:ring-white/[0.06]">
-                <div className="min-w-0 bg-linear-to-br from-slate-50 via-white to-sky-50/40 px-3 py-3 dark:from-slate-900/60 dark:via-slate-900/40 dark:to-sky-950/25 sm:px-4 sm:py-3.5">
+              <Card className="sr-panel min-w-0 overflow-hidden rounded-2xl border-0 shadow-none ring-0">
+                <div className="min-w-0 bg-linear-to-br from-sky-50/80 via-violet-50/40 to-emerald-50/50 px-3 py-3 dark:from-sky-950/40 dark:via-violet-950/30 dark:to-emerald-950/25 sm:px-4 sm:py-3.5">
                   {(() => {
                     const headerImg =
                       selectedSchool.schoolImageUrl?.trim() ||
@@ -1952,7 +1906,7 @@ function OkulDegerlendirmeleriContent() {
                       <>
                         <div className="min-w-0">
                           <div className="flex min-w-0 items-start justify-between gap-2">
-                            <h2 className="min-w-0 flex-1 wrap-break-word text-[15px] font-bold leading-snug tracking-tight text-slate-900 dark:text-white sm:text-lg">
+                            <h2 className="min-w-0 flex-1 wrap-break-word text-sm font-bold leading-snug tracking-tight text-foreground sm:text-base">
                               {selectedSchool.name}
                             </h2>
                             <div className="flex shrink-0 items-center gap-0.5">
@@ -2044,29 +1998,24 @@ function OkulDegerlendirmeleriContent() {
                               </span>
                             </a>
                           )}
-                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <div className="mt-2 flex flex-wrap items-center gap-1">
                             {selectedSchool.avg_rating != null && (
-                              <span
-                                className="inline-flex items-center gap-1 rounded-md bg-amber-500/12 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-200"
-                                title={`Ortalama: ${selectedSchool.avg_rating.toFixed(1)} / 10`}
-                              >
-                                <StarIcon size={12} filled className="text-amber-500" aria-hidden />
-                                {selectedSchool.avg_rating.toFixed(1)}
-                                <span className="font-medium opacity-80">/10</span>
-                              </span>
+                              <SrChip tone="amber" title={`Ortalama: ${selectedSchool.avg_rating.toFixed(1)} / 10`}>
+                                <StarIcon size={10} filled aria-hidden />
+                                {selectedSchool.avg_rating.toFixed(1)}/10
+                              </SrChip>
                             )}
-                            <span className="inline-flex items-center gap-1 rounded-md bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-500/15 dark:text-sky-200">
-                              <StarIcon size={12} filled className="text-sky-500 opacity-90" aria-hidden />
-                              {selectedSchool.review_count} değerlendirme
-                            </span>
-                            <span className="inline-flex items-center gap-1 rounded-md bg-teal-500/10 px-2 py-0.5 text-[11px] font-medium text-teal-800 dark:bg-teal-500/15 dark:text-teal-200">
-                              <MessageIcon className="size-3" aria-hidden />
-                              {selectedSchool.question_count} soru
-                            </span>
-                            <span className="inline-flex items-center gap-1 rounded-md bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium text-violet-800 dark:bg-violet-500/15 dark:text-violet-200">
-                              <EyeIcon className="size-3" aria-hidden />
-                              {selectedSchool.review_view_count ?? 0} görüntülenme
-                            </span>
+                            <SrChip tone="sky">
+                              {selectedSchool.review_count} yorum
+                            </SrChip>
+                            <SrChip tone="teal">
+                              <MessageIcon className="size-2.5" aria-hidden />
+                              {selectedSchool.question_count}
+                            </SrChip>
+                            <SrChip tone="violet">
+                              <EyeIcon className="size-2.5" aria-hidden />
+                              {selectedSchool.review_view_count ?? 0}
+                            </SrChip>
                           </div>
                         </div>
                         {showImg ? (
@@ -2139,48 +2088,26 @@ function OkulDegerlendirmeleriContent() {
                 )}
               </Card>
 
-              <div
-                role="tablist"
-                aria-label="İçerik sekmeleri"
-                className="flex min-w-0 gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-700 dark:bg-slate-800/50"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === 'reviews'}
-                  aria-controls="reviews-panel"
+              <SrTabBar aria-label="İçerik sekmeleri">
+                <SrTab
                   id="tab-reviews"
+                  controls="reviews-panel"
+                  active={activeTab === 'reviews'}
                   onClick={() => setActiveTab('reviews')}
-                  className={`flex min-h-[44px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-center text-xs font-semibold transition-all sm:flex-row sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm ${
-                    activeTab === 'reviews'
-                      ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white'
-                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                  }`}
-                >
-                  <span className="leading-tight">Puan ve Yorumlar</span>
-                  <span className="rounded-full bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-slate-600 dark:bg-slate-700 dark:text-slate-300 sm:text-xs">
-                    {reviews.total || selectedSchool?.review_count || 0}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === 'questions'}
-                  aria-controls="questions-panel"
+                  label="Yorumlar"
+                  tone="amber"
+                  count={reviews.total || selectedSchool?.review_count || 0}
+                />
+                <SrTab
                   id="tab-questions"
+                  controls="questions-panel"
+                  active={activeTab === 'questions'}
                   onClick={() => setActiveTab('questions')}
-                  className={`flex min-h-[44px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-center text-xs font-semibold transition-all sm:flex-row sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm ${
-                    activeTab === 'questions'
-                      ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white'
-                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                  }`}
-                >
-                  <span className="leading-tight">Soru ve Cevaplar</span>
-                  <span className="rounded-full bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-slate-600 dark:bg-slate-700 dark:text-slate-300 sm:text-xs">
-                    {questions.total || selectedSchool?.question_count || 0}
-                  </span>
-                </button>
-              </div>
+                  label="Sorular"
+                  tone="teal"
+                  count={questions.total || selectedSchool?.question_count || 0}
+                />
+              </SrTabBar>
 
               {activeTab === 'reviews' ? (
                 <div id="reviews-panel" role="tabpanel" aria-labelledby="tab-reviews">
@@ -2188,14 +2115,14 @@ function OkulDegerlendirmeleriContent() {
                     ref={ownReviewCardRef}
                     className="min-w-0 overflow-hidden border-slate-200/80 shadow-sm dark:border-slate-700/80"
                   >
-                    <CardHeader className="border-b border-slate-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-5">
-                      <div className="flex gap-2.5">
-                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-amber-200/80 bg-amber-50 text-amber-600 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-400">
-                          <StarIcon className="size-4" filled aria-hidden />
+                    <CardHeader className="border-b border-slate-100 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
+                      <div className="flex gap-2">
+                        <div className="flex size-6 shrink-0 items-center justify-center rounded-md border border-amber-200/80 bg-amber-50 text-amber-600 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-400">
+                          <StarIcon className="size-3.5" filled aria-hidden />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start gap-2">
-                            <CardTitle className="min-w-0 flex-1 text-sm font-semibold tracking-tight text-slate-900 dark:text-white sm:text-base">
+                            <CardTitle className="min-w-0 flex-1 text-xs font-semibold tracking-tight text-slate-900 dark:text-white sm:text-sm">
                               {!isLoggedIn
                                 ? 'Bu Okula Değerlendirme Gönder'
                                 : !reviewListReady
@@ -2257,7 +2184,7 @@ function OkulDegerlendirmeleriContent() {
                       </CardContent>
                     )}
                     {isLoggedIn && reviewListReady && !ownReview && (
-                      <CardContent className="space-y-4 px-4 py-4 sm:px-5">
+                      <CardContent className="space-y-2.5 px-3 py-2.5 sm:px-4">
                         <SchoolReviewScorePicker
                           criteria={selectedSchool.criteria}
                           criteriaRatings={reviewForm.criteria_ratings}
@@ -2268,38 +2195,38 @@ function OkulDegerlendirmeleriContent() {
                           onSingleRating={(n) => setReviewForm((f) => ({ ...f, rating: n }))}
                         />
                         <div>
-                          <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                          <label className="mb-1 block text-[11px] font-medium text-slate-700 dark:text-slate-300">
                             Yorum (opsiyonel)
                           </label>
                           <textarea
                             value={reviewForm.comment}
                             onChange={(e) => setReviewForm((f) => ({ ...f, comment: e.target.value }))}
-                            rows={3}
+                            rows={2}
                             placeholder="Deneyiminizi paylaşın..."
-                            className="w-full min-h-[120px] rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:text-sm"
+                            className="w-full min-h-[4.5rem] rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/25 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                           />
                         </div>
-                        <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200/80 bg-slate-50/50 px-2 py-1.5 dark:border-slate-700 dark:bg-slate-800/50">
                           <input
                             type="checkbox"
                             checked={reviewForm.is_anonymous}
                             onChange={(e) => setReviewForm((f) => ({ ...f, is_anonymous: e.target.checked }))}
-                            className="size-5 shrink-0 rounded border-slate-300 text-primary focus:ring-primary"
+                            className="size-3.5 shrink-0 rounded border-slate-300 text-primary focus:ring-primary"
                           />
-                          <span className="text-sm text-slate-700 dark:text-slate-300">İsmim gizli kalsın</span>
+                          <span className="text-[11px] text-slate-700 dark:text-slate-300">İsmim gizli kalsın</span>
                         </label>
                         <button
                           type="button"
                           onClick={handleSubmitReview}
                           disabled={submitting}
-                          className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:w-auto sm:min-w-[180px]"
+                          className="flex min-h-8 w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:w-auto"
                         >
                           {submitting ? 'Gönderiliyor…' : 'Değerlendirmeyi gönder'}
                         </button>
                       </CardContent>
                     )}
                     {isLoggedIn && reviewListReady && ownReview && isEditingOwnReview && editReviewForm && (
-                      <CardContent className="space-y-4 px-4 py-4 sm:px-5">
+                      <CardContent className="space-y-2.5 px-3 py-2.5 sm:px-4">
                         <SchoolReviewScorePicker
                           criteria={selectedSchool.criteria}
                           criteriaRatings={editReviewForm.criteria_ratings}
@@ -2312,32 +2239,32 @@ function OkulDegerlendirmeleriContent() {
                           onSingleRating={(n) => setEditReviewForm((f) => (f ? { ...f, rating: n } : null))}
                         />
                         <div>
-                          <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                          <label className="mb-1 block text-[11px] font-medium text-slate-700 dark:text-slate-300">
                             Yorum (isteğe bağlı)
                           </label>
                           <textarea
                             value={editReviewForm.comment}
                             onChange={(e) => setEditReviewForm((f) => (f ? { ...f, comment: e.target.value } : null))}
-                            rows={4}
+                            rows={2}
                             placeholder="Değerlendirmenize yorum ekleyebilirsiniz."
-                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                            className="w-full min-h-[4.5rem] rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                           />
                         </div>
-                        <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200/80 bg-slate-50/50 px-2 py-1.5 dark:border-slate-700 dark:bg-slate-800/50">
                           <input
                             type="checkbox"
                             checked={editReviewForm.is_anonymous}
                             onChange={(e) => setEditReviewForm((f) => (f ? { ...f, is_anonymous: e.target.checked } : null))}
-                            className="size-5 shrink-0 rounded border-slate-300 text-primary focus:ring-primary"
+                            className="size-3.5 shrink-0 rounded border-slate-300 text-primary focus:ring-primary"
                           />
-                          <span className="text-sm text-slate-700 dark:text-slate-300">İsmim gizli kalsın</span>
+                          <span className="text-[11px] text-slate-700 dark:text-slate-300">İsmim gizli kalsın</span>
                         </label>
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
                             onClick={() => ownReview && handleUpdateReview(ownReview.id)}
                             disabled={submitting}
-                            className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                           >
                             {submitting ? 'Kaydediliyor…' : 'Kaydet'}
                           </button>
@@ -2352,8 +2279,8 @@ function OkulDegerlendirmeleriContent() {
                       </CardContent>
                     )}
                     {isLoggedIn && reviewListReady && ownReview && !isEditingOwnReview && (
-                      <CardContent className="space-y-4 px-4 py-4 sm:px-5">
-                        <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/50">
+                      <CardContent className="space-y-2 px-3 py-2.5 sm:px-4">
+                        <div className="rounded-md border border-slate-200/90 bg-slate-50/80 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-900/50">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Genel ortalama</span>
                             <RatingBadge rating={ownReview.rating} max={10} size="sm" />
@@ -2422,23 +2349,24 @@ function OkulDegerlendirmeleriContent() {
                       ) : reviews.items.length === 0 ? (
                         <p className="py-8 text-center text-sm text-slate-500">Bu okula henüz puan veya yorum yazılmamış. İlk değerlendirmeyi siz yapın!</p>
                       ) : (
-                        <ul className="flex min-w-0 flex-col gap-4 md:gap-0 md:divide-y md:divide-slate-100 dark:md:divide-slate-800">
-                          {reviews.items.map((r) => (
-                            <li
-                              key={r.id}
-                              className={cn(
-                                'min-w-0 md:py-5 md:first:pt-0 md:last:pb-0',
-                                'max-md:relative max-md:overflow-hidden max-md:rounded-2xl max-md:border max-md:border-violet-200/55',
-                                'max-md:bg-linear-to-b max-md:from-violet-50/60 max-md:via-white max-md:to-sky-50/50 max-md:p-4 max-md:shadow-md max-md:shadow-violet-200/20 max-md:ring-1 max-md:ring-violet-200/40',
-                                'dark:max-md:border-violet-800/45 dark:max-md:from-violet-950/35 dark:max-md:via-slate-950 dark:max-md:to-sky-950/30 dark:max-md:shadow-violet-950/20 dark:max-md:ring-violet-500/15',
-                              )}
-                            >
+                        <ul className="flex min-w-0 flex-col gap-1.5">
+                          {reviews.items.map((r) => {
+                            const authorTone = srAuthorTone(r.is_anonymous ? r.id : r.author_display_name);
+                            const authorLabel = r.is_anonymous ? 'Anonim kullanıcı' : r.author_display_name;
+                            return (
+                            <li key={r.id} className="min-w-0">
+                              <SrThreadCard kind="review" tone={authorTone}>
                               <>
-                                  <div className="flex min-w-0 flex-col gap-2 max-md:border-b max-md:border-violet-200/50 max-md:pb-3 md:flex-row md:items-start md:justify-between md:gap-3 md:border-b-0 md:pb-0 dark:max-md:border-violet-800/40">
-                                    <span className="min-w-0 text-sm font-semibold leading-snug text-slate-800 wrap-break-word dark:text-slate-100">
-                                      {r.is_anonymous ? 'Anonim kullanıcı' : r.author_display_name}
-                                    </span>
-                                    <div className="flex min-w-0 w-full flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400 md:w-auto md:max-w-[min(100%,100vw-2rem)] md:justify-end">
+                                  <div className="flex min-w-0 items-start gap-2">
+                                    <SrAuthorBadge name={authorLabel} anonymous={r.is_anonymous} tone={authorTone} />
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                        <SrThreadKindLabel kind="review" />
+                                        <span className="min-w-0 text-[11px] font-semibold leading-snug text-foreground wrap-break-word">
+                                          {authorLabel}
+                                        </span>
+                                      </div>
+                                      <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-muted-foreground">
                                       {r.is_own && isLoggedIn && (
                                         <>
                                           {isEditingOwnReview && ownReview?.id === r.id ? (
@@ -2491,33 +2419,27 @@ function OkulDegerlendirmeleriContent() {
                                         </span>
                                       )}
                                     </div>
+                                    </div>
                                   </div>
-                                  <div className="mt-3 min-w-0 max-w-full md:mt-2">
+                                  <div className="mt-1.5 min-w-0 max-w-full">
                                     {r.criteria_ratings && Object.keys(r.criteria_ratings).length > 0 ? (
                                       <CriteriaRatingsDisplay
                                         variant="public"
-                                        className="max-md:rounded-xl max-md:border max-md:border-sky-200/50 max-md:bg-linear-to-br max-md:from-sky-50/80 max-md:to-violet-50/50 max-md:p-2.5 dark:max-md:border-sky-800/40 dark:max-md:from-sky-950/40 dark:max-md:to-violet-950/30"
+                                        className="p-0"
                                         headerRating={{ value: r.rating, max: 10 }}
                                         criteriaRatings={r.criteria_ratings}
                                         criteria={selectedSchool.criteria ?? undefined}
                                       />
                                     ) : (
-                                      <div className="flex flex-wrap items-center gap-2 max-md:rounded-xl max-md:border max-md:border-amber-200/50 max-md:bg-linear-to-br max-md:from-amber-50/70 max-md:to-orange-50/40 max-md:p-3 dark:max-md:border-amber-800/40 dark:max-md:from-amber-950/35 dark:max-md:to-orange-950/25">
-                                        <RatingBadge rating={r.rating} max={10} size="sm" />
-                                      </div>
+                                      <RatingBadge rating={r.rating} max={10} size="sm" />
                                     )}
                                   </div>
                                   {r.comment && (
-                                    <p className="mt-3 min-w-0 wrap-break-word rounded-xl border border-slate-200/70 bg-slate-50/90 px-3.5 py-3 text-[15px] leading-relaxed text-slate-700 dark:border-slate-700/70 dark:bg-slate-800/40 dark:text-slate-200 max-md:border-teal-200/55 max-md:bg-linear-to-br max-md:from-teal-50/80 max-md:to-emerald-50/50 max-md:text-slate-800 dark:max-md:border-teal-800/40 dark:max-md:from-teal-950/35 dark:max-md:to-emerald-950/25 dark:max-md:text-slate-100">
+                                    <p className="mt-1.5 min-w-0 wrap-break-word rounded-md border border-border/60 bg-muted/25 px-2 py-1.5 text-[11px] leading-snug text-foreground">
                                       {r.comment}
                                     </p>
                                   )}
-                                  <div
-                                    className={cn(
-                                      'mt-3 flex w-full min-w-0 flex-wrap items-stretch gap-2 md:mt-2 md:items-center',
-                                      !r.is_own && 'max-md:grid max-md:grid-cols-3',
-                                    )}
-                                  >
+                                  <div className={cn('sr-thread-actions', !r.is_own && 'max-sm:grid max-sm:grid-cols-3')}>
                                     {!r.is_own && (
                                       <>
                                         <button
@@ -2582,8 +2504,10 @@ function OkulDegerlendirmeleriContent() {
                                     )}
                                   </div>
                                 </>
+                              </SrThreadCard>
                             </li>
-                          ))}
+                          );
+                          })}
                         </ul>
                       )}
                     </CardContent>
@@ -2703,13 +2627,14 @@ function OkulDegerlendirmeleriContent() {
                       ) : questions.items.length === 0 ? (
                         <p className="py-8 text-center text-sm text-slate-500">Bu okul hakkında henüz soru sorulmamış. Merak ettiğiniz konuyu ilk siz sorun!</p>
                       ) : (
-                        <ul className="min-w-0 space-y-5">
-                          {questions.items.map((q) => (
-                            <li
-                              key={q.id}
-                              className="min-w-0 max-w-full overflow-hidden rounded-xl border border-sky-200/45 bg-gradient-to-b from-sky-50/70 via-sky-50/25 to-white shadow-sm dark:border-sky-800/35 dark:from-sky-950/40 dark:via-sky-950/15 dark:to-slate-900/50"
-                            >
-                              <div className="min-w-0 px-3 py-3.5 sm:px-4">
+                        <ul className="flex min-w-0 flex-col gap-1.5">
+                          {questions.items.map((q) => {
+                            const qTone = srAuthorTone(q.is_anonymous ? q.id : q.author_display_name);
+                            const qAuthor = q.is_anonymous ? 'Anonim kullanıcı' : q.author_display_name;
+                            return (
+                            <li key={q.id} className="min-w-0">
+                              <SrThreadCard kind="question" tone={qTone}>
+                              <div className="min-w-0">
                                 {editingQuestionId === q.id && editQuestionForm !== null ? (
                                   <div className="space-y-3 rounded-lg border border-sky-200/70 bg-sky-50/60 p-3 dark:border-sky-700/50 dark:bg-sky-950/35">
                                     <textarea
@@ -2739,21 +2664,22 @@ function OkulDegerlendirmeleriContent() {
                                   </div>
                                 ) : (
                                   <>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-700/90 dark:text-sky-300/90">
-                                        Soru
-                                      </p>
+                                    <div className="flex min-w-0 items-start gap-2">
+                                      <SrAuthorBadge name={qAuthor} anonymous={q.is_anonymous} tone={qTone} />
+                                      <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <SrThreadKindLabel kind="question" />
                                       {q.status === 'pending' && (
-                                        <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-500/15 dark:text-amber-100">
+                                        <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-900 dark:bg-amber-500/15 dark:text-amber-100">
                                           Onay bekliyor
                                         </span>
                                       )}
                                     </div>
-                                    <p className="mt-1.5 min-w-0 wrap-break-word text-base font-semibold leading-snug text-slate-800 dark:text-slate-100">
+                                    <p className="mt-1 min-w-0 wrap-break-word text-[13px] font-semibold leading-snug text-foreground">
                                       {q.question}
                                     </p>
-                                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-                                      <span className="min-w-0 wrap-break-word">{q.is_anonymous ? 'Anonim kullanıcı' : q.author_display_name}</span>
+                                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-muted-foreground">
+                                      <span className="min-w-0 wrap-break-word font-medium text-foreground/80">{qAuthor}</span>
                                       <span>·</span>
                                       <time dateTime={q.created_at}>
                                         {formatTrDateTimeMedium(q.created_at)}
@@ -2784,8 +2710,10 @@ function OkulDegerlendirmeleriContent() {
                                         </>
                                       )}
                                     </div>
+                                      </div>
+                                    </div>
                                     {!q.is_own && (
-                                      <div className="mt-2 flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-2">
+                                      <div className="sr-thread-actions mt-1.5">
                                         <button
                                           type="button"
                                           onClick={() => handleToggleQuestionLike(q.id)}
@@ -2831,7 +2759,7 @@ function OkulDegerlendirmeleriContent() {
                                       </div>
                                     )}
                                     {q.is_own && ((q.like_count ?? 0) > 0 || (q.dislike_count ?? 0) > 0) && (
-                                      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
                                         {(q.like_count ?? 0) > 0 && (
                                           <span className="inline-flex items-center gap-1">
                                             <ThumbsUpIcon size={12} filled />
@@ -2850,19 +2778,18 @@ function OkulDegerlendirmeleriContent() {
                                 )}
                               </div>
                               {q.answers.length > 0 && (
-                                <div className="min-w-0 space-y-2.5 border-t border-emerald-200/35 bg-gradient-to-b from-emerald-50/55 to-teal-50/35 px-3 py-3.5 sm:px-4 dark:border-emerald-800/25 dark:from-emerald-950/30 dark:to-teal-950/15">
-                                  <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800/85 dark:text-emerald-300/90">
+                                <div className="mt-2 min-w-0 space-y-1.5 border-t border-border/50 pt-2">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                                     Yanıtlar ({q.answers.length})
                                   </p>
-                                  {q.answers.map((a, ai) => (
-                                    <div
-                                      key={a.id}
-                                      className="flex min-w-0 max-w-full gap-2.5 rounded-lg border border-emerald-200/40 bg-white/85 px-2.5 py-2.5 shadow-[0_1px_0_0_rgba(16,185,129,0.06)] sm:gap-3 sm:px-3 dark:border-emerald-800/35 dark:bg-emerald-950/25"
-                                    >
-                                      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-bold text-emerald-900 dark:bg-emerald-400/15 dark:text-emerald-100">
-                                        {ai + 1}
-                                      </div>
-                                      <div className="min-w-0 flex-1">
+                                  {q.answers.map((a) => {
+                                    const aTone = srAuthorTone(a.is_anonymous ? a.id : a.author_display_name);
+                                    const aAuthor = a.is_anonymous ? 'Anonim kullanıcı' : a.author_display_name;
+                                    return (
+                                    <SrThreadCard key={a.id} kind="answer" tone={aTone}>
+                                      <div className="flex min-w-0 items-start gap-2">
+                                        <SrAuthorBadge name={aAuthor} anonymous={a.is_anonymous} tone={aTone} />
+                                        <div className="min-w-0 flex-1">
                                       {editingAnswerId === a.id && editAnswerForm !== null ? (
                                         <div className="space-y-2">
                                           <textarea
@@ -2892,19 +2819,20 @@ function OkulDegerlendirmeleriContent() {
                                         </div>
                                       ) : (
                                         <>
-                                          <div className="flex flex-wrap items-start gap-2">
-                                            <p className="min-w-0 flex-1 wrap-break-word text-sm leading-relaxed text-slate-700 dark:text-slate-200">
-                                              {a.answer}
-                                            </p>
+                                          <div className="flex flex-wrap items-center gap-1.5">
+                                            <SrThreadKindLabel kind="answer" />
                                             {a.status === 'pending' && (
-                                              <span className="shrink-0 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-500/15 dark:text-amber-100">
+                                              <span className="shrink-0 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-900 dark:bg-amber-500/15 dark:text-amber-100">
                                                 Onay bekliyor
                                               </span>
                                             )}
                                           </div>
-                                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-emerald-800/80 dark:text-emerald-400/95">
-                                            <span className="min-w-0 font-medium wrap-break-word">
-                                              {a.is_anonymous ? 'Anonim kullanıcı' : a.author_display_name}
+                                          <p className="mt-0.5 min-w-0 wrap-break-word text-[11px] leading-snug text-foreground">
+                                            {a.answer}
+                                          </p>
+                                          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-muted-foreground">
+                                            <span className="min-w-0 font-medium wrap-break-word text-foreground/80">
+                                              {aAuthor}
                                             </span>
                                             <span>·</span>
                                             <time dateTime={a.created_at}>
@@ -2934,7 +2862,7 @@ function OkulDegerlendirmeleriContent() {
                                               </>
                                             )}
                                           </div>
-                                          <div className="mt-2 flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-2 border-t border-emerald-200/35 pt-2 dark:border-emerald-800/30">
+                                          <div className="sr-thread-actions mt-1.5">
                                             {!a.is_own && (
                                               <>
                                                 <button
@@ -3000,12 +2928,14 @@ function OkulDegerlendirmeleriContent() {
                                           </div>
                                         </>
                                       )}
+                                        </div>
                                       </div>
-                                    </div>
-                                  ))}
+                                    </SrThreadCard>
+                                    );
+                                  })}
                                 </div>
                               )}
-                              <div className="min-w-0 border-t border-violet-200/30 bg-violet-50/35 px-3 py-3 dark:border-violet-800/25 dark:bg-violet-950/15 sm:px-4">
+                              <div className="mt-2 min-w-0 border-t border-border/50 pt-2">
                                 {isLoggedIn ? (
                                   <div className="space-y-2">
                                     <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch">
@@ -3016,13 +2946,13 @@ function OkulDegerlendirmeleriContent() {
                                           setAnswerForms((f) => ({ ...f, [q.id]: e.target.value }))
                                         }
                                         placeholder="Bu soruya cevap yazın..."
-                                        className="min-w-0 w-full flex-1 rounded-lg border border-violet-200/50 bg-white/90 px-3 py-2.5 text-sm shadow-sm dark:border-violet-800/40 dark:bg-slate-900/80 sm:px-4 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                        className="min-w-0 w-full flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs focus:border-primary focus:ring-1 focus:ring-primary/20"
                                       />
                                       <button
                                         type="button"
                                         onClick={() => handleSubmitAnswer(q.id)}
                                         disabled={submittingAnswer === q.id || !(answerForms[q.id]?.trim())}
-                                        className="shrink-0 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 sm:min-w-[7.5rem]"
+                                        className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                                       >
                                         {submittingAnswer === q.id ? '…' : 'Cevap Ver'}
                                       </button>
@@ -3048,8 +2978,10 @@ function OkulDegerlendirmeleriContent() {
                                   </p>
                                 )}
                               </div>
+                              </SrThreadCard>
                             </li>
-                          ))}
+                            );
+                          })}
                         </ul>
                       )}
                     </CardContent>
@@ -3130,7 +3062,7 @@ function OkulDegerlendirmeleriContent() {
                                 <button
                                   key={s.id}
                                   type="button"
-                                  onClick={() => fetchSchoolDetail(s.id)}
+                                  onClick={() => void openSchool(s.id)}
                                   className="group rounded-xl border border-slate-200/80 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:border-sky-300 hover:shadow-md hover:shadow-sky-100/50 dark:border-slate-700 dark:bg-slate-800/30 dark:hover:border-sky-600 dark:hover:shadow-sky-950/30"
                                 >
                                   <div className="flex items-start justify-between gap-2">
@@ -3319,7 +3251,7 @@ function OkulDegerlendirmeleriContent() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </SrPage>
   );
 }
 

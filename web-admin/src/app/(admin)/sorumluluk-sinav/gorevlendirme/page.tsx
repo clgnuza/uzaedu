@@ -22,11 +22,29 @@ type SessionType = 'yazili' | 'uygulama' | 'mixed';
 type UygulamaCompanion = {
   id: string; sessionDate: string; startTime: string; endTime: string; roomName: string | null;
 };
+type ProctorRules = {
+  studentThreshold: number;
+  komisyonPerSession: number;
+  gozcuPerRoom: number;
+  useSmartRules: boolean;
+};
+
+const DEFAULT_PROCTOR_RULES: ProctorRules = {
+  studentThreshold: 30,
+  komisyonPerSession: 2,
+  gozcuPerRoom: 1,
+  useSmartRules: true,
+};
+
 type Session = {
   id: string; subjectName: string; sessionDate: string;
   startTime: string; endTime: string; roomName: string | null;
   sessionType?: SessionType; pairedSessionId?: string | null;
   uygulamaCompanion?: UygulamaCompanion | null;
+  studentCount?: number;
+  recommendedKomisyon?: number;
+  recommendedGozcu?: number;
+  proctorNeedReason?: string;
   proctors?: Array<{ userId: string; role: string; displayName: string }>;
 };
 
@@ -183,27 +201,58 @@ export default function GorevlendirmePage() {
   const [timetableLoading, setTimetableLoading] = useState(false);
 
   const [autoPanel, setAutoPanel]   = useState(false);
+  const [rulesPanel, setRulesPanel] = useState(false);
+  const [rulesSaving, setRulesSaving] = useState(false);
+  const [proctorRules, setProctorRules] = useState<ProctorRules>(DEFAULT_PROCTOR_RULES);
   const [autoRunning, setAutoRunning] = useState(false);
   const [autoOpts, setAutoOpts] = useState({
-    komisyonPerSession: 1,
-    gozcuPerSession: 1,
+    komisyonPerSession: 2,
+    gozcuPerSession: 0,
     preferBranchMatch: true,
     excludeBusy: true,
     balanceLoad: true,
     overwrite: false,
+    useSmartRules: true,
   });
 
   const load = async () => {
     if (!token || !groupId) { setLoading(false); return; }
     setLoading(true);
     try {
-      const [s, t] = await Promise.all([
+      const [s, t, g] = await Promise.all([
         apiFetch<Session[]>(`/sorumluluk-exam/groups/${groupId}/sessions${schoolQ}`, { token }),
         apiFetch<Teacher[]>(`/sorumluluk-exam/teachers${schoolQ}`, { token }),
+        apiFetch<{ proctorRules?: ProctorRules }>(`/sorumluluk-exam/groups/${groupId}${schoolQ}`, { token }),
       ]);
       setSessions(s); setTeachers(t);
+      const rules = { ...DEFAULT_PROCTOR_RULES, ...(g.proctorRules ?? {}) };
+      setProctorRules(rules);
+      setAutoOpts((o) => ({
+        ...o,
+        komisyonPerSession: rules.komisyonPerSession,
+        gozcuPerSession: rules.gozcuPerRoom,
+        useSmartRules: rules.useSmartRules,
+      }));
     } catch { toast.error('Veri yüklenemedi'); }
     finally { setLoading(false); }
+  };
+
+  const saveProctorRules = async () => {
+    if (!token || !groupId) return;
+    setRulesSaving(true);
+    try {
+      await apiFetch(`/sorumluluk-exam/groups/${groupId}${schoolQ}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ proctorRules }),
+      });
+      toast.success('Gözcü kuralları kaydedildi');
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
+    } finally {
+      setRulesSaving(false);
+    }
   };
 
   useEffect(() => { void load(); }, [token, groupId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -339,6 +388,66 @@ export default function GorevlendirmePage() {
         </div>
       )}
 
+      {isSchoolAdmin && assignable.length > 0 && (
+        <div className="overflow-hidden rounded-2xl border border-sky-200/60 bg-gradient-to-br from-sky-50/80 via-white/50 to-cyan-50/40 shadow-sm dark:border-sky-900/40 dark:from-sky-950/30 dark:via-zinc-900/20 dark:to-cyan-950/20">
+          <button type="button" onClick={() => setRulesPanel((v) => !v)}
+            className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-sky-500/5">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white shadow-md shadow-sky-500/25">
+              <Settings2 className="size-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-sky-950 dark:text-sky-100">Gözcü atama kuralları</p>
+              <p className="text-[11px] text-sky-700/90 dark:text-sky-300/90 truncate">
+                ≤{proctorRules.studentThreshold} öğrenci: {proctorRules.komisyonPerSession} komisyon · üzeri veya çok salon: salon başı {proctorRules.gozcuPerRoom} gözcü
+              </p>
+            </div>
+            {rulesPanel ? <ChevronUp className="size-4 text-sky-500 shrink-0" /> : <ChevronDown className="size-4 text-sky-500 shrink-0" />}
+          </button>
+          {rulesPanel && (
+            <div className="border-t border-sky-200/60 px-4 pb-4 pt-3 space-y-3 dark:border-sky-900/30">
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {proctorRules.studentThreshold} ve altı, tek salonda yalnızca komisyon ({proctorRules.komisyonPerSession} öğretmen).
+                Sayı aşılırsa veya aynı saatte farklı salonlara bölünürse her salon için en az {proctorRules.gozcuPerRoom} gözcü atanır.
+                Aynı saatte birden fazla oturuma aynı öğretmen atanmaz.
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] font-semibold text-muted-foreground block mb-1">Öğrenci limiti</label>
+                  <Input type="number" min={1} max={200} value={proctorRules.studentThreshold}
+                    onChange={(e) => setProctorRules((r) => ({ ...r, studentThreshold: Math.max(1, Number(e.target.value) || 30) }))}
+                    className="h-8 text-sm" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-muted-foreground block mb-1">Komisyon</label>
+                  <Input type="number" min={1} max={10} value={proctorRules.komisyonPerSession}
+                    onChange={(e) => setProctorRules((r) => ({ ...r, komisyonPerSession: Math.max(1, Number(e.target.value) || 2) }))}
+                    className="h-8 text-sm" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-muted-foreground block mb-1">Gözcü / salon</label>
+                  <Input type="number" min={0} max={10} value={proctorRules.gozcuPerRoom}
+                    onChange={(e) => setProctorRules((r) => ({ ...r, gozcuPerRoom: Math.max(0, Number(e.target.value) || 0) }))}
+                    className="h-8 text-sm" />
+                </div>
+              </div>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" className="mt-0.5 size-4 rounded border-sky-300"
+                  checked={proctorRules.useSmartRules}
+                  onChange={(e) => setProctorRules((r) => ({ ...r, useSmartRules: e.target.checked }))} />
+                <span className="text-xs">
+                  <span className="font-semibold">Akıllı kural</span>
+                  <span className="block text-[10px] text-muted-foreground">Öğrenci sayısı ve salon bölünmesine göre otomatik hesapla</span>
+                </span>
+              </label>
+              <Button size="sm" onClick={() => void saveProctorRules()} disabled={rulesSaving} className="w-full gap-2">
+                {rulesSaving ? <LoadingSpinner className="size-4" /> : <Save className="size-4" />}
+                Kuralları kaydet
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Otomatik dağıtım */}
       {assignable.length > 0 && (
         <div className="overflow-hidden rounded-2xl border border-violet-200/60 bg-gradient-to-br from-violet-50/80 via-white/50 to-fuchsia-50/40 shadow-sm dark:border-violet-900/40 dark:from-violet-950/30 dark:via-zinc-900/20 dark:to-fuchsia-950/20">
@@ -357,28 +466,40 @@ export default function GorevlendirmePage() {
 
           {autoPanel && (
             <div className="border-t border-violet-200/60 px-4 pb-4 pt-3 space-y-4 dark:border-violet-900/30">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-semibold text-muted-foreground block mb-1">Komisyon / Oturum</label>
-                  <div className="flex items-center gap-1">
-                    <button type="button" onClick={() => setAutoOpts((o) => ({ ...o, komisyonPerSession: Math.max(1, o.komisyonPerSession - 1) }))}
-                      className="rounded-lg border border-violet-200 px-2 py-1 text-xs font-bold hover:bg-violet-100 dark:border-violet-800 dark:hover:bg-violet-900/40">−</button>
-                    <span className="w-8 text-center text-sm font-bold">{autoOpts.komisyonPerSession}</span>
-                    <button type="button" onClick={() => setAutoOpts((o) => ({ ...o, komisyonPerSession: Math.min(10, o.komisyonPerSession + 1) }))}
-                      className="rounded-lg border border-violet-200 px-2 py-1 text-xs font-bold hover:bg-violet-100 dark:border-violet-800 dark:hover:bg-violet-900/40">+</button>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" className="mt-0.5 size-4 rounded border-violet-300"
+                  checked={autoOpts.useSmartRules}
+                  onChange={(e) => setAutoOpts((o) => ({ ...o, useSmartRules: e.target.checked }))} />
+                <span className="text-xs">
+                  <span className="font-semibold">Akıllı kural kullan</span>
+                  <span className="block text-[10px] text-muted-foreground">Öğrenci sayısı ve salon bölünmesine göre komisyon/gözcü hesapla</span>
+                </span>
+              </label>
+
+              {!autoOpts.useSmartRules && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-semibold text-muted-foreground block mb-1">Komisyon / Oturum</label>
+                    <div className="flex items-center gap-1">
+                      <button type="button" onClick={() => setAutoOpts((o) => ({ ...o, komisyonPerSession: Math.max(1, o.komisyonPerSession - 1) }))}
+                        className="rounded-lg border border-violet-200 px-2 py-1 text-xs font-bold hover:bg-violet-100 dark:border-violet-800 dark:hover:bg-violet-900/40">−</button>
+                      <span className="w-8 text-center text-sm font-bold">{autoOpts.komisyonPerSession}</span>
+                      <button type="button" onClick={() => setAutoOpts((o) => ({ ...o, komisyonPerSession: Math.min(10, o.komisyonPerSession + 1) }))}
+                        className="rounded-lg border border-violet-200 px-2 py-1 text-xs font-bold hover:bg-violet-100 dark:border-violet-800 dark:hover:bg-violet-900/40">+</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-muted-foreground block mb-1">Gözcü / Oturum</label>
+                    <div className="flex items-center gap-1">
+                      <button type="button" onClick={() => setAutoOpts((o) => ({ ...o, gozcuPerSession: Math.max(0, o.gozcuPerSession - 1) }))}
+                        className="rounded-lg border border-violet-200 px-2 py-1 text-xs font-bold hover:bg-violet-100 dark:border-violet-800 dark:hover:bg-violet-900/40">−</button>
+                      <span className="w-8 text-center text-sm font-bold">{autoOpts.gozcuPerSession}</span>
+                      <button type="button" onClick={() => setAutoOpts((o) => ({ ...o, gozcuPerSession: Math.min(10, o.gozcuPerSession + 1) }))}
+                        className="rounded-lg border border-violet-200 px-2 py-1 text-xs font-bold hover:bg-violet-100 dark:border-violet-800 dark:hover:bg-violet-900/40">+</button>
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-muted-foreground block mb-1">Gözcü / Oturum</label>
-                  <div className="flex items-center gap-1">
-                    <button type="button" onClick={() => setAutoOpts((o) => ({ ...o, gozcuPerSession: Math.max(0, o.gozcuPerSession - 1) }))}
-                      className="rounded-lg border border-violet-200 px-2 py-1 text-xs font-bold hover:bg-violet-100 dark:border-violet-800 dark:hover:bg-violet-900/40">−</button>
-                    <span className="w-8 text-center text-sm font-bold">{autoOpts.gozcuPerSession}</span>
-                    <button type="button" onClick={() => setAutoOpts((o) => ({ ...o, gozcuPerSession: Math.min(10, o.gozcuPerSession + 1) }))}
-                      className="rounded-lg border border-violet-200 px-2 py-1 text-xs font-bold hover:bg-violet-100 dark:border-violet-800 dark:hover:bg-violet-900/40">+</button>
-                  </div>
-                </div>
-              </div>
+              )}
 
               <div className="space-y-2">
                 {([
@@ -460,6 +581,7 @@ export default function GorevlendirmePage() {
                           <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
                             {s.startTime}–{s.endTime}
                             {s.roomName ? ` · ${s.roomName}` : ''}
+                            {typeof s.studentCount === 'number' ? ` · ${s.studentCount} öğr.` : ''}
                           </p>
                           {s.uygulamaCompanion && (
                             <p className="text-[10px] text-teal-700 dark:text-teal-400 mt-1 flex items-center gap-1">
@@ -483,6 +605,11 @@ export default function GorevlendirmePage() {
                         {komisyon === 0 && gozcu === 0 && (
                           <span className="rounded-full bg-slate-500/10 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                             Görevli yok
+                          </span>
+                        )}
+                        {(s.recommendedKomisyon != null || s.recommendedGozcu != null) && (
+                          <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-800 dark:text-sky-300" title={s.proctorNeedReason}>
+                            Öneri: {s.recommendedKomisyon ?? 0}K+{s.recommendedGozcu ?? 0}G
                           </span>
                         )}
                       </div>
@@ -539,6 +666,13 @@ export default function GorevlendirmePage() {
                 {isSchoolAdmin && !timetableLoading && Object.keys(timetable).length > 0 && (
                   <p className="text-[10px] text-teal-600 dark:text-teal-400 mt-1">
                     Ders programı çakışmaları listede işaretlenir
+                  </p>
+                )}
+                {selectedSes.proctorNeedReason && (
+                  <p className="text-[10px] text-sky-700 dark:text-sky-300 mt-1 pl-2">
+                    Önerilen: {selectedSes.recommendedKomisyon ?? 2} komisyon
+                    {(selectedSes.recommendedGozcu ?? 0) > 0 ? `, ${selectedSes.recommendedGozcu} gözcü` : ''}
+                    {' — '}{selectedSes.proctorNeedReason}
                   </p>
                 )}
               </div>

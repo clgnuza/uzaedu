@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
@@ -8,12 +8,9 @@ import {
   BookOpen,
   CalendarClock,
   CheckCheck,
-  Check,
   Megaphone,
-  ArrowRightLeft,
   Trash2,
   Table2,
-  ExternalLink,
   Award,
   Monitor,
   ClipboardList,
@@ -44,12 +41,8 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { YollukFinalizedNotificationBody } from '@/components/notifications/yolluk-finalized-notification-body';
 import { NotificationPushSettings } from '@/components/notification-push-settings';
-import { NotificationChannelIcon } from '@/components/notification-channel-icon';
-import { notificationEventLabel } from '@/lib/notification-event-label';
-import { getThemeForEventTypeDetailed } from '@/lib/notification-channel-theme';
-
+import { NotificationInboxList } from '@/components/notifications/notification-inbox-list';
 type NotificationItem = {
   id: string;
   event_type: string;
@@ -69,10 +62,6 @@ type PaginatedResponse = {
   page: number;
   limit: number;
 };
-
-function notificationChipLabel(item: NotificationItem): string {
-  return item.event_label ?? notificationEventLabel(item.event_type);
-}
 
 const SWAP_EVENT_TYPES = ['duty.swap_requested', 'duty.swap_approved', 'duty.swap_rejected', 'duty.swap_teacher2_approved'];
 const EXAM_DUTY_EVENT_TYPES = ['exam_duty.open', 'exam_duty.lastday', 'exam_duty.approval_day', 'exam_duty.examday', 'exam_duty.reminder', 'exam_duty.exam_day_morning'];
@@ -112,7 +101,7 @@ const EXAM_SCHOOL_FOCUS_LINKS: ReadonlyArray<{
   ring: string;
 }> = [
   {
-    href: '/kelebek-sinav/sinav-islemleri',
+    href: '/kelebek-sinav/sinav-planlama',
     label: 'Kertenkele sınav',
     Icon: LayoutGrid,
     blob: 'from-amber-400 via-orange-400 to-rose-400',
@@ -150,20 +139,6 @@ const EXAM_SCHOOL_MORE_LINKS: ReadonlyArray<{
   { href: '/sinav-gorevlerim', label: 'Sınav Görevleri', Icon: ClipboardList, wash: 'from-sky-400/25 to-blue-600/20' },
   { href: '/market', label: 'Market / Cüzdan', Icon: Wallet, wash: 'from-lime-400/25 to-green-600/20' },
 ];
-
-function formatDate(s: string) {
-  const d = new Date(s);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'Az önce';
-  if (diffMins < 60) return `${diffMins} dk önce`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours} saat önce`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays} gün önce`;
-  return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
-}
 
 function getNotificationLink(item: NotificationItem): string {
   if (isSchoolReviewsPenaltyNotification(item.event_type)) {
@@ -231,7 +206,7 @@ function getNotificationLink(item: NotificationItem): string {
   if (item.event_type?.startsWith('butterfly_exam.')) {
     const schoolId = (item.metadata as { school_id?: string } | null)?.school_id;
     const q = schoolId ? `?school_id=${schoolId}` : '';
-    return `/kelebek-sinav/sinav-islemleri${q}`;
+    return `/kelebek-sinav/sinav-planlama${q}`;
   }
   if (item.event_type?.startsWith('yolluk.')) {
     if (item.entity_id) return `/yolluk-hesaplama/benim/${item.entity_id}`;
@@ -307,85 +282,6 @@ function isSchoolReviewsPenaltyNotification(eventType: string): boolean {
 
 function isAnnouncementNotification(eventType: string): boolean {
   return eventType === 'announcement.created' || eventType?.startsWith('announcement.');
-}
-
-/** Liste satırı sol şerit — nöbet hatırlatma / belirli gün ile çakışmaz */
-function getNotificationRowAccentClass(item: NotificationItem): string | null {
-  if (item.event_type === 'duty.reminder' && isTodayReminder(item)) return null;
-  if (isBelirliGunReminderHighlight(item)) return null;
-  if (isAnnouncementNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-yellow-500 bg-yellow-50/45 dark:border-l-yellow-400 dark:bg-yellow-950/25';
-  }
-  if (isBilsemCalendarNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-violet-500 bg-violet-50/40 dark:border-l-violet-400 dark:bg-violet-950/20';
-  }
-  if (isBelirliGunNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-amber-500 bg-amber-50/40 dark:border-l-amber-400 dark:bg-amber-950/20';
-  }
-  if (isDutyNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-indigo-500 bg-indigo-50/35 dark:border-l-indigo-400 dark:bg-indigo-950/20';
-  }
-  if (isTimetableNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-emerald-500 bg-emerald-50/35 dark:border-l-emerald-400 dark:bg-emerald-950/20';
-  }
-  if (isSmartBoardNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-cyan-500 bg-cyan-50/35 dark:border-l-cyan-400 dark:bg-cyan-950/20';
-  }
-  if (isSupportNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-fuchsia-500 bg-fuchsia-50/40 dark:border-l-fuchsia-400 dark:bg-fuchsia-950/20';
-  }
-  if (item.event_type === 'exam_duty.sync_source_error') {
-    return 'border-l-[3px] border-l-red-500 bg-red-50/50 dark:border-l-red-400 dark:bg-red-950/25';
-  }
-  if (isExamDutyNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-sky-500 bg-sky-50/40 dark:border-l-sky-400 dark:bg-sky-950/20';
-  }
-  if (isAgendaNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-rose-500 bg-rose-50/40 dark:border-l-rose-400 dark:bg-rose-950/20';
-  }
-  if (isMarketNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-lime-500 bg-lime-50/40 dark:border-l-lime-400 dark:bg-lime-950/20';
-  }
-  if (isExamSchoolModuleNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-teal-500 bg-teal-50/40 dark:border-l-teal-400 dark:bg-teal-950/20';
-  }
-  if (isMessageCenterGroupNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-emerald-500 bg-emerald-50/40 dark:border-l-emerald-400 dark:bg-emerald-950/20';
-  }
-  if (isSchoolReviewsPenaltyNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-rose-600 bg-rose-50/50 dark:border-l-rose-500 dark:bg-rose-950/30';
-  }
-  if (isYollukNotification(item.event_type)) {
-    return 'border-l-[3px] border-l-teal-500 bg-teal-50/45 dark:border-l-teal-400 dark:bg-teal-950/25';
-  }
-  return getThemeForEventTypeDetailed(item.event_type).rowAccent;
-}
-
-function getNotificationIcon(item: NotificationItem): { icon: React.ReactNode; bgClass: string } {
-  const theme = getThemeForEventTypeDetailed(item.event_type);
-  const Icon = theme.icon;
-  return {
-    icon: <Icon className={theme.iconClass} strokeWidth={2} />,
-    bgClass: theme.tileClass,
-  };
-}
-
-function getChipClass(item: NotificationItem): string {
-  if (item.event_type === 'exam_duty.sync_source_error') {
-    return 'border border-red-300/60 bg-red-200/90 font-semibold text-red-950 dark:border-red-500/40 dark:bg-red-950/50 dark:text-red-50';
-  }
-  return getThemeForEventTypeDetailed(item.event_type).chipClass;
-}
-function isTodayReminder(item: NotificationItem): boolean {
-  if (item.event_type !== 'duty.reminder') return false;
-  const metaDate = item.metadata?.date;
-  if (!metaDate) return true;
-  const today = new Date().toISOString().slice(0, 10);
-  return metaDate === today;
-}
-
-function isBelirliGunReminderHighlight(item: NotificationItem): boolean {
-  return item.event_type === 'belirli_gun_hafta.reminder' && !item.read_at;
 }
 
 type FilterTab =
@@ -845,7 +741,7 @@ export default function BildirimlerPage() {
         )}
       >
         <p className="mb-1.5 px-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-violet-800 dark:text-violet-200 sm:hidden">
-          Gruba göre filtre
+          Kanala göre filtre
         </p>
         <div className="relative sm:static">
           <div
@@ -1094,335 +990,18 @@ export default function BildirimlerPage() {
               </div>
             </div>
           ) : (
-            <ul className="list-none space-y-1.5 bg-muted/25 p-1.5 sm:space-y-2 sm:p-2">
-              {items.map((item) => {
-                const isSwap = SWAP_EVENT_TYPES.includes(item.event_type);
-                const isTimetable = TIMETABLE_EVENT_TYPES.includes(item.event_type);
-                const isDutyPlan = DUTY_PLAN_EVENT_TYPES.includes(item.event_type);
-                const isDutyDaily = DUTY_DAILY_EVENT_TYPES.includes(item.event_type) && item.metadata?.date;
-                const isToday = isTodayReminder(item);
-                const isBelirliHighlight = isBelirliGunReminderHighlight(item);
-                const rowAccent = getNotificationRowAccentClass(item);
-                const isExamDutySync = EXAM_DUTY_SYNC_EVENT_TYPES.includes(item.event_type);
-                const isYolluk = isYollukNotification(item.event_type);
-                return (
-                  <li
-                    key={item.id}
-                    className={cn(
-                      'group flex flex-col overflow-hidden rounded-lg border shadow-sm transition-shadow hover:shadow-md',
-                      rowAccent
-                        ? rowAccent
-                        : isToday && !item.read_at
-                          ? 'border-l-4 border-l-indigo-500 bg-indigo-50/30 dark:border-l-indigo-400 dark:bg-indigo-950/20'
-                          : isBelirliHighlight
-                            ? 'border-l-4 border-l-amber-500 bg-amber-50/35 dark:border-l-amber-400 dark:bg-amber-950/20'
-                            : item.read_at
-                              ? 'border-border/50 bg-muted/25'
-                              : 'border-border/60 bg-card ring-1 ring-primary/10',
-                    )}
-                  >
-                    <Link
-                      href={getNotificationLink(item)}
-                      className="min-w-0 flex-1 rounded-t-[inherit] px-2.5 py-2 transition-colors hover:bg-muted/25 sm:px-3 sm:py-2"
-                      onClick={(e) => handleLinkClick(e, item)}
-                    >
-                      <div className="flex items-start gap-2 sm:gap-2.5">
-                        <NotificationChannelIcon eventType={item.event_type} size="sm" className="mt-0 sm:mt-0.5" />
-                        <div className="min-w-0 flex-1">
-                          {isExamDutySync ? (
-                            <div className="min-w-0 space-y-0.5">
-                              <div className="flex min-w-0 items-start gap-1.5">
-                                <span
-                                  className={cn(
-                                    'min-w-0 flex-1 break-words text-[12px] font-semibold leading-tight sm:text-[13px]',
-                                    !item.read_at && 'text-foreground',
-                                    item.read_at && 'text-muted-foreground',
-                                  )}
-                                >
-                                  {item.title}
-                                </span>
-                                {!item.read_at && (
-                                  <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-primary sm:mt-1 sm:size-2" aria-hidden />
-                                )}
-                              </div>
-                              <span
-                                className={cn(
-                                  'inline-flex w-fit max-w-full items-center rounded px-1.5 py-px text-[9px] font-semibold leading-none [word-break:break-word] sm:rounded-md sm:px-2 sm:py-0.5 sm:text-[11px] sm:font-medium',
-                                  getChipClass(item),
-                                )}
-                              >
-                                {notificationChipLabel(item)}
-                              </span>
-                            </div>
-                          ) : (
-                            <div className="flex min-w-0 flex-nowrap items-center gap-1 sm:flex-wrap sm:gap-x-1.5 sm:gap-y-0.5">
-                              <span
-                                className={cn(
-                                  'min-w-0 flex-1 truncate text-[12px] font-semibold leading-tight sm:flex-none sm:text-[13px] sm:leading-snug',
-                                  !item.read_at && 'text-foreground',
-                                  item.read_at && 'text-muted-foreground',
-                                )}
-                              >
-                                {item.title}
-                              </span>
-                              <span
-                                className={cn(
-                                  'inline-flex max-w-[46%] shrink-0 items-center truncate rounded px-1.5 py-px text-[9px] font-semibold leading-none sm:max-w-none sm:rounded-md sm:px-2 sm:py-0.5 sm:text-[11px] sm:font-medium',
-                                  getChipClass(item),
-                                )}
-                              >
-                                {notificationChipLabel(item)}
-                              </span>
-                              {!item.read_at && (
-                                <span className="size-1.5 shrink-0 rounded-full bg-primary sm:size-2" aria-hidden />
-                              )}
-                            </div>
-                          )}
-                          {item.body && (
-                            <p
-                              className={cn(
-                                'mt-0.5 text-[11px] leading-snug sm:mt-0.5 sm:text-xs',
-                                isExamDutySync
-                                  ? 'max-h-18 overflow-y-auto whitespace-pre-wrap break-words text-muted-foreground/95 [scrollbar-width:thin] sm:max-w-xl'
-                                  : isYolluk
-                                    ? 'whitespace-pre-wrap break-words text-muted-foreground/95'
-                                    : 'line-clamp-2 text-muted-foreground',
-                              )}
-                            >
-                              {item.body}
-                            </p>
-                          )}
-                          {isYolluk && <YollukFinalizedNotificationBody metadata={item.metadata} />}
-                          <p className="mt-0.5 text-[10px] text-muted-foreground tabular-nums sm:text-[11px]">
-                            {formatDate(item.created_at)}
-                          </p>
-                        </div>
-                      </div>
-                    </Link>
-                    <div className="flex w-full shrink-0 flex-nowrap items-center gap-0.5 overflow-x-auto overflow-y-hidden border-t border-border/50 bg-muted/20 px-2 py-1.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:w-auto sm:flex-wrap sm:justify-end sm:gap-1 sm:px-2.5 sm:py-1.5 [&::-webkit-scrollbar]:hidden">
-                      {isSwap && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <ArrowRightLeft className="size-3.5" />
-                          Takasa git
-                        </Button>
-                      )}
-                      {isTimetable && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <ExternalLink className="size-3.5" />
-                          Programa git
-                        </Button>
-                      )}
-                      {isDutyPlan && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <ExternalLink className="size-3.5" />
-                          Planlara git
-                        </Button>
-                      )}
-                      {isDutyDaily && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <ExternalLink className="size-3.5" />
-                          Günlük tabloya git
-                        </Button>
-                      )}
-                      {(BELIRLI_GUN_EVENT_TYPES.includes(item.event_type) || BILSEM_CALENDAR_EVENT_TYPES.includes(item.event_type)) && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <ExternalLink className="size-3.5" />
-                          Takvime git
-                        </Button>
-                      )}
-                      {SMART_BOARD_EVENT_TYPES.includes(item.event_type) && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <Monitor className="size-3.5" />
-                          Tahtaya git
-                        </Button>
-                      )}
-                      {SUPPORT_EVENT_TYPES.includes(item.event_type) && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <ExternalLink className="size-3.5" />
-                          Talebe git
-                        </Button>
-                      )}
-                      {isExamDutySync && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <ClipboardList className="size-3.5" />
-                          Sınav görevleri
-                        </Button>
-                      )}
-                      {EXAM_DUTY_EVENT_TYPES.includes(item.event_type) && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <ClipboardList className="size-3.5" />
-                          Sınav görevlerine git
-                        </Button>
-                      )}
-                      {isExamSchoolModuleNotification(item.event_type) && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <ExternalLink className="size-3.5" />
-                          Sayfaya git
-                        </Button>
-                      )}
-                      {isMessageCenterGroupNotification(item.event_type) && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <MessageSquare className="size-3.5" />
-                          Sayfaya git
-                        </Button>
-                      )}
-                      {YOLLUK_EVENT_TYPES.includes(item.event_type) && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <Banknote className="size-3.5" />
-                          Yolluk detayı
-                        </Button>
-                      )}
-                      {MARKET_EVENT_TYPES.includes(item.event_type) && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="min-h-8 flex-1 gap-1 text-[11px] max-sm:min-h-7 max-sm:gap-0.5 max-sm:px-1.5 max-sm:text-[10px] sm:min-h-8 sm:flex-initial"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleLinkClick(e, item);
-                          }}
-                        >
-                          <Wallet className="size-3.5" />
-                          Markete git
-                        </Button>
-                      )}
-                      {!item.read_at && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="min-h-8 min-w-8 shrink-0 max-sm:min-h-7 max-sm:min-w-7 sm:min-h-8 sm:min-w-8"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleMarkRead(item.id);
-                          }}
-                          disabled={!!markingRead}
-                          title="Okundu işaretle"
-                        >
-                          {markingRead === item.id ? (
-                            <LoadingSpinner className="size-4" />
-                          ) : (
-                            <Check className="size-4" />
-                          )}
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="min-h-8 min-w-8 shrink-0 text-muted-foreground hover:text-destructive max-sm:min-h-7 max-sm:min-w-7 sm:min-h-8 sm:min-w-8"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleDeleteOne(item.id);
-                        }}
-                        disabled={!!deletingId}
-                        title="Sil"
-                      >
-                        {deletingId === item.id ? (
-                          <LoadingSpinner className="size-4" />
-                        ) : (
-                          <Trash2 className="size-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="p-2 sm:p-3">
+              <NotificationInboxList
+                items={items}
+                groupByChannel={filter === 'all'}
+                getLink={(item) => getNotificationLink(item as NotificationItem)}
+                onLinkClick={(e, item) => handleLinkClick(e, item as NotificationItem)}
+                onMarkRead={handleMarkRead}
+                onDelete={handleDeleteOne}
+                markingRead={markingRead}
+                deletingId={deletingId}
+              />
+            </div>
           )}
           {loadMoreVisible && (
             <div className="border-t px-3 py-3 sm:px-4">

@@ -421,12 +421,95 @@ export class MailService {
     };
   }
 
+  /** Yıllık plan Word — modern şablon + ek dosya. SMTP yoksa false döner. */
+  async sendYillikPlanDocumentEmail(
+    toEmail: string,
+    params: {
+      recipientName: string;
+      planTitle: string;
+      academicYear?: string | null;
+      filename: string;
+      attachment: Buffer;
+    },
+  ): Promise<boolean> {
+    if (!toEmail?.trim() || !params.attachment?.length) return false;
+    const config = await this.appConfig.getMailConfigForSending();
+    if (!this.isMailReady(config)) return false;
+    const appName = (config.smtp_from_name || 'Uzaedu Öğretmen').trim();
+    const base = (config.mail_app_base_url || env.frontendUrl).replace(/\/$/, '');
+    const archiveUrl = `${base}/evrak`;
+    const recipient = escapeMailText(params.recipientName.trim() || toEmail.trim());
+    const planTitle = escapeMailText(params.planTitle.trim() || 'Yıllık plan');
+    const yearLine = params.academicYear?.trim()
+      ? `<tr><td style="padding:6px 0;font-size:12px;color:#64748b;width:96px;vertical-align:top;">Öğretim yılı</td><td style="padding:6px 0;font-size:14px;color:#0f172a;font-weight:600;">${escapeMailText(params.academicYear.trim())}</td></tr>`
+      : '';
+    const preheader = `${planTitle} Word dosyanız ektedir.`;
+    const html = `<!DOCTYPE html>
+<html lang="tr">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:#f1f5f9;">${preheader}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:linear-gradient(165deg,#fff7ed 0%,#f8fafc 42%,#f5f3ff 100%);padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;border-collapse:separate;border-spacing:0;">
+        <tr><td style="height:4px;border-radius:16px 16px 0 0;background:linear-gradient(90deg,#ea580c,#a855f7,#6366f1);font-size:0;line-height:0;">&#160;</td></tr>
+        <tr><td style="background:#ffffff;border:1px solid #e2e8f0;border-top:none;padding:28px 28px 10px;">
+          <p style="margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Yıllık plan</p>
+          <p style="margin:0;font-size:20px;font-weight:700;letter-spacing:-0.02em;color:#0f172a;">${appName}</p>
+          <p style="margin:14px 0 0;font-size:15px;line-height:1.65;color:#334155;">Merhaba <strong style="color:#0f172a;">${recipient}</strong>,</p>
+          <p style="margin:10px 0 0;font-size:15px;line-height:1.65;color:#475569;">Talep ettiğiniz yıllık plan Word dosyası hazır. Dosyayı bu e-postanın <strong style="color:#0f172a;">ekinde</strong> bulabilirsiniz; ayrıca panelden tekrar üretebilirsiniz.</p>
+        </td></tr>
+        <tr><td style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;padding:8px 28px 22px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:linear-gradient(135deg,#fff7ed 0%,#faf5ff 55%,#eef2ff 100%);border:1px solid #fed7aa;border-radius:14px;">
+            <tr><td style="padding:18px 20px;">
+              <p style="margin:0 0 8px;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#c2410c;">Plan özeti</p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr><td style="padding:6px 0;font-size:12px;color:#64748b;width:96px;vertical-align:top;">Başlık</td><td style="padding:6px 0;font-size:14px;color:#0f172a;font-weight:600;">${planTitle}</td></tr>
+                ${yearLine}
+                <tr><td style="padding:6px 0;font-size:12px;color:#64748b;">Ek dosya</td><td style="padding:6px 0;font-size:13px;color:#334155;font-family:Consolas,Monaco,monospace;">${escapeMailText(params.filename)}</td></tr>
+              </table>
+            </td></tr>
+          </table>
+          <div style="margin:22px 0 0;text-align:center;">
+            <a href="${archiveUrl}" style="display:inline-block;padding:12px 22px;background:linear-gradient(135deg,#ea580c,#c2410c);color:#ffffff!important;font-size:14px;font-weight:600;text-decoration:none;border-radius:10px;box-shadow:0 1px 2px rgba(234,88,12,0.25);">Evrak paneline git</a>
+          </div>
+        </td></tr>
+        <tr><td style="padding:14px 28px 20px;background:#f8fafc;border:1px solid #e2e8f0;border-top:1px dashed #cbd5e1;border-radius:0 0 16px 16px;font-size:11px;line-height:1.55;color:#94a3b8;">
+          Bu ileti otomatik gönderilmiştir. Ek dosyayı güvenli bir yere kaydedin; bağlantıları yalnızca güvendiğiniz kaynaklardan açın.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+    const text = `${appName} — Yıllık planınız hazır
+
+Merhaba ${params.recipientName.trim() || toEmail.trim()},
+
+${params.planTitle}
+${params.academicYear?.trim() ? `Öğretim yılı: ${params.academicYear.trim()}\n` : ''}
+Word dosyası ektedir: ${params.filename}
+
+Evrak paneli: ${archiveUrl}
+
+— ${appName}`;
+    const subject = `${appName} – Yıllık planınız hazır`;
+    return this.sendMailWithConfig(config, toEmail.trim(), subject, html, text, [
+      {
+        filename: params.filename,
+        content: params.attachment,
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      },
+    ]);
+  }
+
   private async sendMailWithConfig(
     config: MailConfigForSending,
     to: string,
     subject: string,
     html: string,
     text: string,
+    attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>,
   ): Promise<boolean> {
     try {
       const transporter = createNodemailerTransporter({
@@ -441,6 +524,15 @@ export class MailService {
         subject,
         html,
         text,
+        ...(attachments?.length
+          ? {
+              attachments: attachments.map((a) => ({
+                filename: a.filename,
+                content: a.content,
+                contentType: a.contentType ?? 'application/octet-stream',
+              })),
+            }
+          : {}),
       });
       return true;
     } catch (e) {

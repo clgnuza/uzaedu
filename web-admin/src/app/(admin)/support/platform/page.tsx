@@ -13,6 +13,8 @@ import { Alert } from '@/components/ui/alert';
 import { TicketAttachmentInput, type AttachmentItem } from '@/components/ticket-attachment-input';
 import { SupportStatusBadge } from '@/components/support/support-status-badge';
 import { SupportNotificationHint } from '@/components/support/support-notification-hint';
+import { SupportTicketHeaderCard } from '@/components/support/support-ticket-header-card';
+import { SupportMessageThread } from '@/components/support/support-message-thread';
 import { cn } from '@/lib/utils';
 import { formatSchoolTypeLabel } from '@/lib/school-labels';
 
@@ -21,7 +23,8 @@ type TicketMessage = {
   body: string;
   message_type: 'PUBLIC' | 'INTERNAL_NOTE';
   created_at: string;
-  author?: { display_name: string | null } | null;
+  author_user_id?: string;
+  author?: { display_name: string | null; role?: string | null } | null;
 };
 
 type TicketItem = {
@@ -31,6 +34,7 @@ type TicketItem = {
   status: string;
   priority: string;
   target_type: string;
+  requester_user_id?: string;
   school_id?: string;
   assigned_to_user_id?: string | null;
   last_activity_at: string;
@@ -308,30 +312,23 @@ export default function SupportPlatformPage() {
                   Bu talep {selectedTicket.status === 'CLOSED' ? 'kapatıldı' : 'çözüldü'}. Yeni yanıt eklenemez.
                 </Alert>
               )}
-              <div className="p-3 border-b bg-muted/20">
-                <p className="font-medium">{selectedTicket.subject}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {selectedTicket.ticket_number} • {selectedTicket.school?.name ?? '-'} • {selectedTicket.module?.name ?? '-'}
-                </p>
-                {!!formatSchoolMeta(selectedTicket.school) && (
-                  <p className="mt-2 text-[11px] text-muted-foreground">{formatSchoolMeta(selectedTicket.school)}</p>
-                )}
+              <div className="border-b p-2 sm:p-3">
+                <SupportTicketHeaderCard
+                  ticket={selectedTicket}
+                  messageCount={messages.items.length}
+                  showMetaGrid={false}
+                  className="border-0 shadow-none ring-0"
+                />
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {messages.items.map((m) => (
-                  <Card key={m.id} className={m.message_type === 'INTERNAL_NOTE' ? 'border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20' : ''}>
-                    <CardContent className="pt-3">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>{m.author?.display_name ?? 'Sistem'}</span>
-                        <span>{new Date(m.created_at).toLocaleString('tr-TR')}</span>
-                      </div>
-                      {m.message_type === 'INTERNAL_NOTE' && (
-                        <span className="mr-2 inline-block rounded bg-amber-200 px-1.5 py-0.5 text-xs dark:bg-amber-800/50">İç not</span>
-                      )}
-                      <p className="mt-1.5 whitespace-pre-wrap text-sm">{m.body}</p>
-                    </CardContent>
-                  </Card>
-                ))}
+              <div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-3">
+                <SupportMessageThread
+                  messages={messages.items}
+                  ticket={{
+                    requester_user_id: selectedTicket.requester_user_id,
+                    target_type: selectedTicket.target_type,
+                  }}
+                  className="border-0 bg-transparent p-0 shadow-none"
+                />
               </div>
               {selectedTicket.status !== 'CLOSED' && selectedTicket.status !== 'RESOLVED' && (
                 <form onSubmit={handleReply} className="p-4 border-t space-y-2">

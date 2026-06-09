@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -165,7 +166,7 @@ export class ButterflyExamController {
     this.service.assertSchoolAccess(payload.role, payload.schoolId, sid);
     const plans = await this.service.listPlans(sid);
     if (payload.role === UserRole.teacher) {
-      return plans.filter((p) => p.status !== 'draft');
+      return plans.filter((p) => p.status === 'published');
     }
     return plans;
   }
@@ -179,7 +180,11 @@ export class ButterflyExamController {
   ) {
     const sid = this.schoolId(payload, schoolId);
     this.service.assertSchoolAccess(payload.role, payload.schoolId, sid);
-    return this.service.getPlan(sid, id);
+    const plan = await this.service.getPlan(sid, id);
+    if (payload.role === UserRole.teacher && plan.status !== 'published') {
+      throw new NotFoundException();
+    }
+    return plan;
   }
 
   @Post('plans')

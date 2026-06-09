@@ -221,46 +221,46 @@ export function PlanSessionPanel() {
 
   return (
     <div className="min-w-0 space-y-4">
-      <div className="rounded-2xl border border-fuchsia-200/50 bg-gradient-to-br from-fuchsia-500/[0.08] via-white/80 to-violet-500/[0.06] p-3 shadow-sm dark:border-fuchsia-900/35 dark:from-fuchsia-950/30 dark:via-zinc-900/50 dark:to-violet-950/20 sm:p-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-fuchsia-800/90 dark:text-fuchsia-200/90">
-          Önerilen akış
-        </p>
-        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
-          <div className="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm">
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-medium text-fuchsia-950 shadow-sm ring-1 ring-fuchsia-500/15 dark:bg-zinc-900/80 dark:text-fuchsia-100 dark:ring-fuchsia-400/20">
-              <CalendarDays className="size-3.5 shrink-0" />
-              1. Dönem takvimi
-            </span>
-            <ArrowRight className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
-            <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-600 px-2.5 py-1 font-semibold text-white shadow-md shadow-fuchsia-500/25">
-              <CalendarRange className="size-3.5 shrink-0" />
-              2. Oturumlar (buradasınız)
-            </span>
-            <ArrowRight className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-medium text-fuchsia-950 shadow-sm ring-1 ring-fuchsia-500/15 dark:bg-zinc-900/80 dark:text-fuchsia-100 dark:ring-fuchsia-400/20">
-              <Wand2 className="size-3.5 shrink-0" />
-              3. Yerleştir ve yayınla
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2 sm:ml-auto">
-            <Button asChild size="sm" variant="outline" className="h-8 gap-1 text-xs sm:text-sm">
-              <Link href={`/kelebek-sinav/sinav-planlama${schoolQ}`}>
-                Takvime git
-              </Link>
-            </Button>
-            {isAdmin ? (
+      {isAdmin && (
+        <div className="rounded-2xl border border-fuchsia-200/50 bg-gradient-to-br from-fuchsia-500/[0.08] via-white/80 to-violet-500/[0.06] p-3 shadow-sm dark:border-fuchsia-900/35 dark:from-fuchsia-950/30 dark:via-zinc-900/50 dark:to-violet-950/20 sm:p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-fuchsia-800/90 dark:text-fuchsia-200/90">
+            Önerilen akış
+          </p>
+          <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm">
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-medium text-fuchsia-950 shadow-sm ring-1 ring-fuchsia-500/15 dark:bg-zinc-900/80 dark:text-fuchsia-100 dark:ring-fuchsia-400/20">
+                <CalendarDays className="size-3.5 shrink-0" />
+                1. Dönem takvimi
+              </span>
+              <ArrowRight className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
+              <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-600 px-2.5 py-1 font-semibold text-white shadow-md shadow-fuchsia-500/25">
+                <CalendarRange className="size-3.5 shrink-0" />
+                2. Oturumlar (buradasınız)
+              </span>
+              <ArrowRight className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 font-medium text-fuchsia-950 shadow-sm ring-1 ring-fuchsia-500/15 dark:bg-zinc-900/80 dark:text-fuchsia-100 dark:ring-fuchsia-400/20">
+                <Wand2 className="size-3.5 shrink-0" />
+                3. Yerleştir ve yayınla
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2 sm:ml-auto">
+              <Button asChild size="sm" variant="outline" className="h-8 gap-1 text-xs sm:text-sm">
+                <Link href={`/kelebek-sinav/sinav-planlama${schoolQ}`}>
+                  Takvime git
+                </Link>
+              </Button>
               <Button asChild size="sm" className="h-8 gap-1 text-xs sm:text-sm">
                 <Link href={`/kelebek-sinav/sinav-olustur${schoolQ}`}>
                   <Plus className="size-3.5" /> Yeni oturum
                 </Link>
               </Button>
-            ) : null}
+            </div>
           </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
+            Önce <strong className="text-foreground">Sınav Takvimi</strong>nde dönem cetvelini oluşturun; ardından her sınav günü için burada oturum açıp yerleştirin.
+          </p>
         </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
-          Önce <strong className="text-foreground">Sınav Takvimi</strong>nde dönem cetvelini oluşturun; ardından her sınav günü için burada oturum açıp yerleştirin.
-        </p>
-      </div>
+      )}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>

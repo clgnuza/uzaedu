@@ -40,11 +40,14 @@ import {
   timeInputToMinutes,
   type PushUserSettings,
 } from '@/lib/notification-push-prefs';
-import { isIos, pushPlatformHint } from '@/lib/pwa-display';
+import { isIos } from '@/lib/pwa-display';
+import { evaluatePushDeviceSupport, pushPermissionToastHint } from '@/lib/push-platform-guide';
+import { detectPwaInstallPlatform } from '@/lib/pwa-install-platform';
 import { PwaOfflineQueueBadge } from '@/components/pwa-offline-queue-badge';
 import {
   NotificationPermissionDeniedHelp,
   NotificationPermissionPrompt,
+  PushPlatformSetupTips,
 } from '@/components/notification-permission-prompt';
 
 const PUSH_TOAST_ID = 'uza-push-subscribe';
@@ -191,7 +194,7 @@ export function NotificationPushSettings() {
   const [deviceCount, setDeviceCount] = useState(0);
   const [channelsLoading, setChannelsLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
-  const [platformHint, setPlatformHint] = useState<ReturnType<typeof pushPlatformHint>>(null);
+  const [pushEval, setPushEval] = useState(() => evaluatePushDeviceSupport());
   const [permissionPromptOpen, setPermissionPromptOpen] = useState(false);
   const [enablingPush, setEnablingPush] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -199,7 +202,7 @@ export function NotificationPushSettings() {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    setPlatformHint(pushPlatformHint());
+    setPushEval(evaluatePushDeviceSupport());
     setPermissionState(getNotificationPermission());
   }, []);
 
@@ -358,9 +361,9 @@ export function NotificationPushSettings() {
         const perm = await requestNotificationPermission();
         if (perm !== 'granted') {
           setPermissionDenied(true);
-          toast.error('Bildirim izni verilmedi. Chrome’da “Bu site için izin ver” deyin.', {
+          toast.error(pushPermissionToastHint(detectPwaInstallPlatform()), {
             id: PUSH_TOAST_ID,
-            duration: 4500,
+            duration: 5000,
           });
           return;
         }
@@ -564,13 +567,11 @@ export function NotificationPushSettings() {
               <NotificationPermissionDeniedHelp onRetry={openEnableFlow} />
             ) : null}
 
-            {platformHint === 'ios_standalone' ? (
-              <p className="text-[11px] leading-snug text-amber-800 dark:text-amber-200">
-                iOS: Ana ekrana ekleyip uygulamadan açın (iOS 16.4+).
-              </p>
-            ) : platformHint === 'android_ok' ? (
-              <p className="text-[11px] text-muted-foreground">Android: İzin sonrası &quot;Tamamla&quot;ya basın.</p>
+            {!subscribed && (!pushEval.canSubscribe || permissionState !== 'granted') ? (
+              <PushPlatformSetupTips />
             ) : null}
+
+            {subscribed && pushEval.batteryOem ? <PushPlatformSetupTips mode="battery-only" /> : null}
 
             {settings.quiet_hours_enabled ? (
               <div className="grid grid-cols-2 gap-2">

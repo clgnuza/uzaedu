@@ -19,6 +19,7 @@ import { LoadingDots } from '@/components/ui/loading-spinner';
 import {
   type AuthPortal,
   type PasskeyCredentialRow,
+  clearPasskeyHint,
   deletePasskey,
   fetchWebAuthnSupported,
   isWebAuthnAvailable,
@@ -188,16 +189,19 @@ export function PasskeySettingsPanel({
     setLoginEnabled(enabled);
   }, [enabled]);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (): Promise<PasskeyCredentialRow[]> => {
     if (!token) {
       setRows([]);
       setLoading(false);
-      return;
+      return [];
     }
     try {
-      setRows(await listPasskeys(token));
+      const list = await listPasskeys(token);
+      setRows(list);
+      return list;
     } catch {
       setRows([]);
+      return [];
     } finally {
       setLoading(false);
     }
@@ -249,7 +253,7 @@ export function PasskeySettingsPanel({
       (portal === 'school' ? 'Okul yönetimi — bu cihaz' : suggestPasskeyDeviceName());
     setBusy(true);
     try {
-      await registerPasskey(token, label);
+      await registerPasskey(token, label, portal);
       toast.success('Biyometrik giriş eklendi.');
       setShowAdd(false);
       setAddName('');
@@ -268,7 +272,8 @@ export function PasskeySettingsPanel({
     try {
       await deletePasskey(token, id);
       toast.success('Cihaz kaldırıldı.');
-      await reload();
+      const next = await reload();
+      if (!next?.length) clearPasskeyHint(portal);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Silinemedi.');
     } finally {

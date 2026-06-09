@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  ShoppingBag,
+  Layers,
   FileText,
   Coins,
   Building2,
@@ -25,7 +25,6 @@ import {
   Receipt,
   ChevronLeft,
   ChevronRight,
-  Smartphone,
   CalendarDays,
   Calendar,
   ListTree,
@@ -45,6 +44,7 @@ import { cn } from '@/lib/utils';
 import { SCHOOL_MODULE_KEYS, SCHOOL_MODULE_LABELS, type SchoolModuleKey } from '@/config/school-modules';
 import { MODULE_ACTIVATION_REFRESH_EVENT } from '@/lib/module-activation-events';
 import { InfoHintDialog } from '@/components/market/info-hint-dialog';
+import { MarketProductionHub } from '@/components/market/market-production-hub';
 
 type CurrencyPair = { jeton: number; ekders: number };
 type ModuleScopeUsage = { monthly: CurrencyPair; yearly: CurrencyPair };
@@ -65,13 +65,6 @@ type ModulePriceRow = {
 };
 type MarketPolicyLite = {
   module_prices: Record<string, ModulePriceRow>;
-  rewarded_ad_jeton?: {
-    enabled: boolean;
-    jeton_per_reward: number;
-    max_rewards_per_day: number;
-    cooldown_seconds: number;
-    allowed_ad_unit_ids: string[];
-  };
   teacher_invite_jeton?: {
     enabled: boolean;
     jeton_for_invitee: number;
@@ -133,19 +126,6 @@ type UsageBreakdownRes = {
   school: { month: UsageModuleSlice; year: UsageModuleSlice } | null;
 };
 
-type LedgerRow = {
-  id: string;
-  platform: string;
-  productId: string;
-  status: string;
-  currencyKind: string;
-  creditTarget: string | null;
-  amountCredited: string | null;
-  creditsApplied: boolean;
-  verificationNote: string | null;
-  createdAt: string;
-};
-
 type UsageLedgerItem = {
   id: string;
   module_key: string;
@@ -195,14 +175,6 @@ type SchoolManualCreditRow = {
   created_by_user_id: string;
   creator_email: string | null;
   creator_display_name: string | null;
-};
-
-type RewardedAdCreditRow = {
-  id: string;
-  transaction_id: string;
-  jeton_credit: string;
-  ad_unit_key: string | null;
-  created_at: string | null;
 };
 
 type BilsemPlanCreditRow = {
@@ -346,13 +318,6 @@ const ACTIVATION_MODULE_CARD_STYLES = [
   'border-emerald-400/45 bg-linear-to-br from-emerald-500/12 via-card to-teal-500/8 dark:border-emerald-700/50',
 ] as const;
 
-const ENTITLEMENT_LABELS: Record<string, string> = {
-  evrak_uretim: 'Evrak üretim hakkı (diğer şablonlar)',
-  yillik_plan_uretim: 'Yıllık plan üretim hakkı',
-  optik_okuma: 'Optik okuma',
-  tahta_kilit: 'Akıllı tahta',
-};
-
 function fmtNum(n: number): string {
   if (!Number.isFinite(n)) return '0';
   return new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 6 }).format(n);
@@ -460,54 +425,6 @@ function fmtDate(iso: string): string {
   } catch {
     return iso;
   }
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  verified: 'Onaylandı',
-  rejected: 'Reddedildi',
-  pending: 'Bekliyor',
-  skipped_no_credentials: 'Doğrulama yok',
-  duplicate: 'Yinelenen',
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    verified:
-      'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200',
-    rejected: 'border-red-200 bg-red-50 text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200',
-    pending:
-      'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200',
-    skipped_no_credentials:
-      'border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200',
-    duplicate: 'border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200',
-  };
-  return (
-    <span
-      className={cn(
-        'inline-flex max-w-full items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
-        styles[status] ?? 'border-border bg-muted text-muted-foreground',
-      )}
-    >
-      {STATUS_LABEL[status] ?? status}
-    </span>
-  );
-}
-
-function PlatformBadge({ platform }: { platform: string }) {
-  const p = platform?.toLowerCase() === 'ios' ? 'ios' : 'android';
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
-        p === 'ios'
-          ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-          : 'bg-emerald-600 text-white',
-      )}
-    >
-      <Smartphone className="size-3 opacity-90" />
-      {p}
-    </span>
-  );
 }
 
 function BalanceCard(props: {
@@ -705,105 +622,6 @@ function UtcPeriodCard(props: {
   );
 }
 
-function LedgerTable({
-  rows,
-  showTarget,
-  compact,
-}: {
-  rows: LedgerRow[];
-  showTarget?: boolean;
-  /** Okul market alt tabloları — mobilde sıkı */
-  compact?: boolean;
-}) {
-  const cell = compact ? 'px-1.5 py-1 sm:px-3 sm:py-2.5' : 'px-2 py-2 sm:px-4 sm:py-3';
-  const thRow = compact
-    ? 'border-b border-border/80 bg-muted/50 text-left text-[9px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs'
-    : 'border-b border-border/80 bg-muted/50 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs';
-  return (
-    <div className="overflow-hidden rounded-lg border border-border/80 bg-muted/20 sm:rounded-xl">
-      <div className="table-x-scroll">
-        <table
-          className={cn(
-            'w-full text-[11px] sm:text-sm',
-            compact ? 'min-w-[300px] sm:min-w-[460px]' : 'min-w-[480px] sm:min-w-[540px]',
-          )}
-        >
-          <thead>
-            <tr className={thRow}>
-              <th className={cell}>Tarih</th>
-              <th className={cell}>Mağaza</th>
-              <th className={cell}>Ürün</th>
-              <th className={cell}>Durum</th>
-              {showTarget && <th className={cell}>Hedef</th>}
-              <th className={cn(cell, 'text-right')}>Yüklenen</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/60 bg-card">
-            {rows.map((r) => (
-              <tr key={r.id} className="transition-colors hover:bg-muted/40">
-                <td className={cn('whitespace-nowrap text-muted-foreground', cell)}>{fmtDate(r.createdAt)}</td>
-                <td className={cell}>
-                  <PlatformBadge platform={r.platform} />
-                </td>
-                <td className={cn('max-w-[200px]', cell)}>
-                  <span
-                    className={cn('font-mono text-foreground', compact ? 'text-[10px] sm:text-xs' : 'text-[11px] sm:text-xs')}
-                    title={r.productId}
-                  >
-                    {r.productId}
-                  </span>
-                </td>
-                <td className={cell}>
-                  <StatusBadge status={r.status} />
-                </td>
-                {showTarget && (
-                  <td className={cell}>
-                    {r.creditTarget === 'school' ? (
-                      <span className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-900 sm:px-2 sm:text-xs dark:bg-blue-950/60 dark:text-blue-200">
-                        <Building2 className="size-3" />
-                        Okul
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium sm:px-2 sm:text-xs">
-                        <UserRound className="size-3" />
-                        Bireysel
-                      </span>
-                    )}
-                  </td>
-                )}
-                <td className={cn('text-right tabular-nums text-foreground', cell)}>
-                  {r.creditsApplied && r.amountCredited ? (
-                    <span>
-                      {fmtNum(parseFloat(r.amountCredited))}{' '}
-                      <span className="text-muted-foreground">({r.currencyKind})</span>
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function EmptyLedger({ title, hint }: { title: string; hint: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border/80 bg-muted/20 px-4 py-6 text-center sm:rounded-xl sm:px-6 sm:py-14">
-      <div className="mb-2 rounded-full bg-muted p-3 sm:mb-3 sm:p-4">
-        <Receipt className="size-6 text-muted-foreground sm:size-8" />
-      </div>
-      <p className="font-medium text-foreground">{title}</p>
-      <InfoHintDialog label="Açıklama" title={title} className="mt-2">
-        <p>{hint}</p>
-      </InfoHintDialog>
-    </div>
-  );
-}
-
 const PAGE_SIZE = 20;
 const SCHOOL_CREDIT_ADMIN_PAGE = 15;
 const TEACHER_CREDIT_ADMIN_PAGE = 15;
@@ -821,16 +639,9 @@ export default function MarketPage() {
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [ledgerUser, setLedgerUser] = useState<UsageLedgerItem[]>([]);
   const [ledgerSchool, setLedgerSchool] = useState<UsageLedgerItem[]>([]);
-  const [mine, setMine] = useState<{ items: LedgerRow[]; total: number } | null>(null);
-  const [school, setSchool] = useState<{ items: LedgerRow[]; total: number } | null>(null);
-  const [pageMine, setPageMine] = useState(1);
-  const [pageSchool, setPageSchool] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [policy, setPolicy] = useState<MarketPolicyLite | null>(null);
-  const [exchangeKind, setExchangeKind] = useState<'yillik_plan_uretim' | 'evrak_uretim'>('yillik_plan_uretim');
-  const [exchangeQty, setExchangeQty] = useState(1);
-  const [exchangeBusy, setExchangeBusy] = useState(false);
   const [schoolCreditAdmin, setSchoolCreditAdmin] = useState<{
     total: number;
     items: SchoolCreditAdminRow[];
@@ -859,13 +670,10 @@ export default function MarketPage() {
   const [tManualFrom, setTManualFrom] = useState('');
   const [tManualTo, setTManualTo] = useState('');
   const [tManualLoading, setTManualLoading] = useState(false);
-  const [rewardedAdCredits, setRewardedAdCredits] = useState<{
-    total: number;
-    items: RewardedAdCreditRow[];
-  } | null>(null);
   const [bilsemPlanCredits, setBilsemPlanCredits] = useState<{
     total: number;
     items: BilsemPlanCreditRow[];
+    summary?: { usage_count: number; total_jeton_credited: string } | null;
   } | null>(null);
   const [teacherInvite, setTeacherInvite] = useState<TeacherInviteSummary | null>(null);
   const [teacherInviteRedemptions, setTeacherInviteRedemptions] = useState<{
@@ -941,19 +749,9 @@ export default function MarketPage() {
 
     const loadMainSlice = async () => {
       try {
-        const [ent, w, m, s, pol, actSt, actLed] = await Promise.all([
+        const [ent, w, pol, actSt, actLed] = await Promise.all([
           apiFetch<EntitlementItem[]>('/entitlements', { token }),
           apiFetch<WalletRes>('/market/wallet', { token }),
-          apiFetch<{ items: LedgerRow[]; total: number }>(
-            `/market/purchases/mine?page=${pageMine}&limit=${PAGE_SIZE}`,
-            { token },
-          ),
-          isSchoolAdmin
-            ? apiFetch<{ items: LedgerRow[]; total: number }>(
-                `/market/purchases/school?page=${pageSchool}&limit=${PAGE_SIZE}`,
-                { token },
-              )
-            : Promise.resolve(null),
           apiFetch<MarketPolicyLite>('content/market-policy').catch(() => null),
           apiFetch<ActivationStatusRes>('/market/modules/activation-status', { token }).catch(() => null),
           apiFetch<{ items: ActivationLedgerRow[] }>('/market/modules/activation-ledger?limit=40', { token }).catch(
@@ -962,32 +760,32 @@ export default function MarketPage() {
         ]);
         setEntitlements(Array.isArray(ent) ? ent : []);
         setWallet(w);
-        setMine(m);
-        setSchool(s);
         setPolicy(pol && pol.module_prices ? pol : null);
         setActivationStatus(actSt && actSt.modules ? actSt : null);
         setActivationLedger(Array.isArray(actLed?.items) ? actLed.items : []);
         if (isTeacher) {
           setTeacherInviteLoading(true);
           try {
-            const [rad, bilsem, inv, red] = await Promise.all([
-              apiFetch<{ total: number; items: RewardedAdCreditRow[] }>(
-                '/market/wallet/rewarded-ad-credits?limit=30',
-                { token },
-              ).catch(() => null),
-              apiFetch<{ total: number; items: BilsemPlanCreditRow[] }>(
-                '/market/wallet/bilsem-plan-credits?limit=30',
-                { token },
-              ).catch(() => null),
+            const [bilsem, inv, red] = await Promise.all([
+              apiFetch<{
+                total: number;
+                items: BilsemPlanCreditRow[];
+                summary?: { usage_count: number; total_jeton_credited: string };
+              }>('/market/wallet/bilsem-plan-credits?limit=30', { token }).catch(() => null),
               apiFetch<TeacherInviteSummary>('/teacher-invite/me', { token }).catch(() => null),
               apiFetch<{ total: number; items: TeacherInviteRedemptionRow[] }>(
                 '/teacher-invite/redemptions?limit=25',
                 { token },
               ).catch(() => null),
             ]);
-            setRewardedAdCredits(rad ? { total: rad.total, items: Array.isArray(rad.items) ? rad.items : [] } : null);
             setBilsemPlanCredits(
-              bilsem ? { total: bilsem.total, items: Array.isArray(bilsem.items) ? bilsem.items : [] } : null,
+              bilsem
+                ? {
+                    total: bilsem.total,
+                    items: Array.isArray(bilsem.items) ? bilsem.items : [],
+                    summary: bilsem.summary ?? null,
+                  }
+                : null,
             );
             setTeacherInvite(inv);
             setTeacherInviteRedemptions(
@@ -997,7 +795,6 @@ export default function MarketPage() {
             setTeacherInviteLoading(false);
           }
         } else {
-          setRewardedAdCredits(null);
           setBilsemPlanCredits(null);
           setTeacherInvite(null);
           setTeacherInviteRedemptions(null);
@@ -1007,7 +804,6 @@ export default function MarketPage() {
         setPolicy(null);
         setActivationStatus(null);
         setActivationLedger([]);
-        setRewardedAdCredits(null);
         setBilsemPlanCredits(null);
       } finally {
         setLoading(false);
@@ -1015,7 +811,7 @@ export default function MarketPage() {
     };
 
     await Promise.all([loadUsageSlice(), loadMainSlice()]);
-  }, [token, pageMine, pageSchool, isSchoolAdmin, isTeacher]);
+  }, [token, isSchoolAdmin, isTeacher]);
 
   const activateModulePeriod = useCallback(
     async (
@@ -1274,22 +1070,6 @@ export default function MarketPage() {
 
   if (!canAccess) return null;
 
-  const evrakQty = entitlements.find((e) => e.entitlementType === 'evrak_uretim')?.quantity ?? 0;
-  const yillikPlanKota = entitlements.find((e) => e.entitlementType === 'yillik_plan_uretim')?.quantity ?? 0;
-  const exCfg = policy?.entitlement_exchange;
-  const exMaxUnits = exCfg
-    ? Math.min(500, Math.max(1, Math.floor(exCfg.max_units_per_request ?? 25)))
-    : 25;
-  const exQtyClamped = Math.min(exMaxUnits, Math.max(1, Math.floor(exchangeQty)));
-  const exRate =
-    exchangeKind === 'yillik_plan_uretim'
-      ? (exCfg?.jeton_per_yillik_plan_unit ?? 0)
-      : (exCfg?.jeton_per_evrak_unit ?? 0);
-  const exCost = exRate * exQtyClamped;
-
-  const totalPagesMine = mine ? Math.max(1, Math.ceil(mine.total / PAGE_SIZE)) : 1;
-  const totalPagesSchool = school ? Math.max(1, Math.ceil(school.total / PAGE_SIZE)) : 1;
-
   const inviteRegisterUrl =
     teacherInvite?.code && siteOrigin
       ? `${siteOrigin}/register?invite=${encodeURIComponent(teacherInvite.code)}`
@@ -1313,8 +1093,8 @@ export default function MarketPage() {
           aria-hidden
         />
         <p className="sr-only">
-          Cüzdan: jeton ve ek ders bakiyeleri, mağaza, kullanım hakları ve hareket geçmişi bu sayfada. Uygulama
-          satın almaları sunucu doğrulamasıyla işlenir; modül düşümleri politika tarifesine göre aşağıda izlenir.
+          Cüzdan: jeton ve ek ders bakiyeleri, kullanım hakları ve hareket geçmişi bu sayfada. Modül düşümleri politika
+          tarifesine göre aşağıda izlenir.
         </p>
         <div className="relative flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:gap-3 [&::-webkit-scrollbar]:hidden">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-violet-600 to-fuchsia-600 text-white shadow-md ring-2 ring-white/25 dark:ring-white/10 sm:size-11">
@@ -1336,23 +1116,29 @@ export default function MarketPage() {
                   box: 'border-amber-400/40 bg-amber-500/20 text-amber-800 dark:text-amber-200',
                   targetIds: ['market-bakiye-ozet', 'market-module-activation'] as const,
                 },
+                ...(isTeacher
+                  ? [
+                      {
+                        label: 'Üretim ekonomisi',
+                        Icon: Layers,
+                        box: 'border-violet-400/40 bg-violet-500/20 text-violet-800 dark:text-violet-200',
+                        targetIds: ['market-uretim-ekonomisi', 'market-plan-katki-jeton'] as const,
+                      },
+                    ]
+                  : []),
                 {
-                  label: 'Mağaza',
-                  Icon: ShoppingBag,
-                  box: 'border-violet-400/40 bg-violet-500/20 text-violet-800 dark:text-violet-200',
-                  targetIds: ['market-satin-alma-gecmisi', 'market-mobil-magaza'] as const,
-                },
-                {
-                  label: 'Haklar ve kullanım',
+                  label: isTeacher ? 'Haklar ve kullanım' : 'Kullanım',
                   Icon: Receipt,
                   box: 'border-emerald-400/40 bg-emerald-500/20 text-emerald-800 dark:text-emerald-200',
-                  targetIds: ['market-gerceklesen-kullanim', 'market-module-activation'] as const,
+                  targetIds: isTeacher
+                    ? (['market-uretim-ekonomisi', 'market-gerceklesen-kullanim'] as const)
+                    : (['market-gerceklesen-kullanim'] as const),
                 },
                 {
                   label: 'Hareket geçmişi',
                   Icon: History,
                   box: 'border-sky-400/40 bg-sky-500/20 text-sky-900 dark:text-sky-100',
-                  targetIds: ['market-son-dusumler', 'market-satin-alma-gecmisi'] as const,
+                  targetIds: ['market-son-dusumler'] as const,
                 },
               ] as const
             ).map(({ label, Icon, box, targetIds }) => (
@@ -2449,170 +2235,6 @@ export default function MarketPage() {
                 </div>
               </>
             )}
-          </CardContent>
-        </Card>
-      )}
-
-      {isTeacher && (
-        <Card className="overflow-hidden border-2 border-emerald-500/45 bg-linear-to-br from-emerald-500/12 via-card to-card shadow-md ring-2 ring-emerald-500/20 dark:border-emerald-600/45">
-          <CardHeader className="border-b border-border/50 pb-3">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600/15 text-emerald-800 dark:text-emerald-200 sm:size-11 sm:rounded-xl">
-                  <Sparkles className="size-5 sm:size-6" />
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-1">
-                    <CardTitle className="text-base">Bilsem plan katkı jetonları</CardTitle>
-                    <InfoHintDialog label="Bilsem plan katkı ödülü" title="Bilsem plan katkı jeton hareketleri">
-                      <p>
-                        Başka öğretmenler sizin yayınlanmış Bilsem planınızı Word üretimde kullandıkça bu listeye jeton
-                        hareketi düşer.
-                      </p>
-                    </InfoHintDialog>
-                  </div>
-                </div>
-              </div>
-              <div className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-900 dark:text-emerald-200">
-                <Coins className="size-3.5" />
-                Toplam{' '}
-                {fmtNum(
-                  (bilsemPlanCredits?.items ?? []).reduce(
-                    (sum, x) => sum + (Number.parseFloat(x.jeton_credit || '0') || 0),
-                    0,
-                  ),
-                )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-3 text-sm text-muted-foreground sm:space-y-4 sm:pt-4">
-            <div className="rounded-xl border border-emerald-500/20 bg-background/80">
-              <p className="border-b border-border/60 px-4 py-2 text-xs font-medium text-foreground">
-                Plan katkıdan kazanılan jetonlar
-              </p>
-              {bilsemPlanCredits && bilsemPlanCredits.items.length > 0 ? (
-                <div className="table-x-scroll">
-                  <table className="w-full min-w-[420px] text-sm">
-                    <thead>
-                      <tr className="border-b border-border/60 bg-muted/30 text-left text-xs text-muted-foreground">
-                        <th className="px-4 py-2">Tarih / saat</th>
-                        <th className="px-4 py-2">Plan</th>
-                        <th className="px-4 py-2">Kullanan</th>
-                        <th className="px-4 py-2 text-right">Kazanılan jeton</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/50">
-                      {bilsemPlanCredits.items.map((row) => {
-                        const planLabel = row.subject_label || row.subject_code || 'Bilsem plan';
-                        const consumer = row.consumer_display_name || row.consumer_email || '—';
-                        return (
-                          <tr key={row.id} className="hover:bg-muted/40">
-                            <td className="whitespace-nowrap px-4 py-2 text-foreground">
-                              {row.created_at ? fmtDate(row.created_at) : '—'}
-                            </td>
-                            <td className="px-4 py-2">
-                              <div className="flex flex-col">
-                                <span className="font-medium text-foreground">{planLabel}</span>
-                                {row.ana_grup ? (
-                                  <span className="text-[11px] text-muted-foreground">{row.ana_grup}</span>
-                                ) : null}
-                              </div>
-                            </td>
-                            <td className="px-4 py-2 text-muted-foreground">{consumer}</td>
-                            <td className="px-4 py-2 text-right font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
-                              +{fmtNum(Number.parseFloat(row.jeton_credit || '0') || 0)}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="px-4 py-6 text-center text-xs text-muted-foreground">
-                  Henüz kayıt yok. Planınız kullanıldığında jeton kazanımları burada listelenir.
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {isTeacher && (
-        <Card className="overflow-hidden border-2 border-violet-500/45 bg-linear-to-br from-violet-500/12 via-card to-card shadow-md ring-2 ring-violet-500/20 dark:border-violet-600/45">
-          <CardHeader className="border-b border-border/50 pb-3">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/15 text-violet-800 dark:text-violet-200 sm:size-11 sm:rounded-xl">
-                  <Smartphone className="size-5 sm:size-6" />
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-1">
-                    <CardTitle className="text-base">Ödüllü reklam</CardTitle>
-                    <InfoHintDialog label="Ödüllü reklam" title="Ödüllü reklam">
-                      <p>
-                        Reklamlar yalnızca mobil uygulamada izlenir; bu sayfada oynatılmaz. Kurallar ve mağaza linkleri için
-                        «Ayrıntılar» sayfasını açın.
-                      </p>
-                    </InfoHintDialog>
-                  </div>
-                </div>
-              </div>
-              <Button type="button" size="sm" variant="secondary" asChild>
-                <Link href="/market/rewarded-ad">Ayrıntılar</Link>
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-3 text-sm text-muted-foreground sm:space-y-4 sm:pt-4">
-            <p>
-              Durum:{' '}
-              <span className="font-medium text-foreground">
-                {policy?.rewarded_ad_jeton?.enabled ? 'Açık (mobilde kullanılabilir)' : 'Kapalı veya yapılandırılmadı'}
-              </span>
-              {policy?.rewarded_ad_jeton?.enabled ? (
-                <>
-                  {' '}
-                  · Ödül başına ~{' '}
-                  <span className="tabular-nums font-medium text-foreground">
-                    {fmtNum(policy.rewarded_ad_jeton.jeton_per_reward)}
-                  </span>{' '}
-                  jeton
-                </>
-              ) : null}
-            </p>
-            <div className="rounded-xl border border-violet-500/20 bg-background/80">
-              <p className="border-b border-border/60 px-4 py-2 text-xs font-medium text-foreground">
-                Ödüllü reklamla kazanılan jetonlar
-              </p>
-              {rewardedAdCredits && rewardedAdCredits.items.length > 0 ? (
-                <div className="table-x-scroll">
-                  <table className="w-full min-w-[280px] text-sm">
-                    <thead>
-                      <tr className="border-b border-border/60 bg-muted/30 text-left text-xs text-muted-foreground">
-                        <th className="px-4 py-2">Tarih / saat</th>
-                        <th className="px-4 py-2 text-right">Kazanılan jeton</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/50">
-                      {rewardedAdCredits.items.map((row) => (
-                        <tr key={row.id} className="hover:bg-muted/40">
-                          <td className="whitespace-nowrap px-4 py-2 text-foreground">
-                            {row.created_at ? fmtDate(row.created_at) : '—'}
-                          </td>
-                          <td className="px-4 py-2 text-right font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
-                            +{fmtNum(parseFloat(row.jeton_credit || '0'))}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="px-4 py-6 text-center text-xs text-muted-foreground">
-                  Henüz kayıt yok. Ödüllü reklamı mobil uygulamada izlediğinizde kazanımlar burada listelenir.
-                </p>
-              )}
-            </div>
           </CardContent>
         </Card>
       )}
@@ -3746,313 +3368,20 @@ export default function MarketPage() {
                 </CardContent>
               </Card>
 
-              <Card
-                id="market-satin-alma-gecmisi"
-                className="flex min-h-0 flex-col overflow-hidden border-2 border-blue-400/45 shadow-md ring-2 ring-blue-500/15 dark:border-blue-700/55 dark:ring-blue-500/20"
-              >
-                <CardHeader className="border-b border-border/60 bg-blue-50/50 px-3 pb-3 pt-3 dark:bg-blue-950/20 sm:px-6 sm:pb-4">
-                  <div className="flex items-start gap-2 sm:gap-3">
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white sm:size-10 dark:bg-blue-500">
-                      <Wallet className="size-4 sm:size-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1">
-                        <CardTitle className="text-sm text-blue-950 sm:text-lg dark:text-blue-50">Okul cüzdanı işlemleri</CardTitle>
-                        <InfoHintDialog label="Okul satın alma" title="Okul cüzdanı işlemleri">
-                          <p>Okul adına yüklenen jeton / ek ders (satın almada okul cüzdanı seçildiğinde).</p>
-                        </InfoHintDialog>
-                      </div>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="min-h-0 flex-1 space-y-2 px-3 pt-3 sm:space-y-3 sm:px-6 sm:pt-6">
-                  {!school?.items.length ? (
-                    <EmptyLedger
-                      title="Henüz okul işlemi yok"
-                      hint="Okul cüzdanına yapılan ilk satın alma doğrulaması burada görünür."
-                    />
-                  ) : (
-                    <>
-                      <LedgerTable rows={school.items} showTarget={false} compact />
-                      {school.total > PAGE_SIZE && (
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3 sm:gap-3 sm:pt-4">
-                          <p className="text-[10px] text-muted-foreground sm:text-xs">
-                            Sayfa {pageSchool} / {totalPagesSchool} · Toplam {school.total} kayıt
-                          </p>
-                          <div className="flex gap-1.5 sm:gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 px-2 text-xs sm:h-9"
-                              disabled={pageSchool <= 1}
-                              onClick={() => setPageSchool((p) => Math.max(1, p - 1))}
-                            >
-                              <ChevronLeft className="mr-0.5 size-4 sm:mr-1" />
-                              Önceki
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 px-2 text-xs sm:h-9"
-                              disabled={pageSchool >= totalPagesSchool}
-                              onClick={() => setPageSchool((p) => p + 1)}
-                            >
-                              Sonraki
-                              <ChevronRight className="ml-0.5 size-4 sm:ml-1" />
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
               </div>
             </section>
           )}
 
-          {!isSchoolAdmin ? (
-          <div className="grid max-w-4xl gap-5 sm:gap-8">
-            <Card
-              id="market-satin-alma-gecmisi"
-              className="scroll-mt-4 overflow-hidden border-2 border-violet-400/35 shadow-md ring-2 ring-violet-500/10 dark:border-violet-700/40"
-            >
-              <CardHeader className="border-b border-border/60 bg-muted/20 pb-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <History className="size-5" />
-                  </div>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-1">
-                      <CardTitle className="text-lg">Satın alma geçmişim</CardTitle>
-                      <InfoHintDialog label="Satın alma geçmişi" title="Satın alma geçmişim">
-                        <p>Bu hesapla doğrulanan mağaza işlemleri. Okul adına yüklemeler «Okul» hedefiyle işaretlenir.</p>
-                      </InfoHintDialog>
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3 pt-4 sm:space-y-4 sm:pt-6">
-                {!mine?.items.length ? (
-                  <EmptyLedger
-                    title="Henüz satın alma kaydı yok"
-                    hint="Mobil uygulamadan paket satın aldığınızda işlemler burada listelenir."
-                  />
-                ) : (
-                  <>
-                    <LedgerTable rows={mine.items} showTarget />
-                    {mine.total > PAGE_SIZE && (
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-4">
-                        <p className="text-xs text-muted-foreground">
-                          Sayfa {pageMine} / {totalPagesMine} · Toplam {mine.total} kayıt
-                        </p>
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={pageMine <= 1}
-                            onClick={() => setPageMine((p) => Math.max(1, p - 1))}
-                          >
-                            <ChevronLeft className="mr-1 size-4" />
-                            Önceki
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={pageMine >= totalPagesMine}
-                            onClick={() => setPageMine((p) => p + 1)}
-                          >
-                            Sonraki
-                            <ChevronRight className="ml-1 size-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+          {wallet && isTeacher ? (
+            <MarketProductionHub
+              entitlements={entitlements}
+              exchangeConfig={policy?.entitlement_exchange}
+              jetonBalance={wallet.user.jeton}
+              token={token}
+              onRefresh={loadAll}
+              bilsemPlanCredits={bilsemPlanCredits}
+            />
           ) : null}
-
-          <Card className="overflow-hidden border-border/80 shadow-sm">
-            <CardHeader className="border-b border-border/60 bg-muted/15">
-              <div className="flex items-start gap-3">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-800 dark:text-amber-300">
-                  <FileText className="size-5" />
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-1">
-                    <CardTitle className="text-lg">Kullanım hakları</CardTitle>
-                    <InfoHintDialog label="Kullanım hakları" title="Kullanım hakları">
-                      <p>
-                        <strong>Yıllık plan üretim</strong> ile <strong>diğer evrak üretim</strong> ayrı satırlardadır.
-                        Ücretli modüllerde jeton/ek ders düşümü üstteki özet ve tüketim tablolarında izlenir.
-                      </p>
-                    </InfoHintDialog>
-                  </div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-4 sm:pt-6">
-              {entitlements.length === 0 ? (
-                <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-muted/20 px-4 py-8 text-center">
-                  <p className="text-sm text-muted-foreground">Henüz kayıtlı hak yok.</p>
-                  <InfoHintDialog label="Kullanım hakları hakkında" title="Kullanım hakları">
-                    <p>İlk API erişiminde plan ve evrak için varsayılan kota satırları oluşturulur.</p>
-                  </InfoHintDialog>
-                </div>
-              ) : (
-                <ul className="grid gap-3 sm:grid-cols-2">
-                  {entitlements.map((e, idx) => (
-                    <li
-                      key={idx}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-4 py-3"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div
-                          className={cn(
-                            'flex size-9 shrink-0 items-center justify-center rounded-lg',
-                            e.entitlementType === 'evrak_uretim' || e.entitlementType === 'yillik_plan_uretim'
-                              ? 'bg-primary/10 text-primary'
-                              : 'bg-muted text-muted-foreground',
-                          )}
-                        >
-                          {e.entitlementType === 'evrak_uretim' || e.entitlementType === 'yillik_plan_uretim' ? (
-                            <FileText className="size-4" />
-                          ) : (
-                            <Coins className="size-4" />
-                          )}
-                        </div>
-                        <span className="truncate font-medium text-foreground">
-                          {ENTITLEMENT_LABELS[e.entitlementType] ?? e.entitlementType}
-                        </span>
-                      </div>
-                      <span
-                        className={cn(
-                          'shrink-0 rounded-lg px-2.5 py-1 text-sm font-semibold tabular-nums',
-                          e.quantity > 0
-                            ? 'bg-primary/12 text-primary'
-                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300',
-                        )}
-                      >
-                        {e.quantity}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {(isTeacher || isSchoolAdmin) && exCfg?.enabled ? (
-                <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4 sm:p-5">
-                  <p className="mb-3 text-sm font-semibold text-foreground">Jetonla hak al</p>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-                    <div className="min-w-0 space-y-1.5 sm:min-w-[220px]">
-                      <Label htmlFor="mex-kind">Hak türü</Label>
-                      <Select
-                        value={exchangeKind}
-                        onValueChange={(v) => setExchangeKind(v as 'yillik_plan_uretim' | 'evrak_uretim')}
-                      >
-                        <SelectTrigger id="mex-kind" className="h-9" />
-                        <SelectValue />
-                        <SelectItem value="yillik_plan_uretim">Yıllık plan üretimi</SelectItem>
-                        <SelectItem value="evrak_uretim">Evrak üretimi</SelectItem>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="mex-qty">Adet (en fazla {exMaxUnits})</Label>
-                      <Input
-                        id="mex-qty"
-                        type="number"
-                        min={1}
-                        max={exMaxUnits}
-                        className="h-9 w-28 font-medium tabular-nums"
-                        value={exchangeQty}
-                        onChange={(e) => setExchangeQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                      />
-                    </div>
-                    <div className="flex min-w-0 flex-1 flex-col gap-1 sm:pb-0.5">
-                      <p className="text-xs text-muted-foreground">
-                        Tahmini jeton: <span className="font-semibold text-foreground">{fmtNum(exCost)}</span>
-                        {exRate <= 0 ? (
-                          <span className="ml-2 text-amber-700 dark:text-amber-400">
-                            (Bu tür için tarife 0 — Market politikasından düzenleyin.)
-                          </span>
-                        ) : null}
-                      </p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="w-full sm:w-auto"
-                        disabled={
-                          exchangeBusy || exRate <= 0 || !Number.isFinite(exCost) || exCost <= 0
-                        }
-                        onClick={() => {
-                          void (async () => {
-                            if (!token || !exCfg?.enabled) return;
-                            setExchangeBusy(true);
-                            try {
-                              await apiFetch('/market/entitlements/exchange', {
-                                token,
-                                method: 'POST',
-                                body: JSON.stringify({ kind: exchangeKind, quantity: exQtyClamped }),
-                              });
-                              toast.success('Hak eklendi');
-                              await loadAll();
-                            } catch (e) {
-                              toast.error(e instanceof Error ? e.message : 'İşlem başarısız');
-                            } finally {
-                              setExchangeBusy(false);
-                            }
-                          })();
-                        }}
-                      >
-                        {exchangeBusy ? 'İşleniyor…' : 'Jetonla al'}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card
-            id="market-mobil-magaza"
-            className="scroll-mt-4 overflow-hidden border-2 border-dashed border-primary/25 bg-linear-to-br from-primary/5 via-card to-violet-500/5 shadow-sm"
-          >
-            <CardContent className="flex flex-col items-center px-4 py-8 text-center sm:px-6 sm:py-12">
-              <div className="mb-5 flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-inner ring-1 ring-primary/20">
-                <ShoppingBag className="size-8" />
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">Mobil satın alma</h3>
-                  <InfoHintDialog label="Mobil mağaza" title="Mobil uygulamadan satın alma">
-                    <p>
-                      Jeton ve ek ders paketleri Google Play ve App Store üzerinden alınır; uygulama doğrulama gönderir.
-                      Ürün kimlikleri ve fiyatlar Market Politikasından yönetilir.
-                    </p>
-                  </InfoHintDialog>
-                </div>
-              </div>
-              {isTeacher && yillikPlanKota <= 0 && evrakQty <= 0 && (
-                <Button asChild className="mt-6" size="lg">
-                  <Link href="/evrak">Plan / evrak modülüne git</Link>
-                </Button>
-              )}
-              {isSuperOrMod && (
-                <Button asChild variant="outline" className="mt-4 max-sm:max-w-full max-sm:truncate" size="sm">
-                  <Link href="/market-policy">
-                    <span className="sm:hidden">Market politikası</span>
-                    <span className="hidden sm:inline">Market politikası ve platform özeti</span>
-                  </Link>
-                </Button>
-              )}
-            </CardContent>
-          </Card>
         </>
       )}
     </div>

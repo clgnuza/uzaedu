@@ -22,12 +22,12 @@ import {
   ShoppingBag,
   Headphones,
   Megaphone,
-  Coins,
   BookUser,
   Search,
   Layers,
   School,
   Puzzle,
+  Heart,
 } from 'lucide-react';
 import {
   SCHOOL_MODULE_KEYS,
@@ -120,7 +120,15 @@ const MODULE_CHILDREN: Record<SchoolModuleKey, MenuItem[]> = {
     modChild('Yıllık plan', '/bilsem/yillik-plan', Layers, 'bilsem'),
     modChild('Plan katkısı', '/bilsem/plan-katki', ClipboardList, 'bilsem'),
   ],
-  school_reviews: [],
+  school_reviews: [
+    {
+      title: 'Okul listesi',
+      path: '/okul-degerlendirmeleri',
+      icon: Search,
+      allowedRoles: [...T],
+    },
+    modChild('Favorilerim', '/favoriler', Heart, 'school_reviews'),
+  ],
   butterfly_exam: [
     modChild('Öğrenci sorgulama', '/kelebek-sinav/ogrenci-sorgu', Search, 'butterfly_exam'),
     modChild('Sınav takvimi', '/kelebek-sinav/sinav-planlama', Calendar, 'butterfly_exam'),
@@ -130,17 +138,14 @@ const MODULE_CHILDREN: Record<SchoolModuleKey, MenuItem[]> = {
   ],
   messaging: [modChild('Mesaj merkezi', '/mesaj-merkezi', LayoutGrid, 'messaging')],
   dogrudan_temin: [],
-  ders_dagit: [
-    modChild('Müsaitlik tercihleri', '/ders-dagit/tercihler', BookUser, 'ders_dagit'),
-    modChild('Sınıf görünümü', '/ders-dagit/veli', LayoutGrid, 'ders_dagit'),
-  ],
+  /** Öğretmen: «Ders ve takvim» grubunda (TEACHER_CORE_MENU). */
+  ders_dagit: [],
   okul_koprusu: [],
 };
 
-/** Misafir / public-admin-paths ile aynı — okul modülü kapısı yok. */
-export const TEACHER_TOOLS_MENU: MenuItem[] = [
+export const TEACHER_CALC_MENU: MenuItem[] = [
   {
-    heading: 'Araçlar',
+    heading: 'Hesaplamalar',
     allowedRoles: [...T],
   },
   {
@@ -148,14 +153,6 @@ export const TEACHER_TOOLS_MENU: MenuItem[] = [
     icon: Calculator,
     allowedRoles: [...T],
     menuGroup: 'violet',
-    sidebarHubOnlyRoles: [...T],
-    sidebarHubPath: '/hesaplamalar',
-    sidebarHubActivePrefixes: [
-      '/hesaplamalar',
-      '/ek-ders-hesaplama',
-      '/sinav-gorev-ucretleri',
-      '/yolluk-hesaplama',
-    ],
     children: [
       { title: 'Özet', path: '/hesaplamalar', icon: Calculator, allowedRoles: [...T] },
       { title: 'Ek ders hesaplama', path: '/ek-ders-hesaplama', icon: Calculator, allowedRoles: [...T] },
@@ -168,21 +165,21 @@ export const TEACHER_TOOLS_MENU: MenuItem[] = [
       { title: 'Yolluk hesaplarım', path: '/yolluk-hesaplama/benim', icon: Calculator, allowedRoles: [...T] },
     ],
   },
+];
+
+export const TEACHER_NEWS_MENU: MenuItem[] = [
   {
-    title: 'Herkese açık',
+    heading: 'Haberler',
+    allowedRoles: [...T],
+  },
+  {
+    title: 'Haber ve yayın',
     icon: Newspaper,
     allowedRoles: [...T],
     menuGroup: 'orange',
     children: [
       { title: 'Haberler', path: '/haberler', icon: Newspaper, allowedRoles: [...T], publicAccess: true },
       { title: 'Haber yayın', path: '/haberler/yayin', icon: Megaphone, allowedRoles: [...T], publicAccess: true },
-      {
-        title: 'Okul değerlendirmeleri',
-        path: '/okul-degerlendirmeleri',
-        icon: Star,
-        allowedRoles: [...T],
-        publicAccess: true,
-      },
     ],
   },
 ];
@@ -199,6 +196,8 @@ export const TEACHER_CORE_MENU: MenuItem[] = [
     menuGroup: 'sky',
     children: [
       { title: 'Ders programı', path: '/ders-programi', icon: BookOpen, allowedRoles: [...T] },
+      modChild('Müsaitlik tercihleri', '/ders-dagit/tercihler', BookUser, 'ders_dagit'),
+      modChild('Sınıf görünümü', '/ders-dagit/veli', LayoutGrid, 'ders_dagit'),
       { title: 'Akademik takvim', path: '/akademik-takvim', icon: Calendar, allowedRoles: [...T] },
       { title: 'Sınıflar ve dersler', path: '/classes-subjects', icon: Layers, allowedRoles: [...T] },
     ],
@@ -214,10 +213,12 @@ function buildTeacherModuleMenuItems(): MenuItem[] {
       title: SCHOOL_MODULE_LABELS[key],
       icon: MODULE_ICONS[key],
       allowedRoles: [...T],
-      requiredSchoolModule: key,
       menuGroup: MODULE_MENU_GROUPS[index % MODULE_MENU_GROUPS.length],
       children,
     };
+    if (key !== 'school_reviews') {
+      base.requiredSchoolModule = key;
+    }
 
     return base;
   }).filter((item): item is MenuItem => item !== null);
@@ -235,14 +236,14 @@ export const TEACHER_OTHER_MENU: MenuItem[] = [
     menuGroup: 'zinc',
     children: [
       { title: 'Market', path: '/market', icon: ShoppingBag, allowedRoles: [...T] },
-      { title: 'Reklamla jeton', path: '/market/rewarded-ad', icon: Coins, allowedRoles: [...T] },
       { title: 'Destek talepleri', path: '/support', icon: Headphones, allowedRoles: [...T] },
     ],
   },
 ];
 
 export const TEACHER_SIDEBAR_SECTION: MenuItem[] = [
-  ...TEACHER_TOOLS_MENU,
+  ...TEACHER_CALC_MENU,
+  ...TEACHER_NEWS_MENU,
   ...TEACHER_CORE_MENU,
   { heading: 'Modüller', allowedRoles: [...T] },
   ...buildTeacherModuleMenuItems(),

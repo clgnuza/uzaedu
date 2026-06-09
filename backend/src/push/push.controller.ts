@@ -4,15 +4,8 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { UserRole } from '../types/enums';
-import { WebPushService, type PushSubscribeDto } from '../notifications/web-push.service';
-class SubscribeBodyDto implements PushSubscribeDto {
-  endpoint: string;
-  keys: { p256dh: string; auth: string };
-}
-
-class UnsubscribeBodyDto {
-  endpoint?: string;
-}
+import { WebPushService } from '../notifications/web-push.service';
+import { SubscribeBodyDto, UnsubscribeBodyDto } from './dto/push-subscribe.dto';
 
 @Controller('push')
 export class PushController {

@@ -56,9 +56,16 @@ class ApiClient {
   dynamic _decodeBody(http.Response res) {
     final dynamic parsed = res.body.isEmpty ? null : jsonDecode(res.body);
     if (res.statusCode >= 400) {
-      final msg = parsed is Map && parsed['message'] != null
-          ? parsed['message'].toString()
-          : 'HTTP ${res.statusCode}';
+      String msg;
+      if (parsed is Map && parsed['message'] != null) {
+        msg = parsed['message'].toString();
+      } else if (res.statusCode == 401) {
+        msg = 'Oturumunuz sona ermiş.';
+      } else if (res.statusCode >= 500) {
+        msg = 'Sunucuda geçici bir sorun var.';
+      } else {
+        msg = 'İstek başarısız (HTTP ${res.statusCode}).';
+      }
       throw ApiException(msg, status: res.statusCode);
     }
     return parsed;

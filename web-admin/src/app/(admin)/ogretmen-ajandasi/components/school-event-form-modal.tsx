@@ -2,20 +2,24 @@
 
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { apiFetch } from '@/lib/api';
-import { Loader2, Users, Check, User } from 'lucide-react';
+import { Loader2, Users, Check, User, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  AGENDA_DIALOG_CLASS,
+  AgendaFormActions,
+  agendaInput,
+  agendaLabel,
+  agendaSection,
+  agendaTextarea,
+} from './agenda-form-ui';
 
 const BRANCH_COLORS = [
-  { bg: 'bg-blue-500/15', border: 'border-blue-400/40', text: 'text-blue-700 dark:text-blue-300', chip: 'bg-blue-500/20 border-blue-400/30', chipSel: 'bg-blue-500/35 ring-1 ring-blue-400/50' },
-  { bg: 'bg-emerald-500/15', border: 'border-emerald-400/40', text: 'text-emerald-700 dark:text-emerald-300', chip: 'bg-emerald-500/20 border-emerald-400/30', chipSel: 'bg-emerald-500/35 ring-1 ring-emerald-400/50' },
-  { bg: 'bg-violet-500/15', border: 'border-violet-400/40', text: 'text-violet-700 dark:text-violet-300', chip: 'bg-violet-500/20 border-violet-400/30', chipSel: 'bg-violet-500/35 ring-1 ring-violet-400/50' },
-  { bg: 'bg-amber-500/15', border: 'border-amber-400/40', text: 'text-amber-700 dark:text-amber-300', chip: 'bg-amber-500/20 border-amber-400/30', chipSel: 'bg-amber-500/35 ring-1 ring-amber-400/50' },
-  { bg: 'bg-rose-500/15', border: 'border-rose-400/40', text: 'text-rose-700 dark:text-rose-300', chip: 'bg-rose-500/20 border-rose-400/30', chipSel: 'bg-rose-500/35 ring-1 ring-rose-400/50' },
-  { bg: 'bg-cyan-500/15', border: 'border-cyan-400/40', text: 'text-cyan-700 dark:text-cyan-300', chip: 'bg-cyan-500/20 border-cyan-400/30', chipSel: 'bg-cyan-500/35 ring-1 ring-cyan-400/50' },
+  { bg: 'bg-blue-500/12', border: 'border-blue-400/35', text: 'text-blue-700 dark:text-blue-300', chip: 'bg-blue-500/15 border-blue-400/25', chipSel: 'bg-blue-500/30 ring-1 ring-blue-400/40' },
+  { bg: 'bg-emerald-500/12', border: 'border-emerald-400/35', text: 'text-emerald-700 dark:text-emerald-300', chip: 'bg-emerald-500/15 border-emerald-400/25', chipSel: 'bg-emerald-500/30 ring-1 ring-emerald-400/40' },
+  { bg: 'bg-violet-500/12', border: 'border-violet-400/35', text: 'text-violet-700 dark:text-violet-300', chip: 'bg-violet-500/15 border-violet-400/25', chipSel: 'bg-violet-500/30 ring-1 ring-violet-400/40' },
+  { bg: 'bg-amber-500/12', border: 'border-amber-400/35', text: 'text-amber-700 dark:text-amber-300', chip: 'bg-amber-500/15 border-amber-400/25', chipSel: 'bg-amber-500/30 ring-1 ring-amber-400/40' },
 ];
 
 type Teacher = { id: string; display_name: string; teacher_branch?: string | null };
@@ -147,94 +151,96 @@ export function SchoolEventFormModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={isEdit ? 'Okul Etkinliğini Düzenle' : 'Okul Etkinliği Ekle'}>
-        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
+      <DialogContent
+        title={isEdit ? 'Okul Etkinliğini Düzenle' : 'Okul Etkinliği Ekle'}
+        className={AGENDA_DIALOG_CLASS}
+      >
+        <form onSubmit={handleSubmit} className="space-y-2">
           <div>
-            <Label className="text-xs sm:text-sm">Başlık *</Label>
+            <span className={agendaLabel}>Başlık *</span>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Etkinlik başlığı"
               required
-              className="mt-1 min-h-10 text-sm sm:min-h-11"
+              className={agendaInput}
             />
           </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div>
+              <span className={agendaLabel}>Tarih ve saat *</span>
+              <Input
+                type="datetime-local"
+                value={eventAt}
+                onChange={(e) => setEventAt(e.target.value)}
+                className={agendaInput}
+              />
+            </div>
+            <div>
+              <span className={agendaLabel}>Tür</span>
+              <Input
+                value={eventType}
+                onChange={(e) => setEventType(e.target.value)}
+                placeholder="Zümre, gezi…"
+                className={agendaInput}
+              />
+            </div>
+          </div>
           <div>
-            <Label className="text-xs sm:text-sm">Açıklama</Label>
+            <span className={agendaLabel}>Açıklama</span>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              className="mt-1 min-h-[72px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-[80px] sm:py-2.5"
+              placeholder="Kısa not (opsiyonel)"
+              className={agendaTextarea}
             />
           </div>
-          <div>
-            <Label className="text-xs sm:text-sm">Tarih ve saat *</Label>
-            <Input
-              type="datetime-local"
-              value={eventAt}
-              onChange={(e) => setEventAt(e.target.value)}
-              className="mt-1 min-h-10 text-sm sm:min-h-11"
-            />
-          </div>
-          <div>
-            <Label className="text-xs sm:text-sm">Etkinlik türü</Label>
-            <Input
-              value={eventType}
-              onChange={(e) => setEventType(e.target.value)}
-              placeholder="Zümre, gezi…"
-              className="mt-1 min-h-10 text-sm sm:min-h-11"
-            />
-          </div>
-          <div>
-            <Label className="flex items-center gap-2 text-xs sm:text-sm">
-              <Users className="size-3.5 shrink-0 text-muted-foreground sm:size-4" />
-              Bildirim alacak öğretmenler
-            </Label>
-            <p className="mt-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">
-              Zümre başlığına tıklayarak tümünü seçebilirsiniz.
+
+          <details className={cn(agendaSection, 'group open:pb-2')} open={selectedTeacherIds.size > 0 || teachers.length > 0}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px] font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+              <span className="inline-flex items-center gap-1.5">
+                <Users className="size-3.5 text-indigo-500" aria-hidden />
+                Bildirim alacak öğretmenler
+              </span>
+              {selectedTeacherIds.size > 0 && (
+                <span className="rounded-full bg-primary/12 px-1.5 py-0.5 text-[9px] font-bold text-primary">
+                  {selectedTeacherIds.size}
+                </span>
+              )}
+            </summary>
+            <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
+              Zümre başlığına tıklayarak tümünü seçin.
             </p>
-            {!loadingTeachers && selectedTeacherIds.size > 0 && (
-              <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-semibold text-primary sm:gap-1.5 sm:px-3 sm:text-sm">
-                <Check className="size-3.5 shrink-0 sm:size-4" />
-                {selectedTeacherIds.size} seçildi
-              </div>
-            )}
             {loadingTeachers ? (
-              <div className="mt-2 flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-4 text-xs text-muted-foreground sm:mt-3 sm:rounded-xl sm:px-4 sm:py-6 sm:text-sm">
-                <Loader2 className="size-4 shrink-0 animate-spin" />
+              <div className="mt-1.5 flex items-center gap-1.5 rounded-md bg-muted/40 px-2 py-2 text-[10px] text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" />
                 Yükleniyor…
               </div>
+            ) : teachers.length === 0 ? (
+              <p className="mt-1.5 rounded-md bg-muted/30 px-2 py-3 text-center text-[10px] text-muted-foreground">
+                Öğretmen bulunamadı.
+              </p>
             ) : (
-              <div className="mt-2 max-h-44 space-y-2 overflow-y-auto pr-1 sm:mt-3 sm:max-h-52 sm:space-y-3">
+              <div className="mt-1.5 max-h-28 space-y-1.5 overflow-y-auto pr-0.5">
                 {branches.map((b, i) => {
                   const list = byBranch(b);
                   const allSel = list.every((t) => selectedTeacherIds.has(t.id));
-                  const c = BRANCH_COLORS[i % BRANCH_COLORS.length];
+                  const c = BRANCH_COLORS[i % BRANCH_COLORS.length]!;
                   return (
-                    <div
-                      key={b}
-                      className={cn(
-                        'rounded-lg border-l-4 p-2 transition-colors sm:rounded-xl sm:p-3',
-                        c.bg,
-                        c.border,
-                      )}
-                    >
+                    <div key={b} className={cn('rounded-md border-l-2 p-1.5', c.bg, c.border)}>
                       <button
                         type="button"
                         onClick={() => toggleBranch(b)}
-                        className={cn(
-                          'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm font-semibold transition-all hover:opacity-90 sm:rounded-lg sm:px-3 sm:py-2',
-                          c.text,
-                        )}
+                        className={cn('flex w-full items-center justify-between gap-1 px-1 text-left text-[11px] font-semibold', c.text)}
                       >
-                        <span className="min-w-0 truncate">{b}</span>
-                        <span className="flex shrink-0 items-center gap-1 text-[10px] font-medium sm:text-xs">
+                        <span className="truncate">{b}</span>
+                        <span className="flex shrink-0 items-center gap-0.5 text-[9px]">
                           {list.length}
-                          {allSel && <Check className="size-3.5 sm:size-4" strokeWidth={2.5} />}
+                          {allSel && <Check className="size-3" strokeWidth={2.5} />}
                         </span>
                       </button>
-                      <div className="mt-1.5 flex flex-wrap gap-1.5 sm:mt-2 sm:gap-2">
+                      <div className="mt-1 flex flex-wrap gap-1">
                         {list.map((t) => {
                           const sel = selectedTeacherIds.has(t.id);
                           return (
@@ -243,15 +249,15 @@ export function SchoolEventFormModal({
                               type="button"
                               onClick={() => toggleTeacher(t.id)}
                               className={cn(
-                                'inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium transition-all sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm',
+                                'inline-flex max-w-full items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[10px] font-medium',
                                 c.chip,
                                 c.border,
                                 sel && c.chipSel,
                               )}
                             >
-                              {sel && <Check className="size-3 shrink-0 sm:size-3.5" strokeWidth={2.5} />}
-                              <User className="size-3 shrink-0 opacity-70 sm:size-3.5" />
-                              <span className="max-w-36 truncate sm:max-w-44">{t.display_name || t.id.slice(0, 8)}</span>
+                              {sel && <Check className="size-2.5 shrink-0" strokeWidth={2.5} />}
+                              <User className="size-2.5 shrink-0 opacity-70" />
+                              <span className="max-w-28 truncate">{t.display_name || t.id.slice(0, 8)}</span>
                             </button>
                           );
                         })}
@@ -259,55 +265,27 @@ export function SchoolEventFormModal({
                     </div>
                   );
                 })}
-                {teachers.filter((t) => !(t.teacher_branch ?? '').trim()).length > 0 && (
-                  <div className="rounded-lg border-l-4 border-slate-400/40 bg-slate-500/10 p-2 sm:rounded-xl sm:p-3">
-                    <span className="mb-1.5 block px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 sm:mb-2 sm:px-3 sm:py-1.5 sm:text-sm">
-                      Branşı tanımlanmamış
-                    </span>
-                    <div className="flex flex-wrap gap-1.5 sm:gap-2">
-                      {teachers
-                        .filter((t) => !(t.teacher_branch ?? '').trim())
-                        .map((t) => {
-                          const sel = selectedTeacherIds.has(t.id);
-                          return (
-                            <button
-                              key={t.id}
-                              type="button"
-                              onClick={() => toggleTeacher(t.id)}
-                              className={cn(
-                                'inline-flex max-w-full items-center gap-1 rounded-full border border-slate-400/30 bg-slate-500/20 px-2 py-1 text-[11px] font-medium transition-all sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm',
-                                sel && 'bg-slate-500/35 ring-1 ring-slate-400/50',
-                              )}
-                            >
-                              {sel && <Check className="size-3 shrink-0 sm:size-3.5" strokeWidth={2.5} />}
-                              <User className="size-3 shrink-0 opacity-70 sm:size-3.5" />
-                              <span className="max-w-36 truncate sm:max-w-44">{t.display_name || t.id.slice(0, 8)}</span>
-                            </button>
-                          );
-                        })}
-                    </div>
-                  </div>
-                )}
-                {teachers.length === 0 && (
-                  <p className="rounded-xl bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
-                    Öğretmen bulunamadı.
-                  </p>
-                )}
               </div>
             )}
-          </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={important} onChange={(e) => setImportant(e.target.checked)} className="rounded" />
-            <span className="text-xs sm:text-sm">Önemli</span>
+          </details>
+
+          <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-foreground">
+            <input
+              type="checkbox"
+              checked={important}
+              onChange={(e) => setImportant(e.target.checked)}
+              className="size-3.5 rounded border-input"
+            />
+            <Star className="size-3 text-amber-500" aria-hidden />
+            Önemli
           </label>
-          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end sm:pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
-              İptal
-            </Button>
-            <Button type="submit" disabled={loading || !title.trim()} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
-              {isEdit ? 'Güncelle' : 'Kaydet'}
-            </Button>
-          </div>
+
+          <AgendaFormActions
+            onCancel={() => onOpenChange(false)}
+            loading={loading}
+            submitLabel={isEdit ? 'Güncelle' : 'Kaydet'}
+            disabled={!title.trim()}
+          />
         </form>
       </DialogContent>
     </Dialog>

@@ -2,19 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import {
-  Headphones,
-  ArrowLeft,
-  Send,
-  ArrowUpCircle,
-  StickyNote,
-  Sparkles,
-  Clock3,
-  Layers3,
-  MessageSquareText,
-} from 'lucide-react';
+import { Send, ArrowUpCircle, StickyNote, Clock3, Layers3 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { Toolbar, ToolbarHeading, ToolbarPageTitle } from '@/components/layout/toolbar';
 import { apiFetch, isSupportModuleDisabledError } from '@/lib/api';
 import { useSupportModuleAvailability } from '@/hooks/use-support-module-availability';
 import { Card, CardContent } from '@/components/ui/card';
@@ -32,6 +21,8 @@ import { Alert } from '@/components/ui/alert';
 import { TicketAttachmentInput, type AttachmentItem } from '@/components/ticket-attachment-input';
 import { SupportStatusBadge } from '@/components/support/support-status-badge';
 import { SupportNotificationHint } from '@/components/support/support-notification-hint';
+import { SupportTicketHeaderCard } from '@/components/support/support-ticket-header-card';
+import { SupportMessageThread } from '@/components/support/support-message-thread';
 import { cn } from '@/lib/utils';
 
 type TicketMessage = {
@@ -39,7 +30,8 @@ type TicketMessage = {
   body: string;
   message_type: 'PUBLIC' | 'INTERNAL_NOTE';
   created_at: string;
-  author?: { display_name: string | null } | null;
+  author_user_id?: string;
+  author?: { display_name: string | null; role?: string | null } | null;
 };
 
 type AssignableUser = { id: string; display_name: string | null; email: string; role: string };
@@ -52,6 +44,7 @@ type Ticket = {
   status: string;
   priority: string;
   target_type: string;
+  requester_user_id?: string;
   school_id?: string;
   escalated_to_ticket_id?: string | null;
   assigned_to_user_id?: string | null;
@@ -245,146 +238,31 @@ export default function TicketDetailPage() {
 
   return (
     <div className="support-ticket-page space-y-3 pb-4 sm:space-y-5 sm:pb-8">
-      <Toolbar>
-        <ToolbarHeading>
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <button
-              onClick={() => router.push('/support')}
-              className="rounded-lg p-1.5 hover:bg-muted"
-              aria-label="Geri"
-            >
-              <ArrowLeft className="size-4" />
-            </button>
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 sm:size-9">
-              <Headphones className="size-3.5 text-sky-700 dark:text-sky-300 sm:size-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <ToolbarPageTitle className="text-sm leading-snug sm:text-base">{ticket?.subject ?? 'Talep detayı'}</ToolbarPageTitle>
-              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 sm:gap-2">
-                <span className="font-mono text-[10px] text-muted-foreground sm:text-xs">{ticket?.ticket_number ?? id}</span>
-                {ticket && <SupportStatusBadge status={ticket.status} size="xs" />}
-                <span className="truncate text-[10px] text-muted-foreground sm:text-xs">{ticket?.module?.name ?? '—'}</span>
-              </div>
-            </div>
-            <SupportNotificationHint />
-          </div>
-        </ToolbarHeading>
-      </Toolbar>
+      {!loading && ticket ? (
+        <SupportTicketHeaderCard
+          ticket={ticket}
+          messageCount={messages?.items.length}
+          onBack={() => router.push('/support')}
+          actions={<SupportNotificationHint />}
+        />
+      ) : (
+        <div className="rounded-2xl border border-border/50 bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
+          {loading ? 'Yükleniyor…' : 'Talep detayı'}
+        </div>
+      )}
 
       {error && <Alert variant="error" message={error} className="py-2" />}
       {(supportEnabled === false || supportBlocked) && me?.role !== 'superadmin' && (
         <Alert variant="warning" message="Destek modülü şu anda kapalı. Talep detayı ve yazışmalar geçici olarak görüntülenemiyor." className="py-2" />
       )}
-      {!loading && ticket && (ticket.status === 'CLOSED' || ticket.status === 'RESOLVED') && (
-        <Alert variant="info" showIcon className="py-2">
-          Bu talep {ticket.status === 'CLOSED' ? 'kapatıldı' : 'çözüldü'}. Yeni yanıt ekleyemezsiniz.
-        </Alert>
-      )}
       {loading && <LoadingSpinner label="Yükleniyor…" className="py-6" />}
       {!loading && supportEnabled !== false && !supportBlocked && ticket && messages && (
         <div className="grid gap-3 lg:gap-4 xl:grid-cols-[minmax(0,1fr)_min(100%,300px)]">
           <div className="space-y-3 sm:space-y-4">
-            <div className="overflow-hidden rounded-xl border border-sky-400/20 bg-linear-to-br from-sky-500/10 via-cyan-500/6 to-background p-3 shadow-sm ring-1 ring-sky-500/10 sm:rounded-2xl sm:p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <div className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/25 bg-background/85 px-2 py-0.5 text-[10px] font-medium text-sky-800 shadow-sm dark:text-sky-200 sm:text-xs">
-                    <Sparkles className="size-3 shrink-0" />
-                    Talep akışı
-                  </div>
-                  <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
-                    <span className="font-mono text-foreground/80">{ticket.ticket_number}</span>
-                    <span className="mx-1.5 text-border">·</span>
-                    {ticket.module?.name ?? 'Modül yok'}
-                  </p>
-                </div>
-                <div className="grid w-full grid-cols-3 gap-1.5 sm:w-auto sm:min-w-[min(100%,280px)] sm:gap-2">
-                  <div className="rounded-lg border border-border/50 bg-background/90 px-2 py-2 shadow-sm sm:rounded-xl sm:px-3 sm:py-2.5">
-                    <p className="text-[9px] font-medium text-muted-foreground sm:text-[10px]">Durum</p>
-                    <div className="mt-1">{ticket && <SupportStatusBadge status={ticket.status} size="xs" />}</div>
-                  </div>
-                  <div className="rounded-lg border border-border/50 bg-background/90 px-2 py-2 shadow-sm sm:rounded-xl sm:px-3 sm:py-2.5">
-                    <p className="text-[9px] font-medium text-muted-foreground sm:text-[10px]">Öncelik</p>
-                    <p className="mt-1 truncate text-[11px] font-semibold sm:text-xs">
-                      {({ LOW: 'Düşük', MEDIUM: 'Orta', HIGH: 'Yüksek', URGENT: 'Acil' } as Record<string, string>)[ticket.priority] ??
-                        ticket.priority}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-border/50 bg-background/90 px-2 py-2 shadow-sm sm:rounded-xl sm:px-3 sm:py-2.5">
-                    <p className="text-[9px] font-medium text-muted-foreground sm:text-[10px]">Mesaj</p>
-                    <p className="mt-1 text-sm font-semibold tabular-nums sm:text-base">{messages.items.length}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-border/50 bg-card/95 p-2.5 shadow-sm sm:rounded-2xl sm:p-3 md:p-4">
-              <h2 className="sr-only">Yazışma zaman çizelgesi</h2>
-              <div className="relative">
-                <div
-                  className="pointer-events-none absolute bottom-4 left-[15px] top-4 w-px bg-linear-to-b from-sky-400/40 via-border to-emerald-400/30 sm:left-[17px]"
-                  aria-hidden
-                />
-                <ol className="relative m-0 list-none space-y-0 p-0">
-                {messages.items.map((m, idx) => {
-                  const isInternal = m.message_type === 'INTERNAL_NOTE';
-                  return (
-                    <li key={m.id} className="relative flex gap-2.5 pb-4 last:pb-0 sm:gap-3">
-                      <div className="relative z-10 flex w-8 shrink-0 justify-center pt-0.5 sm:w-9">
-                        <span
-                          className={cn(
-                            'flex size-8 items-center justify-center rounded-full border-2 border-background shadow-md ring-1 ring-black/5 dark:ring-white/10 sm:size-9',
-                            isInternal
-                              ? 'bg-linear-to-br from-amber-400/90 to-amber-600/80 text-white'
-                              : 'bg-linear-to-br from-sky-500 to-cyan-600 text-white',
-                          )}
-                          title={isInternal ? 'İç not' : 'Herkese açık yanıt'}
-                        >
-                          {isInternal ? (
-                            <StickyNote className="size-3.5 sm:size-4" aria-hidden />
-                          ) : (
-                            <MessageSquareText className="size-3.5 sm:size-4" aria-hidden />
-                          )}
-                        </span>
-                      </div>
-                      <Card
-                        className={cn(
-                          'min-w-0 flex-1 border shadow-sm',
-                          isInternal
-                            ? 'rounded-lg border-amber-400/35 bg-amber-50/80 dark:bg-amber-950/25 sm:rounded-xl'
-                            : 'rounded-lg border-border/50 bg-background/95 sm:rounded-xl',
-                        )}
-                      >
-                        <CardContent className="p-2.5 sm:p-3.5">
-                          <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground sm:text-[11px]">
-                            <span className="min-w-0 truncate font-medium text-foreground/90">{m.author?.display_name ?? 'Sistem'}</span>
-                            <time className="shrink-0 tabular-nums" dateTime={m.created_at}>
-                              {new Date(m.created_at).toLocaleString('tr-TR', {
-                                day: '2-digit',
-                                month: 'short',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </time>
-                          </div>
-                          {isInternal && (
-                            <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-amber-200/90 px-1.5 py-0.5 text-[9px] font-medium text-amber-950 dark:bg-amber-900/60 dark:text-amber-100">
-                              <StickyNote className="size-2.5" /> İç not
-                            </span>
-                          )}
-                          <p className={cn('whitespace-pre-wrap text-xs leading-relaxed sm:text-sm', isInternal ? 'mt-1.5' : 'mt-2')}>
-                            {m.body}
-                          </p>
-                          <span className="sr-only">
-                            Adım {idx + 1} / {messages.items.length}
-                          </span>
-                        </CardContent>
-                      </Card>
-                    </li>
-                  );
-                })}
-                </ol>
-              </div>
-            </div>
+            <SupportMessageThread
+              messages={messages.items}
+              ticket={{ requester_user_id: ticket.requester_user_id, target_type: ticket.target_type }}
+            />
 
             {ticket.status !== 'CLOSED' && ticket.status !== 'RESOLVED' && (
               <form

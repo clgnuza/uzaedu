@@ -8,16 +8,20 @@ import { apiFetch } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, Table2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, CircleDashed, Table2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PlanKatkiExcelPlanUpload } from '@/components/bilsem/plan-katki-excel-upload';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { cn } from '@/lib/utils';
 
 function defaultAcademicYear(): string {
   const y = new Date().getFullYear();
   const m = new Date().getMonth();
   return m < 8 ? `${y - 1}-${y}` : `${y}-${y + 1}`;
 }
+
+const SELECT_CLASS =
+  'mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/40';
 
 export default function EvrakPlanKatkiNewPage() {
   const router = useRouter();
@@ -39,6 +43,19 @@ export default function EvrakPlanKatkiNewPage() {
     () => subjects.find((s) => s.code === subjectCode) ?? null,
     [subjects, subjectCode],
   );
+
+  const weekCount = useMemo(() => {
+    try {
+      const j = JSON.parse(itemsJson) as unknown;
+      return Array.isArray(j) ? j.length : 0;
+    } catch {
+      return 0;
+    }
+  }, [itemsJson]);
+
+  const metaReady = !loadingMeta && !!selectedSubject;
+  const planReady = weekCount > 0;
+  const canSave = metaReady && planReady && !saving;
 
   useEffect(() => {
     if (!token) return;
@@ -154,95 +171,137 @@ export default function EvrakPlanKatkiNewPage() {
   if (!me || (me.role !== 'teacher' && me.role !== 'school_admin')) return null;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-3 px-2 pb-8 pt-1 sm:px-4">
-      <div className="relative overflow-hidden rounded-2xl border border-cyan-200/60 bg-linear-to-br from-cyan-100/60 via-white to-fuchsia-100/40 p-3 dark:border-cyan-800/30 dark:from-cyan-950/25 dark:via-zinc-950 dark:to-fuchsia-950/20">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-40 dark:opacity-20"
-          style={{
-            backgroundImage:
-              "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='100' viewBox='0 0 160 100'%3E%3Cg fill='none' stroke='%2306b6d4' stroke-opacity='0.25'%3E%3Cpath d='M0 80C24 60 48 60 72 80s48 20 72 0'/%3E%3Cpath d='M0 50C24 30 48 30 72 50s48 20 72 0'/%3E%3C/g%3E%3C/svg%3E\")",
-          }}
-        />
-        <h1 className="relative text-sm font-semibold tracking-tight sm:text-base">Yeni plan katkı taslağı</h1>
+    <div className="mx-auto max-w-2xl space-y-2.5 px-2.5 pb-24 pt-1 sm:space-y-3 sm:px-4 sm:pb-8">
+      <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2">
+        <div className="min-w-0">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-violet-600/90 dark:text-violet-400">Yeni</p>
+          <h1 className="text-sm font-semibold sm:text-base">Plan katkısı ekle</h1>
+        </div>
+        <Button variant="ghost" size="sm" asChild className="h-8 shrink-0 gap-0.5 px-2 text-xs">
+          <Link href="/evrak/plan-katki">
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Liste
+          </Link>
+        </Button>
       </div>
-      <Button variant="ghost" size="sm" asChild className="h-8 gap-0.5 px-2 text-xs">
-        <Link href="/evrak/plan-katki">
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Liste
-        </Link>
-      </Button>
 
-      {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs">{error}</div>}
+      <ol className="flex gap-1 text-[9px] sm:text-[10px]">
+        {[
+          { done: metaReady, label: 'Ders bilgisi' },
+          { done: planReady, label: 'Excel plan' },
+          { done: false, label: 'Kaydet' },
+        ].map((s, i) => (
+          <li
+            key={s.label}
+            className={cn(
+              'flex flex-1 items-center justify-center gap-1 rounded-md border px-1 py-1 font-medium sm:px-2',
+              s.done
+                ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+                : i === 0 || (i === 1 && metaReady)
+                  ? 'border-violet-500/30 bg-violet-500/8 text-foreground'
+                  : 'border-border/60 bg-muted/30 text-muted-foreground',
+            )}
+          >
+            {s.done ? <CheckCircle2 className="h-3 w-3 shrink-0" /> : <CircleDashed className="h-3 w-3 shrink-0 opacity-50" />}
+            <span className="truncate">{s.label}</span>
+          </li>
+        ))}
+      </ol>
+
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive sm:text-xs">
+          {error}
+        </div>
+      )}
 
       {loadingMeta ? (
         <div className="flex justify-center py-6">
           <LoadingSpinner label="Seçimler hazırlanıyor…" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-2 rounded-2xl border border-fuchsia-200/50 bg-fuchsia-500/4 p-3 sm:grid-cols-2 dark:border-fuchsia-900/30">
-          <div>
-            <Label>Sınıf</Label>
-            <select className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm" value={grade} onChange={(e) => setGrade(e.target.value)}>
-              {Array.from({ length: 12 }, (_, i) => i + 1).map((g) => (
-                <option key={g} value={String(g)}>
-                  {g}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label>Bölüm</Label>
-            <select className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm" value={section} onChange={(e) => setSection(e.target.value)}>
-              {(sections.length > 0 ? sections : [{ value: 'ders', label: 'Ders' }]).map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label>Öğretim yılı</Label>
-            <select className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm" value={academicYear} onChange={(e) => setAcademicYear(e.target.value)}>
-              {(academicYears.length > 0 ? academicYears : [academicYear]).map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label>Ders</Label>
-            <select className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm" value={subjectCode} onChange={(e) => setSubjectCode(e.target.value)}>
-              {subjects.length === 0 ? (
-                <option value="">Ders bulunamadı</option>
-              ) : (
-                subjects.map((s) => (
-                  <option key={s.code} value={s.code}>
+        <section className="rounded-xl border border-border/70 bg-card p-2.5 sm:p-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">1 · Ders bilgisi</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2">
+            <div>
+              <Label className="text-xs">Sınıf</Label>
+              <select className={SELECT_CLASS} value={grade} onChange={(e) => setGrade(e.target.value)}>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((g) => (
+                  <option key={g} value={String(g)}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs">Bölüm</Label>
+              <select className={SELECT_CLASS} value={section} onChange={(e) => setSection(e.target.value)}>
+                {(sections.length > 0 ? sections : [{ value: 'ders', label: 'Ders' }]).map((s) => (
+                  <option key={s.value} value={s.value}>
                     {s.label}
                   </option>
-                ))
-              )}
-            </select>
-            {selectedSubject ? (
-              <p className="mt-1 text-[10px] text-muted-foreground">Kod: {selectedSubject.code}</p>
-            ) : null}
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs">Öğretim yılı</Label>
+              <select className={SELECT_CLASS} value={academicYear} onChange={(e) => setAcademicYear(e.target.value)}>
+                {(academicYears.length > 0 ? academicYears : [academicYear]).map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs">Ders</Label>
+              <select className={SELECT_CLASS} value={subjectCode} onChange={(e) => setSubjectCode(e.target.value)}>
+                {subjects.length === 0 ? (
+                  <option value="">Ders bulunamadı</option>
+                ) : (
+                  subjects.map((s) => (
+                    <option key={s.code} value={s.code}>
+                      {s.label}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            <div className="col-span-2">
+              <Label className="text-xs">Tablo altı not (isteğe bağlı)</Label>
+              <Input className="mt-1 h-9 text-sm" value={tabloAltiNot} onChange={(e) => setTabloAltiNot(e.target.value)} />
+            </div>
           </div>
-          <div className="sm:col-span-2">
-            <Label>Tablo altı not</Label>
-            <Input value={tabloAltiNot} onChange={(e) => setTabloAltiNot(e.target.value)} />
-          </div>
-        </div>
+        </section>
       )}
 
-      <div className="rounded-2xl border border-violet-200/50 bg-violet-500/4 p-3 sm:p-4 dark:border-violet-900/30">
-        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium"><Table2 className="h-3.5 w-3.5" />Yıllık plan (Excel)</p>
-        <PlanKatkiExcelPlanUpload itemsJson={itemsJson} onItemsJsonChange={setItemsJson} />
-      </div>
+      <section className="rounded-xl border border-fuchsia-200/50 bg-fuchsia-500/4 p-2.5 dark:border-fuchsia-900/30 sm:p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-fuchsia-800 dark:text-fuchsia-200 sm:text-xs">
+          <Table2 className="h-3.5 w-3.5" />
+          2 · Yıllık plan (Excel)
+          {planReady && (
+            <span className="ml-auto inline-flex items-center gap-0.5 rounded-full bg-emerald-500/15 px-1.5 py-px text-[9px] font-medium text-emerald-800 dark:text-emerald-200">
+              <CheckCircle2 className="h-2.5 w-2.5" />
+              {weekCount} hafta eklendi
+            </span>
+          )}
+        </p>
+        <PlanKatkiExcelPlanUpload
+          variant="meb"
+          itemsJson={itemsJson}
+          onItemsJsonChange={setItemsJson}
+          templateQuery={{
+            academicYear,
+            subjectCode: subjectCode || undefined,
+            grade: Number.parseInt(grade, 10) || undefined,
+          }}
+        />
+      </section>
 
-      <Button className="h-10" onClick={() => void onSubmit()} disabled={saving || loadingMeta || !selectedSubject}>
-        {saving ? 'Kaydediliyor…' : 'Taslak oluştur'}
-      </Button>
+      <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] left-1/2 z-20 w-[calc(100%-1.25rem)] max-w-2xl -translate-x-1/2 sm:static sm:w-auto sm:translate-x-0">
+        <Button className="h-11 w-full sm:h-10 sm:w-auto" onClick={() => void onSubmit()} disabled={!canSave}>
+          {saving ? 'Kaydediliyor…' : planReady ? 'Taslak oluştur' : 'Önce Excel yükleyin'}
+        </Button>
+      </div>
     </div>
   );
 }

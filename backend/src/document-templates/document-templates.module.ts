@@ -18,12 +18,14 @@ import { YillikPlanIcerikModule } from '../yillik-plan-icerik/yillik-plan-icerik
 import { WorkCalendarModule } from '../work-calendar/work-calendar.module';
 import { BilsemModule } from '../bilsem/bilsem.module';
 import { MarketModule } from '../market/market.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([DocumentTemplate, DocumentCatalog, DocumentGeneration, School]),
     EntitlementModule,
     UploadModule,
+    MailModule,
     YillikPlanIcerikModule,
     WorkCalendarModule,
     BilsemModule,

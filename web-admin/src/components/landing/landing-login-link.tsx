@@ -14,7 +14,7 @@ export function LandingLoginLink() {
     return (
       <Link href="/dashboard" className={className}>
         <LogIn className="size-3.5" strokeWidth={2} />
-        Giriş
+        Panele git
       </Link>
     );
   }

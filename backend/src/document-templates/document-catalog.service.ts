@@ -51,7 +51,14 @@ export class DocumentCatalogService implements OnModuleInit {
       if (section) {
         qb.andWhere('(c.section_filter IS NULL OR c.section_filter = :section)', { section });
       }
-    } else if (grade != null && grade >= 1 && grade <= 12) {
+    } else {
+      qb.andWhere('(c.ana_grup IS NULL OR TRIM(c.ana_grup) = :emptyAna)', { emptyAna: '' });
+      qb.andWhere('(LOWER(c.code) NOT LIKE :bilsemPrefix AND LOWER(c.code) != :bilsemCode)', {
+        bilsemPrefix: 'bilsem_%',
+        bilsemCode: 'bilsem',
+      });
+    }
+    if (!isBilsem && grade != null && grade >= 1 && grade <= 12) {
       qb.andWhere('(c.grade_min IS NULL OR c.grade_min <= :grade)', { grade });
       qb.andWhere('(c.grade_max IS NULL OR c.grade_max >= :grade)', { grade });
       qb.andWhere(
@@ -62,7 +69,7 @@ export class DocumentCatalogService implements OnModuleInit {
           section,
         });
       }
-    } else {
+    } else if (!isBilsem) {
       qb.andWhere('c.grade_min IS NULL AND c.grade_max IS NULL');
     }
     qb.orderBy('c.sort_order', 'ASC').addOrderBy('c.label', 'ASC');

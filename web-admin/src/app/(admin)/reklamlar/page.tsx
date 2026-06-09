@@ -12,7 +12,7 @@ import { Alert } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { RectangleHorizontal, Pencil, Trash2, Plus, Link2, Copy, Coins, UserPlus, Globe, Smartphone, Code } from 'lucide-react';
+import { RectangleHorizontal, Pencil, Trash2, Plus, Link2, Copy, UserPlus, Globe, Smartphone, Code } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   AD_PLACEMENT_SUGGESTIONS,
@@ -99,16 +99,6 @@ function ReklamlarPageInner() {
   const [form, setForm] = useState<AdFormState>(() => emptyForm('web'));
   const [saving, setSaving] = useState(false);
 
-  const [rewardedCfg, setRewardedCfg] = useState({
-    enabled: false,
-    jeton_per_reward: 1,
-    max_rewards_per_day: 10,
-    cooldown_seconds: 90,
-    allowed_ad_unit_ids_text: '',
-  });
-  const [rewardedLoading, setRewardedLoading] = useState(false);
-  const [rewardedSaving, setRewardedSaving] = useState(false);
-
   const [viewTab, setViewTab] = useState<'ads' | 'invite'>('ads');
   const [inviteCfg, setInviteCfg] = useState({
     enabled: false,
@@ -149,16 +139,8 @@ function ReklamlarPageInner() {
 
   useEffect(() => {
     if (!token || !isSuperadmin) return;
-    setRewardedLoading(true);
     setInviteLoading(true);
     void apiFetch<{
-      rewarded_ad_jeton: {
-        enabled: boolean;
-        jeton_per_reward: number;
-        max_rewards_per_day: number;
-        cooldown_seconds: number;
-        allowed_ad_unit_ids: string[];
-      };
       teacher_invite_jeton?: {
         enabled: boolean;
         jeton_for_invitee: number;
@@ -168,16 +150,6 @@ function ReklamlarPageInner() {
       };
     }>('/app-config/market-policy', { token })
       .then((d) => {
-        const r = d.rewarded_ad_jeton;
-        if (r) {
-          setRewardedCfg({
-            enabled: r.enabled,
-            jeton_per_reward: r.jeton_per_reward,
-            max_rewards_per_day: r.max_rewards_per_day,
-            cooldown_seconds: r.cooldown_seconds,
-            allowed_ad_unit_ids_text: (r.allowed_ad_unit_ids ?? []).join(', '),
-          });
-        }
         const ti = d.teacher_invite_jeton;
         if (ti) {
           setInviteCfg({
@@ -191,7 +163,6 @@ function ReklamlarPageInner() {
       })
       .catch(() => {})
       .finally(() => {
-        setRewardedLoading(false);
         setInviteLoading(false);
       });
   }, [token, isSuperadmin]);
@@ -212,35 +183,6 @@ function ReklamlarPageInner() {
     },
     [router],
   );
-
-  const saveRewardedJeton = async () => {
-    if (!token) return;
-    setRewardedSaving(true);
-    try {
-      const allowed = rewardedCfg.allowed_ad_unit_ids_text
-        .split(/[,\\s]+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      await apiFetch('/app-config/market-policy', {
-        method: 'PATCH',
-        token,
-        body: JSON.stringify({
-          rewarded_ad_jeton: {
-            enabled: rewardedCfg.enabled,
-            jeton_per_reward: rewardedCfg.jeton_per_reward,
-            max_rewards_per_day: rewardedCfg.max_rewards_per_day,
-            cooldown_seconds: rewardedCfg.cooldown_seconds,
-            allowed_ad_unit_ids: allowed,
-          },
-        }),
-      });
-      toast.success('Market jeton ayarları kaydedildi');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Kaydedilemedi');
-    } finally {
-      setRewardedSaving(false);
-    }
-  };
 
   const saveInviteJeton = async () => {
     if (!token) return;
@@ -461,116 +403,6 @@ function ReklamlarPageInner() {
           UMP (mobil)
         </a>
       </Alert>
-
-      <Card className="border-dashed">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Coins className="size-5" />
-            Market — ödüllü reklam jetonu (öğretmen)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <p className="text-xs text-muted-foreground">
-            Mobil AdMob ödüllü reklam: <code className="rounded bg-muted px-1">setUserId(öğretmen UUID)</code> + SSV bu
-            URL’ye. Kamu: <code className="rounded bg-muted px-1">GET /api/content/market-policy</code> →{' '}
-            <code className="rounded bg-muted px-1">rewarded_ad_jeton</code>. İzinli ad unit boşsa tümü.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <code className="max-w-full break-all rounded bg-muted px-2 py-1 text-xs">
-              {`${getApiUrl('').replace(/\/$/, '')}/market/rewarded-ad/ssv`}
-            </code>
-            <button
-              type="button"
-              className="rounded border border-border px-2 py-1 text-xs"
-              onClick={() => {
-                const u = `${getApiUrl('').replace(/\/$/, '')}/market/rewarded-ad/ssv`;
-                void navigator.clipboard.writeText(u).then(
-                  () => toast.success('SSV URL kopyalandı'),
-                  () => {},
-                );
-              }}
-            >
-              Kopyala <Copy className="inline size-3" />
-            </button>
-          </div>
-          {rewardedLoading ? (
-            <LoadingSpinner />
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="size-4 rounded border-border"
-                  checked={rewardedCfg.enabled}
-                  onChange={(e) => setRewardedCfg((c) => ({ ...c, enabled: e.target.checked }))}
-                />
-                Ödüllü reklamla jeton kazanımı açık
-              </label>
-              <div>
-                <Label className="text-xs">Jeton / ödül</Label>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={rewardedCfg.jeton_per_reward}
-                  onChange={(e) =>
-                    setRewardedCfg((c) => ({ ...c, jeton_per_reward: parseFloat(e.target.value) || 0 }))
-                  }
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Günlük üst sınır (öğretmen)</Label>
-                <input
-                  type="number"
-                  min={1}
-                  max={500}
-                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={rewardedCfg.max_rewards_per_day}
-                  onChange={(e) =>
-                    setRewardedCfg((c) => ({
-                      ...c,
-                      max_rewards_per_day: Math.min(500, Math.max(1, parseInt(e.target.value, 10) || 1)),
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <Label className="text-xs">İki ödül arası min. süre (sn)</Label>
-                <input
-                  type="number"
-                  min={0}
-                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={rewardedCfg.cooldown_seconds}
-                  onChange={(e) =>
-                    setRewardedCfg((c) => ({
-                      ...c,
-                      cooldown_seconds: Math.max(0, parseInt(e.target.value, 10) || 0),
-                    }))
-                  }
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <Label className="text-xs">İzinli AdMob ad unit ID (virgülle; boş = hepsi)</Label>
-                <input
-                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
-                  value={rewardedCfg.allowed_ad_unit_ids_text}
-                  onChange={(e) => setRewardedCfg((c) => ({ ...c, allowed_ad_unit_ids_text: e.target.value }))}
-                  placeholder="ca-app-pub-xxx/yyy, …"
-                />
-              </div>
-            </div>
-          )}
-          <button
-            type="button"
-            disabled={rewardedSaving || rewardedLoading}
-            onClick={() => void saveRewardedJeton()}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {rewardedSaving ? 'Kaydediliyor…' : 'Market jeton ayarlarını kaydet'}
-          </button>
-        </CardContent>
-      </Card>
 
       <div className="flex flex-wrap gap-2">
         {PLATFORMS.map((p) => (

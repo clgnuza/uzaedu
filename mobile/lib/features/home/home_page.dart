@@ -4,6 +4,7 @@ import '../../models/optik_models.dart';
 import '../../services/api_client.dart';
 import '../../services/optik_repository.dart';
 import '../../services/sync_service.dart';
+import '../market/market_page.dart';
 import '../scan/optik_scan_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -83,6 +84,15 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('Optik tarama'),
         actions: [
+          IconButton(
+            tooltip: 'Cüzdan ve mağaza',
+            onPressed: () {
+              Navigator.of(context)
+                  .push(MaterialPageRoute<void>(builder: (_) => MarketPage(token: widget.token)))
+                  .then((_) => _load());
+            },
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+          ),
           if (_pendingQueue > 0)
             Center(
               child: Padding(

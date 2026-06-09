@@ -1,15 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { toast } from 'sonner';
-import { ArrowLeft, CheckCircle2, CircleAlert, Clock3, XCircle } from 'lucide-react';
+import { PlanKatkiStatusBadge } from '@/components/bilsem/plan-katki-status-badge';
 import { PlanKatkiExcelPlanUpload } from '@/components/bilsem/plan-katki-excel-upload';
+import { toast } from 'sonner';
+import { ArrowLeft, CheckCircle2, CircleAlert, CircleDashed, Clock3, XCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 type Submission = {
   id: string;
@@ -33,14 +35,18 @@ export default function EvrakPlanKatkiDetailPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const hasPlanItems = (() => {
+
+  const weekCount = useMemo(() => {
     try {
-      const parsed = JSON.parse(itemsJson) as unknown;
-      return Array.isArray(parsed) && parsed.length > 0;
+      const j = JSON.parse(itemsJson) as unknown;
+      return Array.isArray(j) ? j.length : 0;
     } catch {
-      return false;
+      return 0;
     }
-  })();
+  }, [itemsJson]);
+
+  const hasPlanItems = weekCount > 0;
+  const isDirty = itemsJson !== savedItemsJson;
 
   const load = useCallback(async () => {
     if (!token || !id) return;
@@ -112,94 +118,112 @@ export default function EvrakPlanKatkiDetailPage() {
 
   if (!me || (me.role !== 'teacher' && me.role !== 'school_admin')) return null;
 
-  const statusMeta: Record<string, { label: string; chip: string; card: string; icon: ReactNode }> = {
-    draft: {
-      label: 'Taslak',
-      chip: 'bg-slate-100 text-slate-700 dark:bg-slate-900/50 dark:text-slate-300',
-      card: 'border-slate-200/70 bg-slate-50/70 dark:border-slate-800/60 dark:bg-slate-950/30',
-      icon: <Clock3 className="h-4 w-4" />,
-    },
-    pending_review: {
-      label: 'İncelemede',
-      chip: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-      card: 'border-amber-200/70 bg-amber-50/80 dark:border-amber-800/40 dark:bg-amber-950/30',
-      icon: <Clock3 className="h-4 w-4" />,
-    },
-    published: {
-      label: 'Onaylandı',
-      chip: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
-      card: 'border-emerald-200/70 bg-emerald-50/80 dark:border-emerald-800/40 dark:bg-emerald-950/30',
-      icon: <CheckCircle2 className="h-4 w-4" />,
-    },
-    rejected: {
-      label: 'Reddedildi',
-      chip: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
-      card: 'border-rose-200/70 bg-rose-50/80 dark:border-rose-800/40 dark:bg-rose-950/30',
-      icon: <XCircle className="h-4 w-4" />,
-    },
-    withdrawn: {
-      label: 'Geri çekildi',
-      chip: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-300',
-      card: 'border-zinc-200/70 bg-zinc-50/80 dark:border-zinc-800/50 dark:bg-zinc-950/30',
-      icon: <CircleAlert className="h-4 w-4" />,
-    },
+  const statusMeta: Record<string, { card: string; icon: ReactNode }> = {
+    draft: { card: 'border-slate-200/70 bg-slate-50/70 dark:border-slate-800/60 dark:bg-slate-950/30', icon: <Clock3 className="h-4 w-4" /> },
+    pending_review: { card: 'border-amber-200/70 bg-amber-50/80 dark:border-amber-800/40 dark:bg-amber-950/30', icon: <Clock3 className="h-4 w-4" /> },
+    published: { card: 'border-emerald-200/70 bg-emerald-50/80 dark:border-emerald-800/40 dark:bg-emerald-950/30', icon: <CheckCircle2 className="h-4 w-4" /> },
+    rejected: { card: 'border-rose-200/70 bg-rose-50/80 dark:border-rose-800/40 dark:bg-rose-950/30', icon: <XCircle className="h-4 w-4" /> },
+    withdrawn: { card: 'border-zinc-200/70 bg-zinc-50/80 dark:border-zinc-800/50 dark:bg-zinc-950/30', icon: <CircleAlert className="h-4 w-4" /> },
   };
   const meta = row ? (statusMeta[row.status] ?? statusMeta.pending_review) : null;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-3 px-2 pb-8 pt-1 sm:px-4">
-      {row && (
-        <div className="relative overflow-hidden rounded-2xl border border-amber-200/60 bg-linear-to-br from-amber-100/60 via-white to-violet-100/40 p-3 dark:border-amber-800/30 dark:from-amber-950/20 dark:via-zinc-950 dark:to-violet-950/20">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 opacity-40 dark:opacity-20"
-            style={{
-              backgroundImage:
-                "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='120' viewBox='0 0 160 120'%3E%3Cg fill='none' stroke='%23f59e0b' stroke-opacity='0.25'%3E%3Cpath d='M10 110L80 10l70 100'/%3E%3Ccircle cx='80' cy='68' r='14'/%3E%3C/g%3E%3C/svg%3E\")",
-            }}
-          />
-          <h1 className="relative text-base font-bold sm:text-lg">{row.subjectLabel}</h1>
+    <div className="mx-auto max-w-2xl space-y-2.5 px-2.5 pb-24 pt-1 sm:space-y-3 sm:px-4 sm:pb-8">
+      <div className="flex items-start justify-between gap-2 border-b border-border/60 pb-2">
+        <div className="min-w-0">
+          {row && (
+            <>
+              <div className="mb-1 flex flex-wrap items-center gap-1">
+                <PlanKatkiStatusBadge status={row.status} compact />
+                {hasPlanItems ? (
+                  <span className="inline-flex items-center gap-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-px text-[9px] font-medium text-emerald-800 dark:text-emerald-200">
+                    <CheckCircle2 className="h-2.5 w-2.5" />
+                    {weekCount} hafta
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[9px] font-medium text-amber-900 dark:text-amber-200">
+                    <CircleDashed className="h-2.5 w-2.5" />
+                    Plan bekleniyor
+                  </span>
+                )}
+                {isDirty && row.status === 'draft' && (
+                  <span className="rounded-full bg-amber-500/15 px-1.5 py-px text-[9px] font-medium text-amber-900 dark:text-amber-200">
+                    Kaydedilmedi
+                  </span>
+                )}
+              </div>
+              <h1 className="truncate text-sm font-semibold sm:text-base">{row.subjectLabel}</h1>
+              <p className="text-[10px] text-muted-foreground sm:text-xs">
+                {row.grade}. sınıf{row.section ? ` · ${row.section}` : ''} · {row.academicYear}
+              </p>
+            </>
+          )}
         </div>
-      )}
-      <Button variant="ghost" size="sm" asChild className="h-8 gap-0.5 px-2 text-xs">
-        <Link href="/evrak/plan-katki"><ArrowLeft className="h-3.5 w-3.5" />Liste</Link>
-      </Button>
+        <Button variant="ghost" size="sm" asChild className="h-8 shrink-0 gap-0.5 px-2 text-xs">
+          <Link href="/evrak/plan-katki">
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Liste
+          </Link>
+        </Button>
+      </div>
 
       {loading ? (
-        <div className="flex justify-center py-10"><LoadingSpinner label="Yükleniyor…" /></div>
+        <div className="flex justify-center py-8 sm:py-10">
+          <LoadingSpinner label="Yükleniyor…" />
+        </div>
       ) : !row ? (
         <p className="text-sm text-destructive">{err ?? 'Kayıt yok'}</p>
       ) : (
         <>
-          <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
-            Durum:{' '}
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold sm:text-[11px] ${meta?.chip ?? ''}`}>
-              {meta?.label ?? row.status}
-            </span>{' '}
-            · {row.grade}. sınıf{row.section ? ` · ${row.section}` : ''} · {row.academicYear}
-          </div>
           {(row.reviewNote || row.status !== 'draft') && (
-            <div className={`rounded-xl border px-3 py-2.5 ${meta?.card ?? ''}`}>
+            <div className={cn('rounded-xl border px-2.5 py-2 sm:px-3 sm:py-2.5', meta?.card ?? '')}>
               <div className="flex items-start gap-2">
-                <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/70 text-foreground dark:bg-black/20">
+                <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/70 dark:bg-black/20 sm:h-7 sm:w-7">
                   {meta?.icon}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold sm:text-sm">Onay bilgisi</p>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
-                    {row.reviewNote?.trim() || 'Moderasyon notu bulunmuyor. Durum güncellemeleri burada görünür.'}
+                  <p className="text-[11px] font-semibold sm:text-xs">Moderasyon</p>
+                  <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground sm:text-[11px]">
+                    {row.reviewNote?.trim() || 'Henüz moderasyon notu yok.'}
                   </p>
                 </div>
               </div>
             </div>
           )}
+
+          {err && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
+              {err}
+            </div>
+          )}
+
           {row.status === 'draft' && (
             <>
-              <PlanKatkiExcelPlanUpload itemsJson={itemsJson} onItemsJsonChange={setItemsJson} />
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => void saveDraft()} disabled={busy}>Taslağı kaydet</Button>
-                <Button variant="secondary" onClick={() => void submitReview()} disabled={busy || !hasPlanItems}>Moderasyona gönder</Button>
-                <Button variant="outline" onClick={() => void withdraw()} disabled={busy}>Geri çek</Button>
+              <PlanKatkiExcelPlanUpload
+                variant="meb"
+                itemsJson={itemsJson}
+                onItemsJsonChange={setItemsJson}
+                templateQuery={{
+                  academicYear: row.academicYear,
+                  subjectCode: row.subjectCode,
+                  grade: row.grade,
+                }}
+              />
+              <div className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] left-1/2 z-20 flex w-[calc(100%-1.25rem)] max-w-2xl -translate-x-1/2 gap-1.5 sm:static sm:w-auto sm:translate-x-0 sm:flex-wrap">
+                <Button className="h-10 flex-1 sm:flex-none" onClick={() => void saveDraft()} disabled={busy || !isDirty}>
+                  Kaydet
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="h-10 flex-1 sm:flex-none"
+                  onClick={() => void submitReview()}
+                  disabled={busy || !hasPlanItems || isDirty}
+                >
+                  Gönder
+                </Button>
+                <Button variant="outline" className="h-10 px-3 sm:flex-none" onClick={() => void withdraw()} disabled={busy}>
+                  Geri çek
+                </Button>
               </div>
             </>
           )}

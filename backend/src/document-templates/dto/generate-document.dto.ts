@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsObject, IsIn } from 'class-validator';
+import { IsString, IsOptional, IsObject, IsIn, IsBoolean } from 'class-validator';
 
 export class GenerateDocumentDto {
   @IsString()
@@ -13,4 +13,9 @@ export class GenerateDocumentDto {
   @IsOptional()
   @IsIn(['user', 'school'])
   billing_account?: 'user' | 'school';
+
+  /** Yıllık plan Word üretiminde hesap e-postasına ek gönder */
+  @IsOptional()
+  @IsBoolean()
+  send_email?: boolean;
 }

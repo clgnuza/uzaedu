@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
+import { BilsemPlanSubmission } from '../bilsem/entities/bilsem-plan-submission.entity';
+import { YillikPlanSubmission } from './entities/yillik-plan-submission.entity';
 import { YillikPlanIcerik } from './entities/yillik-plan-icerik.entity';
 import { YillikPlanMeta, buildPlanKey } from './entities/yillik-plan-meta.entity';
 import { CreateYillikPlanIcerikDto } from './dto/create-yillik-plan-icerik.dto';
@@ -124,6 +126,10 @@ export class YillikPlanIcerikService {
     private readonly repo: Repository<YillikPlanIcerik>,
     @InjectRepository(YillikPlanMeta)
     private readonly metaRepo: Repository<YillikPlanMeta>,
+    @InjectRepository(YillikPlanSubmission)
+    private readonly mebSubmissionRepo: Repository<YillikPlanSubmission>,
+    @InjectRepository(BilsemPlanSubmission)
+    private readonly bilsemSubmissionRepo: Repository<BilsemPlanSubmission>,
   ) {}
 
   /** MEB / kazanım planları (curriculum_model yok) */
@@ -695,6 +701,12 @@ export class YillikPlanIcerikService {
   }): Promise<number> {
     if (!filters.subject_code?.trim() || !filters.academic_year?.trim()) return 0;
     const isBilsem = filters.curriculum_model?.trim() === 'bilsem';
+    const bilsemSubmissionIds = isBilsem
+      ? await this.collectBilsemSubmissionIdsForBulkDelete(filters)
+      : [];
+    if (isBilsem && !filters.ana_grup?.trim()) return 0;
+    if (!isBilsem && filters.grade == null) return 0;
+
     const qb = this.repo
       .createQueryBuilder()
       .delete()
@@ -702,9 +714,8 @@ export class YillikPlanIcerikService {
       .where('subject_code = :sc', { sc: filters.subject_code.trim() })
       .andWhere('academic_year = :ay', { ay: filters.academic_year.trim() });
     if (isBilsem) {
-      if (!filters.ana_grup?.trim()) return 0;
       qb.andWhere('curriculum_model = :cm', { cm: 'bilsem' })
-        .andWhere('ana_grup = :anaGrup', { anaGrup: filters.ana_grup.trim() });
+        .andWhere('ana_grup = :anaGrup', { anaGrup: filters.ana_grup!.trim() });
       if (filters.alt_grup !== undefined && filters.alt_grup !== null) {
         if (filters.alt_grup === '') {
           qb.andWhere('(alt_grup IS NULL OR alt_grup = :empty)', { empty: '' });
@@ -713,12 +724,92 @@ export class YillikPlanIcerikService {
         }
       }
     } else {
-      if (filters.grade == null) return 0;
       qb.andWhere('grade = :g', { g: filters.grade })
         .andWhere('(curriculum_model IS NULL OR curriculum_model = :empty)', { empty: '' });
     }
     const result = await qb.execute();
-    return result.affected ?? 0;
+    const count = result.affected ?? 0;
+    if (count > 0) {
+      if (isBilsem) {
+        await this.removeBilsemPublishedSubmissionsAfterCatalogDelete(filters, bilsemSubmissionIds);
+      } else {
+        await this.removeMebPublishedSubmissionsAfterCatalogDelete(filters);
+      }
+    }
+    return count;
+  }
+
+  private async collectBilsemSubmissionIdsForBulkDelete(filters: {
+    subject_code: string;
+    ana_grup?: string;
+    alt_grup?: string;
+    academic_year: string;
+  }): Promise<string[]> {
+    if (!filters.ana_grup?.trim()) return [];
+    const qb = this.repo
+      .createQueryBuilder('yp')
+      .select('DISTINCT yp.submissionId', 'sid')
+      .where('yp.subject_code = :sc', { sc: filters.subject_code.trim() })
+      .andWhere('yp.academic_year = :ay', { ay: filters.academic_year.trim() })
+      .andWhere('yp.curriculum_model = :cm', { cm: 'bilsem' })
+      .andWhere('yp.ana_grup = :anaGrup', { anaGrup: filters.ana_grup.trim() })
+      .andWhere('yp.submission_id IS NOT NULL');
+    if (filters.alt_grup !== undefined && filters.alt_grup !== null) {
+      if (filters.alt_grup === '') {
+        qb.andWhere('(yp.alt_grup IS NULL OR yp.alt_grup = :empty)', { empty: '' });
+      } else {
+        qb.andWhere('yp.alt_grup = :altGrup', { altGrup: filters.alt_grup.trim() });
+      }
+    }
+    const rows = await qb.getRawMany<{ sid: string }>();
+    return rows.map((r) => String(r.sid ?? '').trim()).filter(Boolean);
+  }
+
+  private async removeMebPublishedSubmissionsAfterCatalogDelete(filters: {
+    subject_code: string;
+    grade?: number;
+    academic_year: string;
+  }): Promise<void> {
+    if (filters.grade == null) return;
+    await this.mebSubmissionRepo.delete({
+      status: 'published',
+      subjectCode: filters.subject_code.trim(),
+      grade: filters.grade,
+      academicYear: filters.academic_year.trim(),
+    });
+  }
+
+  private async removeBilsemPublishedSubmissionsAfterCatalogDelete(
+    filters: {
+      subject_code: string;
+      ana_grup?: string;
+      alt_grup?: string;
+      academic_year: string;
+    },
+    submissionIdsFromRows: string[],
+  ): Promise<void> {
+    const ids = new Set(submissionIdsFromRows);
+    const keyQb = this.bilsemSubmissionRepo
+      .createQueryBuilder('s')
+      .select('s.id', 'id')
+      .where('s.status = :st', { st: 'published' })
+      .andWhere('s.subject_code = :sc', { sc: filters.subject_code.trim() })
+      .andWhere('s.academic_year = :ay', { ay: filters.academic_year.trim() })
+      .andWhere('s.ana_grup = :anaGrup', { anaGrup: String(filters.ana_grup ?? '').trim() });
+    if (filters.alt_grup !== undefined && filters.alt_grup !== null) {
+      if (filters.alt_grup === '') {
+        keyQb.andWhere('(s.alt_grup IS NULL OR s.alt_grup = :empty)', { empty: '' });
+      } else {
+        keyQb.andWhere('s.alt_grup = :altGrup', { altGrup: filters.alt_grup.trim() });
+      }
+    }
+    const keyRows = await keyQb.getRawMany<{ id: string }>();
+    for (const r of keyRows) {
+      const id = String(r.id ?? '').trim();
+      if (id) ids.add(id);
+    }
+    if (!ids.size) return;
+    await this.bilsemSubmissionRepo.delete({ id: In([...ids]), status: 'published' });
   }
 
   /**

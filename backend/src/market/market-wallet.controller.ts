@@ -186,7 +186,7 @@ export class MarketWalletController {
     return { ...res, page: p, limit: l };
   }
 
-  /** Öğretmen: Bilsem plan katkıdan gelen jeton hareketleri */
+  /** Öğretmen: plan katkısından (katalog yıllık plan) kazanılan jeton hareketleri */
   @Get('wallet/bilsem-plan-credits')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.teacher)
@@ -224,10 +224,21 @@ export class MarketWalletController {
       .where('ledger.creatorUserId = :uid', { uid: payload.userId })
       .getCount();
 
+    const sumRows = await this.planCreatorRewardLedgerRepo.query<{ s: string }[]>(
+      `SELECT COALESCE(SUM(jeton_credit::numeric), 0)::text AS s
+       FROM market_plan_creator_reward_ledger
+       WHERE creator_user_id = $1`,
+      [payload.userId],
+    );
+
     return {
       page: p,
       limit: lim,
       total: totalCount,
+      summary: {
+        usage_count: totalCount,
+        total_jeton_credited: String(sumRows?.[0]?.s ?? '0'),
+      },
       items: (items ?? []).map((r: any) => ({
         id: r.id,
         jeton_credit: r.jeton_credit,
