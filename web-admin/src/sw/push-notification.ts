@@ -98,7 +98,7 @@ export function buildPushNotificationContent(data: PushPayload): {
         { action: 'open', title: 'Aç' },
         { action: 'dismiss', title: 'Kapat' },
       ],
-    },
+    } as NotificationOptions,
   };
 }
 
