@@ -64,7 +64,7 @@ function RegisterOgretmenContent() {
   const [branchSelect, setBranchSelect] = useState('');
   const [teacherTitle, setTeacherTitle] = useState('');
 
-  const branchSchoolType = selectedSchool?.type ?? regType || null;
+  const branchSchoolType = selectedSchool?.type ?? (regType || null);
   const branchOptions = useMemo(
     () => getTeacherBranchOptionsForSchoolType(branchSchoolType),
     [branchSchoolType],
