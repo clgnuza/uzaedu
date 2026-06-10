@@ -11,6 +11,7 @@ const API_MESSAGES: Record<string, string> = {
     'Bu hesapta biyometrik giriş tanımlı değil. Önce şifre ile giriş yapıp cihazınızı ekleyin.',
   NOT_FOUND: 'Kayıt bulunamadı.',
   INVALID_INPUT: 'Geçersiz bilgi gönderildi.',
+  CREDENTIAL_IN_USE: 'Bu cihaz başka bir hesaba kayıtlı.',
   UNAUTHORIZED: 'Giriş yapılamadı. E-posta adresinizi ve biyometrik kaydınızı kontrol edin.',
   WRONG_PORTAL_USE_TEACHER_LOGIN: 'Bu hesap öğretmen girişi ile kullanılır.',
   WRONG_PORTAL_USE_SCHOOL_LOGIN: 'Bu hesap okul girişi ile kullanılır.',
@@ -28,7 +29,7 @@ function domExceptionMessage(name: string, context: WebAuthnErrorContext): strin
         : 'Biyometrik giriş iptal edildi veya süre doldu. Tekrar deneyin.';
     case 'InvalidStateError':
       return context === 'register'
-        ? 'Bu cihazda biyometrik giriş zaten kayıtlı olabilir.'
+        ? 'Bu cihazda biyometrik giriş zaten kayıtlı.'
         : 'Kayıtlı biyometrik giriş bulunamadı. Şifre ile giriş yapıp cihazınızı yeniden ekleyin.';
     case 'AbortError':
       return 'İşlem iptal edildi.';
@@ -68,7 +69,10 @@ function englishMessageHint(msg: string, context: WebAuthnErrorContext): string 
     return 'Butona tekrar dokunarak biyometrik doğrulamayı başlatın.';
   }
   if (lower.includes('already registered') || lower.includes('excluded credential')) {
-    return 'Bu cihaz zaten kayıtlı.';
+    return 'Bu cihazda biyometrik giriş zaten kayıtlı.';
+  }
+  if (lower.includes('already_exists') || lower.includes('zaten kayıtlı')) {
+    return 'Bu cihazda biyometrik giriş zaten kayıtlı.';
   }
   if (lower.includes('abort')) return 'İşlem iptal edildi.';
   if (lower.includes('rp id') || lower.includes('domain') || lower.includes('origin')) {
@@ -84,6 +88,15 @@ function fallback(context: WebAuthnErrorContext): string {
   return context === 'register'
     ? 'Biyometrik kayıt başarısız. Tekrar deneyin.'
     : 'Biyometrik giriş başarısız. Tekrar deneyin.';
+}
+
+export function isPasskeyAlreadyRegisteredError(e: unknown): boolean {
+  if (e && typeof e === 'object' && (e as { passkeyAlreadyRegistered?: boolean }).passkeyAlreadyRegistered) {
+    return true;
+  }
+  if (e instanceof DOMException && e.name === 'InvalidStateError') return true;
+  const msg = e instanceof Error ? e.message : typeof e === 'string' ? e : '';
+  return /zaten kayıtlı|already registered|already_exists|excluded credential|invalidstateerror/i.test(msg);
 }
 
 export function getWebAuthnErrorMessage(e: unknown, context: WebAuthnErrorContext): string {

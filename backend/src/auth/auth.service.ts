@@ -21,7 +21,13 @@ import { MailService } from '../mail/mail.service';
 import { DEMO_CREDENTIALS } from '../seed/demo-credentials';
 import { AuthOtpService } from './auth-otp.service';
 import type { AuthOtpPurpose } from './entities/auth-verification-code.entity';
-import { emailMatchesInstitutionalDomain, emailDomainFromInstitutional } from '../common/utils/institutional-email.util';
+import {
+  emailDomainFromInstitutional,
+  emailMatchesInstitutionalDomain,
+  emailMatchesSchoolInstitution,
+  emailStartsWithInstitutionCode,
+  schoolInstitutionalEmailExample,
+} from '../common/utils/institutional-email.util';
 import { normalizeTeacherDisplayName } from '../common/utils/teacher-display-name.util';
 
 const OTP_TTL_MIN = 12;
@@ -77,15 +83,23 @@ export class AuthService {
     }
   }
 
+  private demoPortalEnabled(): boolean {
+    return ['local', 'development'].includes(env.nodeEnv) || env.allowDemoLogin;
+  }
+
   private matchesDemoCredential(email: string, password: string): boolean {
-    const envOk = ['local', 'development'].includes(env.nodeEnv) || env.allowDemoLogin;
-    if (!envOk) return false;
+    if (!this.demoPortalEnabled()) return false;
     const e = email.trim().toLowerCase();
     for (const k of ['teacher', 'school_admin', 'superadmin'] as const) {
       const c = DEMO_CREDENTIALS[k];
       if (c.email === e && c.password === password) return true;
     }
     return false;
+  }
+
+  /** Yerel demo hesapları (@demo.local) kurum kodu e-posta kuralından muaf. */
+  private isDemoPortalEmail(email: string): boolean {
+    return this.demoPortalEnabled() && email.trim().toLowerCase().endsWith('@demo.local');
   }
 
   private async assertPassword(user: User, password: string, email: string): Promise<void> {
@@ -270,9 +284,18 @@ export class AuthService {
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'E-posta veya şifre hatalı.' });
     }
     await this.assertPassword(user, password, normalized);
-    const demoSkip =
-      (['local', 'development'].includes(env.nodeEnv) || env.allowDemoLogin) &&
-      this.matchesDemoCredential(normalized, password);
+    const demoSkip = this.matchesDemoCredential(normalized, password) || this.isDemoPortalEmail(normalized);
+    if (!demoSkip) {
+      const schoolCode = user.school?.institutionCode?.trim();
+      if (schoolCode && user.school?.institutionalEmail?.trim()) {
+        if (!emailMatchesSchoolInstitution(normalized, schoolCode, user.school.institutionalEmail)) {
+          throw new UnauthorizedException({
+            code: 'EMAIL_INSTITUTION_MISMATCH',
+            message: `Bu okul için e-posta kurum kodu (${schoolCode}) ile başlamalı ve @${emailDomainFromInstitutional(user.school.institutionalEmail)} alan adını kullanmalıdır.`,
+          });
+        }
+      }
+    }
     if (demoSkip) {
       if (!user.emailVerifiedAt) {
         user.emailVerifiedAt = new Date();
@@ -328,7 +351,19 @@ export class AuthService {
     displayName?: string,
     schoolId?: string | null,
     inviteCode?: string | null,
+    teacherPhone?: string,
+    teacherBranch?: string,
+    teacherTitle?: string,
   ): Promise<{ verification_required: true; email: string }> {
+    const phoneNorm = teacherPhone?.trim().replace(/\s+/g, ' ').slice(0, 32) || null;
+    const branchNorm = teacherBranch?.trim().slice(0, 100) || null;
+    const titleNorm = teacherTitle?.trim().slice(0, 64) || null;
+    if (!phoneNorm || !branchNorm || !titleNorm) {
+      throw new BadRequestException({
+        code: 'PROFILE_FIELDS_REQUIRED',
+        message: 'Telefon, branş ve ünvan zorunludur.',
+      });
+    }
     const normalized = email.trim().toLowerCase();
     const existing = await this.userRepo.findOne({ where: { email: normalized } });
     if (existing) {
@@ -380,6 +415,9 @@ export class AuthService {
       u.email = normalized;
       u.passwordHash = passwordHash;
       u.display_name = displayName.trim() || u.display_name;
+      u.teacherPhone = phoneNorm;
+      u.teacherBranch = branchNorm;
+      u.teacherTitle = titleNorm;
       u.emailVerifiedAt = null;
       const saved = await this.userRepo.save(u);
       if (inviteCode?.trim()) {
@@ -407,6 +445,9 @@ export class AuthService {
         school_id,
         teacherSchoolMembership: membership,
         teacherPublicNameMasked: true,
+        teacherPhone: phoneNorm,
+        teacherBranch: branchNorm,
+        teacherTitle: titleNorm,
         status: UserStatus.active,
         passwordHash,
         firebaseUid: null,
@@ -468,6 +509,7 @@ export class AuthService {
     institution_code: string | null;
     required_email_domain: string | null;
     institutional_email_sample: string | null;
+    email_format_example: string | null;
   }> {
     const school = await this.schoolsService.findActiveByInstitutionCode(code);
     if (!school) {
@@ -486,15 +528,17 @@ export class AuthService {
         message: 'Bu okul için kurumsal e-posta tanımlı değil; kayıt için sistem yöneticisine başvurun.',
       });
     }
+    const institution_code = school.institutionCode?.trim() || code.trim();
     return {
       school_id: school.id,
       name: school.name,
       city: school.city ?? null,
       district: school.district ?? null,
       type: school.type ?? null,
-      institution_code: school.institutionCode?.trim() || code.trim(),
+      institution_code,
       required_email_domain: dom,
       institutional_email_sample: school.institutionalEmail,
+      email_format_example: schoolInstitutionalEmailExample(institution_code, school.institutionalEmail),
     };
   }
 
@@ -511,10 +555,16 @@ export class AuthService {
         message: 'Kurumsal e-posta tanımlı değil.',
       });
     }
-    if (!emailMatchesInstitutionalDomain(email, school.institutionalEmail)) {
+    const institution_code = institutionCode.trim();
+    if (!emailMatchesSchoolInstitution(email, institution_code, school.institutionalEmail)) {
+      const dom = emailDomainFromInstitutional(school.institutionalEmail);
+      const example = schoolInstitutionalEmailExample(institution_code, school.institutionalEmail);
+      const prefixMsg = `E-posta kurum kodu (${institution_code}) ile başlamalıdır`;
+      const domainMsg = dom ? ` ve @${dom} alan adını kullanmalıdır` : '';
+      const exampleMsg = example ? ` (örnek: ${example})` : '';
       throw new BadRequestException({
-        code: 'EMAIL_DOMAIN_MISMATCH',
-        message: `Kayıt yalnızca okul kurumsal alan adı ile yapılabilir (@${emailDomainFromInstitutional(school.institutionalEmail)}).`,
+        code: emailStartsWithInstitutionCode(email, institution_code) ? 'EMAIL_DOMAIN_MISMATCH' : 'EMAIL_INSTITUTION_MISMATCH',
+        message: `${prefixMsg}${domainMsg}.${exampleMsg}`,
       });
     }
     const admins = await this.schoolsService.countSchoolAdmins(school.id);

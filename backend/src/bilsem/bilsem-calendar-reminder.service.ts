@@ -34,7 +34,7 @@ export class BilsemCalendarReminderService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
-  @Cron('0 8 * * *')
+  @Cron('0 8 * * *', { timeZone: 'Europe/Istanbul' })
   async sendReminders() {
     const today = getTodayTurkey();
     const targetDate = addDays(today, REMINDER_DAYS_BEFORE);

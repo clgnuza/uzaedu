@@ -99,6 +99,7 @@ export function BiometricLoginButton({
     try {
       const { token } = await loginWithPasskey(e, portal, rememberMe);
       rememberLoginEmail(e);
+      setPasskeyHint(portal, e);
       await onSuccess(token);
     } catch (err) {
       onError(getWebAuthnErrorMessage(err, 'login'));

@@ -224,6 +224,7 @@ export function NotificationPermissionPrompt({
         title={denied ? 'Bildirim izni gerekli' : blocked ? 'Kurulum gerekli' : 'Telefon bildirimleri'}
         descriptionId="notif-perm-desc"
         scrollBody={false}
+        priority
         className="max-w-md border-teal-500/15"
       >
         <div className="flex min-h-0 flex-1 flex-col">

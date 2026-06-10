@@ -327,7 +327,7 @@ export function LandingFeaturesSection() {
           </defs>
         </svg>
 
-        <header className="landing-features-intro mb-10 lg:mb-12">
+        <header className="landing-features-intro mb-6 sm:mb-10 lg:mb-12">
           <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between lg:gap-10">
             <div className="landing-features-intro-copy relative max-w-lg text-center lg:text-left">
               <span
@@ -339,20 +339,20 @@ export function LandingFeaturesSection() {
                   <span className="flex size-8 items-center justify-center rounded-lg border border-red-900/50 bg-zinc-950/80 text-red-400">
                     <LayoutGrid className="size-4" strokeWidth={1.75} aria-hidden />
                   </span>
-                  <span className="text-sm font-semibold tabular-nums text-zinc-300">
-                    <span className="text-lg font-bold text-red-400">{LANDING_HUB_ITEMS.length}</span>
+                  <span className="text-xs font-semibold tabular-nums text-zinc-300 sm:text-sm">
+                    <span className="text-base font-bold text-red-400 sm:text-lg">{LANDING_HUB_ITEMS.length}</span>
                     <span className="ml-1.5 text-zinc-500">modül</span>
                   </span>
                 </div>
               </div>
               <h2
                 id="landing-features-heading"
-                className="mt-5 text-[clamp(1.55rem,4.2vw,2.5rem)] font-bold leading-[1.12] tracking-tight text-zinc-50"
+                className="mt-3 text-[clamp(1.125rem,3.2vw,2.5rem)] font-bold leading-[1.18] tracking-tight text-zinc-50 sm:mt-5 sm:leading-[1.12]"
               >
                 Uzaedu Öğretmen&apos;de
-                <span className="mt-1 block text-zinc-400">okul modülleriniz burada.</span>
+                <span className="mt-0.5 block text-zinc-400 sm:mt-1">okul modülleriniz burada.</span>
               </h2>
-              <p className="mt-3 max-w-md text-sm leading-relaxed text-zinc-400 sm:text-[15px]">
+              <p className="mt-2 max-w-md text-[13px] leading-relaxed text-zinc-400 sm:mt-3 sm:text-sm sm:text-[15px]">
                 Halkadaki her simge gerçek bir modüldür — kelebek sınav, nöbet, mesaj merkezi, ek ders ve daha
                 fazlası. Kategoriye göre süzün; giriş yaptıktan sonra ilgili panele tek tıkla geçin.
               </p>

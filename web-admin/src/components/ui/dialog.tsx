@@ -56,6 +56,7 @@ export function DialogContent({
   title,
   descriptionId,
   scrollBody = true,
+  priority = false,
   className,
   children,
   ...props
@@ -64,6 +65,8 @@ export function DialogContent({
   descriptionId?: string;
   /** false: children kendi flex/scroll düzenini yönetir (sabit bilgi kartı + footer için) */
   scrollBody?: boolean;
+  /** Toast / onboarding üstünde (bildirim izni vb.) */
+  priority?: boolean;
 }) {
   const { open, onOpenChange } = useDialog();
   const [mounted, setMounted] = React.useState(false);
@@ -92,16 +95,23 @@ export function DialogContent({
 
   if (!mounted || typeof document === 'undefined' || !open) return null;
 
+  const zOverlay = priority ? 10050 : 100;
+  const zPanel = priority ? 10051 : 101;
+
   const content = (
     <>
       <div
-        className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm transition-all duration-200 print:hidden"
+        className="fixed inset-0 bg-black/40 backdrop-blur-sm transition-all duration-200 print:hidden"
+        style={{ zIndex: zOverlay }}
         onClick={() => {
           if (!blockBackdropClose.current) onOpenChange(false);
         }}
         aria-hidden
       />
-      <div className="pointer-events-none fixed inset-0 z-[101] flex items-center justify-center p-3 sm:p-4 print:static print:block print:p-0">
+      <div
+        className="pointer-events-none fixed inset-0 flex items-center justify-center p-3 sm:p-4 print:static print:block print:p-0"
+        style={{ zIndex: zPanel }}
+      >
         <div
           role="dialog"
           aria-modal="true"

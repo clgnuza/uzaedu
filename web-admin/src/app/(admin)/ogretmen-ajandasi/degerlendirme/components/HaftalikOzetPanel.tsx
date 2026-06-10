@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { BarChart3, ChevronLeft, ChevronRight, PartyPopper, TrendingUp, Users } from 'lucide-react';
+import { BarChart3, BookOpen, ChevronLeft, ChevronRight, PartyPopper, TrendingUp, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -29,11 +29,20 @@ function getWeekRowVisuals(
   };
 }
 
+type FilterOption = { id: string; label: string };
+
 export function HaftalikOzetPanel({
   weekLabel,
   weekOffset,
   onWeekOffset,
   rows,
+  subjects,
+  classes,
+  subjectFilterId,
+  classFilterId,
+  onSubjectFilterChange,
+  onClassFilterChange,
+  listLabel,
   panelClass,
   headClass,
   iconWrapClass,
@@ -43,11 +52,22 @@ export function HaftalikOzetPanel({
   weekOffset: number;
   onWeekOffset: (delta: number) => void;
   rows: WeekStudentRow[];
+  subjects: FilterOption[];
+  classes: FilterOption[];
+  subjectFilterId: string | null;
+  classFilterId: string | null;
+  onSubjectFilterChange: (id: string | null) => void;
+  onClassFilterChange: (id: string | null) => void;
+  listLabel: string;
   panelClass: string;
   headClass: string;
   iconWrapClass: string;
   iconClass: string;
 }) {
+  const subjectLabel =
+    subjectFilterId === null ? 'Tüm dersler' : subjects.find((s) => s.id === subjectFilterId)?.label ?? 'Ders';
+  const classLabel =
+    classFilterId === null ? 'Tüm sınıflar' : classes.find((c) => c.id === classFilterId)?.label ?? 'Sınıf';
   const caps = useMemo(() => {
     let tp = 0;
     let tn = 0;
@@ -122,7 +142,9 @@ export function HaftalikOzetPanel({
               <PartyPopper className="size-4 shrink-0 text-teal-600 dark:text-teal-400 sm:size-5" aria-hidden />
               <span className="truncate">Haftalık özet</span>
             </CardTitle>
-            <p className="text-[10px] leading-snug text-muted-foreground sm:text-sm">Pzt–Paz · kriter puanı ve +/- notlar</p>
+            <p className="text-[10px] leading-snug text-muted-foreground sm:text-sm">
+              Pzt–Paz · {listLabel} · {classLabel} · {subjectLabel}
+            </p>
           </div>
         </div>
         <div className="flex items-center justify-between gap-1.5 sm:flex-wrap sm:justify-end">
@@ -153,6 +175,45 @@ export function HaftalikOzetPanel({
           </Button>
         )}
       </CardHeader>
+      <div className="border-b border-border/60 px-3 py-2.5 sm:px-6">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <BookOpen className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <select
+              value={subjectFilterId ?? ''}
+              onChange={(e) => onSubjectFilterChange(e.target.value || null)}
+              className="h-10 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-sm"
+              aria-label="Haftalık özet ders filtresi"
+            >
+              <option value="">Tüm dersler (genel + davranış)</option>
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label} — genel + bu ders
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex min-w-0 items-center gap-2">
+            <Users className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <select
+              value={classFilterId ?? ''}
+              onChange={(e) => onClassFilterChange(e.target.value || null)}
+              className="h-10 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-sm"
+              aria-label="Haftalık özet sınıf filtresi"
+            >
+              <option value="">Tüm sınıflar</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <p className="mt-2 text-[10px] text-muted-foreground sm:text-xs">
+          Kriter kayıtları seçili derse göre; +/- notlar tüm derslerden sayılır.
+        </p>
+      </div>
       <CardContent className="p-0 sm:p-0">
         {rows.length === 0 ? (
           <div className="flex flex-col items-center gap-3 p-8 text-center">

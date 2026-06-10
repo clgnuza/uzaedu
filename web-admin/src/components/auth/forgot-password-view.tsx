@@ -214,7 +214,7 @@ export function ForgotPasswordView({ role, redirectQuery }: { role: ForgotPasswo
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder={isSchool ? 'mudur@okul.k12.tr' : 'ornek@posta.com'}
+                    placeholder={isSchool ? '123456@meb.k12.tr' : 'ornek@posta.com'}
                     autoComplete="email"
                     disabled={loading}
                     className={cn(inputClass, 'disabled:opacity-60')}

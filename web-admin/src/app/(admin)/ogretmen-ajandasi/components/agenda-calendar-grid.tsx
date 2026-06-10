@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import {
   startOfMonth,
   endOfMonth,
@@ -26,18 +27,15 @@ export type CalendarEvent = {
   metadata?: Record<string, unknown>;
 };
 
-const TYPE_ICONS: Record<string, string> = {
-  note: '📝',
-  task: '✓',
-  school_event: '🏫',
-  platform_event: '📢',
-  duty: '🛡',
-  exam_duty: '📋',
-  student_note: '👤',
-  parent_meeting: '👨‍👩‍👧',
-  belirli_gun_hafta: '📅',
-  timetable: '📚',
-};
+const WEEKDAY_LABELS = [
+  { short: 'Pzt', long: 'Pazartesi' },
+  { short: 'Sal', long: 'Salı' },
+  { short: 'Çar', long: 'Çarşamba' },
+  { short: 'Per', long: 'Perşembe' },
+  { short: 'Cum', long: 'Cuma' },
+  { short: 'Cmt', long: 'Cumartesi' },
+  { short: 'Paz', long: 'Pazar' },
+] as const;
 
 function getEventsForDay(events: CalendarEvent[], date: Date): CalendarEvent[] {
   const ymd = format(date, 'yyyy-MM-dd');
@@ -47,6 +45,168 @@ function getEventsForDay(events: CalendarEvent[], date: Date): CalendarEvent[] {
 function isWeekendMonSun(date: Date): boolean {
   const d = date.getDay();
   return d === 0 || d === 6;
+}
+
+function maxVisibleEvents(viewMode: 'month' | 'week' | 'day', compact: boolean): number {
+  if (viewMode === 'day') return 48;
+  if (viewMode === 'week') return compact ? 4 : 6;
+  return compact ? 2 : 3;
+}
+
+function CalendarEventChip({
+  ev,
+  onEventClick,
+  onEventDrop,
+  compact,
+}: {
+  ev: CalendarEvent;
+  onEventClick?: (ev: CalendarEvent) => void;
+  onEventDrop?: (eventId: string, newDate: string) => void;
+  compact?: boolean;
+}) {
+  const draggable = ev.type === 'task' && !!onEventDrop && !String(ev.id).includes('~');
+  return (
+    <button
+      type="button"
+      draggable={draggable}
+      onDragStart={(e) => {
+        if (draggable) e.dataTransfer.setData('text/event-id', ev.id);
+      }}
+      className={cn(
+        'group/chip flex w-full min-w-0 items-start gap-1 rounded-md text-left transition-all hover:brightness-[1.03] active:scale-[0.99] touch-manipulation',
+        compact ? 'px-1 py-0.5' : 'px-1.5 py-1',
+        agendaEventChipClassForEvent(ev),
+        draggable && 'cursor-grab active:cursor-grabbing',
+      )}
+      onClick={(e) => {
+        e.stopPropagation();
+        onEventClick?.(ev);
+      }}
+      title={`${ev.title}${ev.createdBy ? ` • ${ev.createdBy}` : ''}${draggable ? ' (sürükleyerek tarih değiştir)' : ''}`}
+    >
+      <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-current opacity-60" aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className={cn('line-clamp-2 font-semibold leading-tight', compact ? 'text-[9px]' : 'text-[10px] sm:text-[11px]')}>
+          {ev.title}
+        </span>
+        {ev.createdBy && !compact && (
+          <span className="mt-0.5 line-clamp-1 text-[9px] font-medium opacity-75 max-sm:hidden">
+            {ev.createdBy}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+function DayCell({
+  date,
+  month,
+  events,
+  viewMode,
+  onDayClick,
+  onEventClick,
+  onEventDrop,
+}: {
+  date: Date;
+  month: Date;
+  events: CalendarEvent[];
+  viewMode: 'month' | 'week' | 'day';
+  onDayClick?: (date: Date) => void;
+  onEventClick?: (ev: CalendarEvent) => void;
+  onEventDrop?: (eventId: string, newDate: string) => void;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  const dayEvents = getEventsForDay(events, date);
+  const isCurrentMonth = isSameMonth(date, month);
+  const isToday = isSameDay(date, new Date());
+  const weekend = isWeekendMonSun(date);
+  const compact = viewMode === 'month';
+  const limit = maxVisibleEvents(viewMode, compact);
+  const visible = dayEvents.slice(0, limit);
+  const overflow = dayEvents.length - visible.length;
+
+  return (
+    <div
+      className={cn(
+        'relative flex min-w-0 flex-col rounded-lg border bg-background/90 transition-all duration-200 touch-manipulation',
+        viewMode === 'month' && 'min-h-[88px] sm:min-h-[108px] md:min-h-[120px]',
+        viewMode === 'week' && 'min-h-[112px] sm:min-h-[136px] md:min-h-[152px]',
+        viewMode === 'day' && 'min-h-[200px]',
+        'cursor-pointer hover:border-border/80 hover:bg-muted/25 hover:shadow-sm',
+        weekend && !isToday && 'bg-muted/20',
+        !isCurrentMonth && viewMode === 'month' && 'opacity-60',
+        isToday && 'border-primary/35 bg-primary/5 ring-1 ring-primary/20',
+        dragOver && 'border-primary/50 bg-primary/8 ring-2 ring-primary/25',
+      )}
+      onClick={() => onDayClick?.(date)}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+        if (onEventDrop) e.dataTransfer.dropEffect = 'move';
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const id = e.dataTransfer.getData('text/event-id');
+        if (id && onEventDrop) onEventDrop(id, format(date, 'yyyy-MM-dd'));
+      }}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === 'Enter' && onDayClick?.(date)}
+    >
+      <div className="flex items-center justify-between gap-1 px-2 pt-2 pb-1">
+        <span
+          className={cn(
+            'inline-flex size-7 items-center justify-center rounded-lg text-[11px] font-bold tabular-nums sm:size-8 sm:text-xs',
+            isToday
+              ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/30'
+              : isCurrentMonth
+                ? 'text-foreground'
+                : 'text-muted-foreground',
+          )}
+        >
+          {format(date, 'd')}
+        </span>
+        {dayEvents.length > 0 && (
+          <span
+            className={cn(
+              'rounded-full px-1.5 py-0.5 text-[9px] font-bold tabular-nums',
+              isToday ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground',
+            )}
+          >
+            {dayEvents.length}
+          </span>
+        )}
+      </div>
+
+      <div
+        className={cn(
+          'flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden px-1.5 pb-1.5 sm:gap-1 sm:pb-2',
+          viewMode === 'day' && 'max-h-none overflow-y-auto px-2 pb-3 sm:px-3',
+        )}
+      >
+        {visible.map((ev) => (
+          <CalendarEventChip
+            key={`${ev.type}-${ev.id}`}
+            ev={ev}
+            onEventClick={onEventClick}
+            onEventDrop={onEventDrop}
+            compact={compact}
+          />
+        ))}
+        {overflow > 0 && (
+          <span className="px-1 text-[9px] font-semibold text-muted-foreground sm:text-[10px]">
+            +{overflow} daha
+          </span>
+        )}
+        {dayEvents.length === 0 && viewMode === 'day' && (
+          <p className="py-8 text-center text-xs text-muted-foreground">Bu gün için kayıt yok</p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function AgendaCalendarGrid({
@@ -77,114 +237,63 @@ export function AgendaCalendarGrid({
     d = addDays(d, 1);
     if (viewMode === 'day') break;
   }
-  const weeks = viewMode === 'day'
-    ? [days]
-    : Array.from({ length: Math.ceil(days.length / 7) }, (_, i) =>
-        days.slice(i * 7, (i + 1) * 7),
-      );
+  const weeks =
+    viewMode === 'day'
+      ? [days]
+      : Array.from({ length: Math.ceil(days.length / 7) }, (_, i) => days.slice(i * 7, (i + 1) * 7));
 
   const cols = viewMode === 'day' ? 1 : 7;
-  const weekdayKeys = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'] as const;
 
   return (
     <div className="table-x-scroll -mx-0.5 sm:mx-0">
-      <div className="min-w-[min(100%,280px)] overflow-hidden rounded-2xl border border-border/70 bg-card shadow-[0_1px_0_rgba(0,0,0,0.04),0_8px_24px_-8px_rgba(15,23,42,0.12)] ring-1 ring-black/3 dark:shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)] dark:ring-white/6">
+      <div className="min-w-[min(100%,280px)] overflow-hidden rounded-2xl border border-border/60 bg-linear-to-b from-muted/25 via-card to-card p-1.5 shadow-sm ring-1 ring-black/2 dark:ring-white/5 sm:p-2">
+        {viewMode === 'day' && (
+          <div className="mb-2 rounded-xl border border-border/50 bg-background/80 px-3 py-2.5 text-center sm:px-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Gün görünümü</p>
+            <p className="mt-0.5 text-sm font-semibold capitalize text-foreground sm:text-base">
+              {format(month, 'EEEE, d MMMM yyyy', { locale: tr })}
+            </p>
+          </div>
+        )}
+
         <div
-          className="grid border-b border-border/60 bg-linear-to-b from-muted/80 to-muted/45 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground sm:text-[11px]"
+          className="grid gap-1 sm:gap-1.5"
           style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
         >
-          {viewMode === 'day' ? (
-            <div className="min-w-0 border-r border-border/50 py-2.5 last:border-r-0 sm:py-3 normal-case tracking-normal">
-              <span className="sm:hidden tabular-nums">{format(month, 'dd/MM/yyyy')}</span>
-              <span className="hidden sm:inline">{format(month, 'd MMMM yyyy', { locale: tr })}</span>
-            </div>
-          ) : (
-            weekdayKeys.map((day) => (
-              <div key={day} className="min-w-0 border-r border-border/50 py-2.5 last:border-r-0 sm:py-3">
-                {day}
+          {viewMode !== 'day' &&
+            WEEKDAY_LABELS.map((day, i) => (
+              <div
+                key={day.short}
+                className={cn(
+                  'rounded-md px-1 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-muted-foreground sm:text-[11px]',
+                  i >= 5 && 'text-muted-foreground/80',
+                )}
+              >
+                <span className="sm:hidden">{day.short}</span>
+                <span className="hidden sm:inline">{day.long}</span>
               </div>
-            ))
-          )}
+            ))}
         </div>
-        <div className="divide-y divide-border/50 bg-linear-to-b from-card to-muted/15">
+
+        <div className="mt-1 space-y-1 sm:mt-1.5 sm:space-y-1.5">
           {weeks.map((week, wi) => (
-            <div key={wi} className="grid" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
-              {week.map((date) => {
-                const dayEvents = getEventsForDay(events, date);
-                const isCurrentMonth = isSameMonth(date, month);
-                const isToday = isSameDay(date, new Date());
-                const weekend = isWeekendMonSun(date);
-                return (
-                  <div
-                    key={date.toISOString()}
-                    className={cn(
-                      'min-h-[84px] min-w-0 cursor-pointer border-r border-border/40 p-1 transition-colors duration-200 last:border-r-0 touch-manipulation sm:min-h-[104px] sm:p-1.5 md:min-h-[128px] md:p-2',
-                      'hover:bg-muted/30 active:bg-muted/45',
-                      weekend && 'bg-slate-500/4 dark:bg-slate-400/6',
-                      !isCurrentMonth && 'opacity-[0.72]',
-                      isToday && 'bg-primary/6 ring-1 ring-inset ring-primary/30 dark:bg-primary/10',
-                    )}
-                    onClick={() => onDayClick?.(date)}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      if (onEventDrop) e.dataTransfer.dropEffect = 'move';
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const id = e.dataTransfer.getData('text/event-id');
-                      if (id && onEventDrop) onEventDrop(id, format(date, 'yyyy-MM-dd'));
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => e.key === 'Enter' && onDayClick?.(date)}
-                  >
-                    <span
-                      className={cn(
-                        'inline-flex size-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold tabular-nums transition-colors sm:size-7 sm:rounded-lg sm:text-[11px] md:size-8 md:text-sm',
-                        isToday &&
-                          'bg-primary text-primary-foreground shadow-md shadow-primary/25 ring-2 ring-primary/20 ring-offset-2 ring-offset-background',
-                        isCurrentMonth && !isToday && 'text-foreground bg-background/80 ring-1 ring-border/50',
-                        !isCurrentMonth && 'text-muted-foreground bg-muted/30',
-                      )}
-                    >
-                      {format(date, 'd')}
-                    </span>
-                    <div className="mt-1 max-h-[92px] min-h-[28px] space-y-0.5 overflow-y-auto [-webkit-overflow-scrolling:touch] scrollbar-none sm:mt-1.5 sm:max-h-[118px] sm:min-h-[32px] sm:space-y-1 md:max-h-[138px]">
-                      {dayEvents.map((ev) => (
-                        <button
-                          key={`${ev.type}-${ev.id}`}
-                          type="button"
-                          draggable={ev.type === 'task' && !!onEventDrop && !String(ev.id).includes('~')}
-                          onDragStart={(e) => {
-                            if (ev.type === 'task' && onEventDrop && !String(ev.id).includes('~'))
-                              e.dataTransfer.setData('text/event-id', ev.id);
-                          }}
-                          className={cn(
-                            'flex w-full min-h-[24px] flex-col gap-0 rounded-md px-1 py-0.5 text-left transition-transform hover:brightness-[1.02] active:scale-[0.99] touch-manipulation sm:min-h-[30px] sm:gap-0.5 sm:rounded-lg sm:px-2 sm:py-1.5 md:min-h-[34px] md:py-2',
-                            agendaEventChipClassForEvent(ev),
-                            ev.type === 'task' && onEventDrop && !String(ev.id).includes('~') && 'cursor-grab active:cursor-grabbing',
-                          )}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEventClick?.(ev);
-                          }}
-                          title={`${ev.title}${ev.createdBy ? ` • ${ev.createdBy}` : ''}${ev.type === 'task' && onEventDrop && !String(ev.id).includes('~') ? ' (sürükleyerek tarih değiştir)' : ''}`}
-                        >
-                          <span className="line-clamp-1 text-[9px] font-semibold leading-tight sm:line-clamp-2 sm:text-[11px] sm:leading-snug md:text-xs md:leading-tight">
-                            {TYPE_ICONS[ev.type] && <span className="mr-0.5 opacity-90">{TYPE_ICONS[ev.type]}</span>}
-                            {ev.title}
-                          </span>
-                          {ev.createdBy && (
-                            <span className="line-clamp-1 text-[8px] font-medium opacity-85 max-sm:hidden sm:text-[9px] md:text-[10px]">
-                              {ev.createdBy}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+            <div
+              key={wi}
+              className="grid gap-1 sm:gap-1.5"
+              style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+            >
+              {week.map((date) => (
+                <DayCell
+                  key={date.toISOString()}
+                  date={date}
+                  month={month}
+                  events={events}
+                  viewMode={viewMode}
+                  onDayClick={onDayClick}
+                  onEventClick={onEventClick}
+                  onEventDrop={onEventDrop}
+                />
+              ))}
             </div>
           ))}
         </div>

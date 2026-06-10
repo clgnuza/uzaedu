@@ -17,6 +17,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { formatAcademicWeekHeading } from '@/lib/academic-week-label';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
@@ -265,7 +266,7 @@ export default function AkademikTakvimSablonuPage() {
             onClick={handleSeedCalendar}
             disabled={seedLoading}
           >
-            {seedLoading ? 'Dolduruluyor…' : 'Akademik Takvimi Doldur'}
+            {seedLoading ? 'Güncelleniyor…' : 'MEB şablonlarını güncelle'}
           </Button>
           <Button variant="outline" size="sm" asChild>
             <Link href="/akademik-takvim">
@@ -297,7 +298,7 @@ export default function AkademikTakvimSablonuPage() {
                 <option value="">— Seçin —</option>
                 {weeks.map((w) => (
                   <option key={w.id} value={w.id}>
-                    {w.weekNumber}. Hafta {w.title ? `— ${w.title}` : ''}
+                    {formatAcademicWeekHeading(w)}
                   </option>
                 ))}
               </select>
@@ -354,11 +355,11 @@ export default function AkademikTakvimSablonuPage() {
         <EmptyState
           icon={<Calendar className="size-10 text-muted-foreground" />}
           title="Henüz hafta yok"
-          description="Çalışma takvimi veya akademik takvim içeriği oluşturulmamış. Önce 'Akademik Takvimi Doldur' ile haftaları ve öğeleri yükleyin."
+          description="Çalışma takvimi veya akademik takvim içeriği oluşturulmamış. «MEB şablonlarını güncelle» ile ortak + kurum türü öğeleri yükleyin."
           action={
             <div className="flex flex-wrap gap-2">
               <Button onClick={handleSeedCalendar} disabled={seedLoading}>
-                {seedLoading ? 'Dolduruluyor…' : 'Akademik Takvimi Doldur'}
+                {seedLoading ? 'Güncelleniyor…' : 'MEB şablonlarını güncelle'}
               </Button>
               <Link href="/document-templates?tab=calisma-takvimi">
                 <Button variant="outline">Çalışma Takvimi</Button>

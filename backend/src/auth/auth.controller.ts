@@ -228,6 +228,9 @@ export class AuthController {
       dto.display_name,
       dto.school_id ?? null,
       dto.invite_code ?? null,
+      dto.teacher_phone,
+      dto.teacher_branch,
+      dto.teacher_title,
     );
     void this.auditService.log({
       action: 'register_started',

@@ -16,6 +16,7 @@ import { AuthFlowSubnav } from '@/components/auth/auth-flow-subnav';
 import { cn } from '@/lib/utils';
 import { getPostLoginRedirect } from '@/lib/post-login-redirect';
 import { BiometricLoginButton } from '@/components/auth/biometric-login-button';
+import { SCHOOL_LOGIN_EMAIL_PLACEHOLDER } from '@/lib/school-institutional-email';
 import { getRememberedLoginEmail } from '@/lib/webauthn';
 
 type AuthResponse = { token: string };
@@ -173,7 +174,7 @@ function SchoolLoginForm() {
               {otpPhase ? 'Kurumsal doğrulama' : 'Okul yöneticisi girişi'}
             </h2>
             <p className="text-sm text-muted-foreground">
-              {otpPhase ? pendingEmail : 'Kurumsal e-posta ve şifre; ardından 6 haneli kod.'}
+              {otpPhase ? pendingEmail : 'Kurum kodu ile başlayan kurumsal e-posta (ör. 123456@meb.k12.tr).'}
             </p>
             {!otpPhase && (
               <Link
@@ -254,7 +255,7 @@ function SchoolLoginForm() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="mudur@okul.k12.tr"
+                    placeholder={SCHOOL_LOGIN_EMAIL_PLACEHOLDER}
                     autoComplete="username"
                     disabled={loading}
                     className={cn(inputBase, 'disabled:opacity-60')}

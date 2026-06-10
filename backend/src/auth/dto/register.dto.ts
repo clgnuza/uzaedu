@@ -37,4 +37,17 @@ export class RegisterDto {
     message: 'Davet kodu 4–32 karakter, yalnızca harf ve rakam içerebilir.',
   })
   invite_code?: string;
+
+  @IsString()
+  @MaxLength(32)
+  @Matches(/^[\d\s+()-]{10,32}$/, { message: 'Geçerli bir telefon numarası girin.' })
+  teacher_phone: string;
+
+  @IsString()
+  @MaxLength(100)
+  teacher_branch: string;
+
+  @IsString()
+  @MaxLength(64)
+  teacher_title: string;
 }

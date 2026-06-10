@@ -62,6 +62,8 @@ export class MeController {
       passkey_login_enabled: user.passkeyLoginEnabled !== false,
       teacher_public_name_masked: user.teacherPublicNameMasked,
       teacher_branch: user.teacherBranch ?? null,
+      teacher_phone: user.teacherPhone ?? null,
+      teacher_title: user.teacherTitle ?? null,
       school: user.school
         ? {
             id: user.school.id,
@@ -120,6 +122,9 @@ export class MeController {
       login_otp_required: user.loginOtpRequired !== false,
       passkey_login_enabled: user.passkeyLoginEnabled !== false,
       teacher_public_name_masked: user.teacherPublicNameMasked,
+      teacher_branch: user.teacherBranch ?? null,
+      teacher_phone: user.teacherPhone ?? null,
+      teacher_title: user.teacherTitle ?? null,
       status: user.status,
       evrak_defaults: user.evrakDefaults ?? null,
       school_reviews_strike_count: Math.max(0, Math.round(Number(user.schoolReviewsStrikeCount ?? 0))),

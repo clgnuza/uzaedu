@@ -23,7 +23,7 @@ export const PWA_SPLASH_LINKS = [
   },
 ] as const;
 
+/** Chrome kurulum kartı — yalnızca dar önizleme (logo kartı) */
 export const PWA_SCREENSHOTS = [
-  { src: '/pwa/screenshot-wide.png', sizes: '1280x720', type: 'image/png', form_factor: 'wide' as const },
   { src: '/pwa/screenshot-narrow.png', sizes: '720x1280', type: 'image/png', form_factor: 'narrow' as const },
 ];

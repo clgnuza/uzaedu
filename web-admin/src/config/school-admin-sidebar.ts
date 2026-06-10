@@ -192,6 +192,8 @@ export const SCHOOL_ADMIN_CORE_MENU: MenuItem[] = [
     children: [
       { title: 'Ders programı', path: '/ders-programi', icon: BookOpen, allowedRoles: [...SA] },
       { title: 'Akademik takvim', path: '/akademik-takvim', icon: Calendar, allowedRoles: [...SA] },
+      { title: 'Takvim görevlendirme', path: '/akademik-takvim-ayarlar?tab=gorevlendirme', icon: Users, allowedRoles: [...SA] },
+      { title: 'Takvim ayarları', path: '/akademik-takvim-ayarlar', icon: CalendarClock, allowedRoles: [...SA] },
     ],
   },
 ];

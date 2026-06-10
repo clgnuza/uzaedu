@@ -34,7 +34,7 @@ export class BelirliGunHaftaReminderService {
   ) {}
 
   /** Her gün 08:00'da – 3 gün sonraki haftada görevi olan öğretmenlere hatırlatma */
-  @Cron('0 8 * * *')
+  @Cron('0 8 * * *', { timeZone: 'Europe/Istanbul' })
   async sendReminders() {
     const today = getTodayTurkey();
     const targetDate = addDays(today, REMINDER_DAYS_BEFORE);

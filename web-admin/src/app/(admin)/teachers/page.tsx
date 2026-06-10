@@ -15,9 +15,16 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useAdminMessagesUnread } from '@/hooks/use-admin-messages-unread';
 import { cn } from '@/lib/utils';
-import { TEACHER_BRANCH_OPTIONS } from '@/lib/teacher-branch-options';
+import { getTeacherBranchOptionsForSchoolType } from '@/lib/teacher-branch-options';
 import { UserAvatarBubble } from '@/components/user-avatar';
 import { MebbisBulkImportDialog } from './components/MebbisBulkImportDialog';
+import {
+  TeacherOfficialProfileFields,
+  officialStateFromDefaults,
+  serializeOfficialProfile,
+  type OfficialProfileState,
+} from '@/components/account/teacher-official-profile-form';
+import type { EvrakDefaults } from '@/providers/auth-provider';
 
 type UserItem = {
   id: string;
@@ -38,6 +45,7 @@ type UserItem = {
   created_at: string;
   /** API: şifre/Firebase yok — okul ön kaydı */
   is_passwordless_stub?: boolean;
+  evrak_defaults?: EvrakDefaults;
 };
 
 type SchoolSubject = { id: string; name: string; code: string | null };
@@ -63,17 +71,15 @@ const STATUS_STYLES: Record<string, string> = {
   suspended: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
 };
 
-/** Pastel renk geçişleri – her kart ayrı ton ile ayırt edilir */
-const PASTEL_GRADIENTS = [
-  'from-teal-50 via-cyan-50 to-sky-100 dark:from-teal-950/60 dark:via-cyan-950/40 dark:to-sky-900/50',
-  'from-violet-50 via-purple-50 to-fuchsia-100 dark:from-violet-950/60 dark:via-purple-950/40 dark:to-fuchsia-900/50',
-  'from-amber-50 via-orange-50 to-rose-100 dark:from-amber-950/50 dark:via-orange-950/40 dark:to-rose-900/50',
-  'from-emerald-50 via-lime-50 to-green-100 dark:from-emerald-950/50 dark:via-lime-950/40 dark:to-green-900/50',
-  'from-sky-50 via-blue-50 to-indigo-100 dark:from-sky-950/50 dark:via-blue-950/40 dark:to-indigo-900/50',
-  'from-rose-50 via-pink-50 to-fuchsia-100 dark:from-rose-950/50 dark:via-pink-950/40 dark:to-fuchsia-900/50',
-  'from-lime-50 via-emerald-50 to-teal-100 dark:from-lime-950/40 dark:via-emerald-950/40 dark:to-teal-900/50',
-  'from-indigo-50 via-violet-50 to-purple-100 dark:from-indigo-950/50 dark:via-violet-950/40 dark:to-purple-900/50',
-];
+/** Kart vurgu tonları — ince şerit + rozet */
+const CARD_ACCENTS = [
+  { stripe: 'bg-teal-500', chip: 'bg-teal-500/10 text-teal-800 ring-teal-500/20 dark:text-teal-100', hover: 'hover:shadow-teal-500/12' },
+  { stripe: 'bg-sky-500', chip: 'bg-sky-500/10 text-sky-800 ring-sky-500/20 dark:text-sky-100', hover: 'hover:shadow-sky-500/12' },
+  { stripe: 'bg-violet-500', chip: 'bg-violet-500/10 text-violet-800 ring-violet-500/20 dark:text-violet-100', hover: 'hover:shadow-violet-500/12' },
+  { stripe: 'bg-indigo-500', chip: 'bg-indigo-500/10 text-indigo-800 ring-indigo-500/20 dark:text-indigo-100', hover: 'hover:shadow-indigo-500/12' },
+  { stripe: 'bg-emerald-500', chip: 'bg-emerald-500/10 text-emerald-800 ring-emerald-500/20 dark:text-emerald-100', hover: 'hover:shadow-emerald-500/12' },
+  { stripe: 'bg-cyan-500', chip: 'bg-cyan-500/10 text-cyan-800 ring-cyan-500/20 dark:text-cyan-100', hover: 'hover:shadow-cyan-500/12' },
+] as const;
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('tr-TR', {
@@ -92,40 +98,33 @@ function teacherNeedsSchoolAttention(user: UserItem): boolean {
   return !user.school_verified;
 }
 
-function MembershipBadge({ user }: { user: UserItem }) {
+function MembershipBadge({ user, compact }: { user: UserItem; compact?: boolean }) {
+  const base = compact ? 'text-[10px] px-2 py-0.5' : 'text-[11px] px-2.5 py-1';
   if (user.school_verified) {
     return (
-      <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:text-emerald-200">
+      <span className={cn('inline-flex items-center gap-1 rounded-full bg-emerald-500/12 font-semibold text-emerald-800 ring-1 ring-emerald-500/25 dark:text-emerald-200', base)}>
         <ShieldCheck className="size-3 shrink-0" />
-        Onaylı
+        Okul onaylı
       </span>
     );
   }
   if (user.teacher_school_membership === 'pending') {
     return (
-      <span className="inline-flex flex-wrap items-center gap-1.5">
-        <span
-          className="inline-flex items-center gap-1 rounded-full border-2 border-amber-500 bg-gradient-to-r from-amber-100 to-orange-50 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-amber-950 shadow-md ring-2 ring-amber-400/50 dark:from-amber-950/70 dark:to-orange-950/50 dark:text-amber-50 dark:ring-amber-500/40 animate-pulse"
-        >
-          <AlertTriangle className="size-3.5 shrink-0" />
-          Onaysız
-        </span>
-        <span className="inline-flex items-center gap-0.5 rounded-full border border-amber-600/60 bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-950 dark:text-amber-50">
-          <Clock className="size-3 shrink-0" />
-          Onay bekliyor
-        </span>
+      <span className={cn('inline-flex items-center gap-1 rounded-full bg-amber-500/12 font-semibold text-amber-900 ring-1 ring-amber-500/30 dark:text-amber-100', base)}>
+        <Clock className="size-3 shrink-0" />
+        Onay bekliyor
       </span>
     );
   }
   if (user.school_id) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border-2 border-rose-400 bg-gradient-to-r from-rose-50 to-orange-50 px-2.5 py-1 text-[11px] font-extrabold text-rose-950 shadow-md dark:from-rose-950/50 dark:to-orange-950/40 dark:text-rose-50 dark:border-rose-500">
-        <AlertTriangle className="size-3.5 shrink-0" />
+      <span className={cn('inline-flex items-center gap-1 rounded-full bg-rose-500/10 font-semibold text-rose-800 ring-1 ring-rose-500/25 dark:text-rose-200', base)}>
+        <AlertTriangle className="size-3 shrink-0" />
         Onaysız
       </span>
     );
   }
-  return <span className="text-[11px] text-muted-foreground">—</span>;
+  return <span className="text-[11px] text-muted-foreground">Okul bağlı değil</span>;
 }
 
 export default function TeachersPage() {
@@ -710,7 +709,6 @@ export default function TeachersPage() {
                       user={u}
                       index={idx}
                       token={token}
-                      subjects={subjects}
                       selected={selectedIds.has(u.id)}
                       onToggleSelect={() => toggleSelect(u.id)}
                       onEdit={() => setEditModalOpen(u)}
@@ -912,6 +910,7 @@ export default function TeachersPage() {
         open={addModalOpen}
         onOpenChange={setAddModalOpen}
         token={token}
+        schoolType={me?.school?.type}
         onSuccess={() => {
           setAddModalOpen(false);
           refreshAll();
@@ -995,8 +994,8 @@ export default function TeachersPage() {
             }
           }}
           token={token}
-          subjects={subjects}
-          readOnlyProfile={me?.role === 'school_admin'}
+          schoolType={me?.school?.type}
+          schoolAdminMode={me?.role === 'school_admin'}
           onSuccess={() => {
             setEditModalOpen(null);
             refreshAll();
@@ -1012,7 +1011,6 @@ function TeacherCard({
   user,
   index = 0,
   token,
-  subjects,
   selected,
   onToggleSelect,
   onEdit,
@@ -1024,7 +1022,6 @@ function TeacherCard({
   user: UserItem;
   index?: number;
   token: string | null;
-  subjects: SchoolSubject[];
   selected?: boolean;
   onToggleSelect?: () => void;
   onEdit: () => void;
@@ -1033,144 +1030,141 @@ function TeacherCard({
   onRevoke?: (id: string) => void;
   onOpenMerge?: () => void;
 }) {
-  const subjectNames = (user.teacher_subject_ids ?? [])
-    .map((id) => subjects.find((s) => s.id === id)?.name)
-    .filter(Boolean)
-    .join(', ');
-
-  const gradient = PASTEL_GRADIENTS[index % PASTEL_GRADIENTS.length];
+  const accent = CARD_ACCENTS[index % CARD_ACCENTS.length];
   const unverified = teacherNeedsSchoolAttention(user);
+  const displayName = user.display_name?.trim() || 'İsim belirtilmemiş';
 
   return (
-    <div
+    <article
       className={cn(
-        'group relative flex flex-col rounded-2xl border transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 overflow-hidden',
-        unverified
-          ? 'border-amber-400/80 shadow-md ring-1 ring-amber-400/40 dark:border-amber-500/60 dark:ring-amber-500/30'
-          : 'border-slate-200/80 dark:border-slate-700/60',
-        selected && 'ring-2 ring-primary/40 border-primary/50',
+        'group relative flex flex-col overflow-hidden rounded-2xl border bg-card/95 shadow-sm ring-1 ring-black/5 transition-all duration-200 dark:ring-white/5',
+        'hover:-translate-y-0.5 hover:shadow-md',
+        accent.hover,
+        unverified ? 'border-amber-300/70 dark:border-amber-700/50' : 'border-border/70',
+        selected && 'border-primary/50 ring-2 ring-primary/30',
       )}
     >
-      {/* Header gradient band */}
-      <div className={cn('h-16 bg-gradient-to-br', unverified ? 'from-amber-200 via-orange-100 to-amber-50 dark:from-amber-900/60 dark:via-orange-900/40 dark:to-amber-950/30' : gradient)} />
+      <div className={cn('h-1 w-full', unverified ? 'bg-amber-500' : accent.stripe)} />
 
-      {/* Avatar overlapping header */}
-      <div className="relative px-3 -mt-8">
-        <div className="flex items-end gap-2.5">
-          {onToggleSelect && (
+      <div className="flex items-start justify-between gap-2 px-4 pt-3">
+        {onToggleSelect ? (
+          <label className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground">
             <input
               type="checkbox"
               checked={selected ?? false}
               onChange={onToggleSelect}
-              className="absolute top-[-1.75rem] right-2.5 rounded border-white/80 shadow-sm"
-              aria-label={`${user.display_name ?? user.email} seç`}
+              className="size-3.5 rounded border-input"
+              aria-label={`${displayName} seç`}
             />
-          )}
-          <div className="rounded-full ring-2 ring-white dark:ring-slate-800 shadow-sm shrink-0">
-            <UserAvatarBubble
-              avatarKey={user.avatar_key}
-              avatarUrl={user.avatar_url}
-              displayName={user.display_name || user.email}
-              email={user.email}
-              size="sm"
-              verified={!!user.school_verified}
-            />
-          </div>
-          <div className="min-w-0 flex-1 pb-0.5">
-            <Link href={`/teachers/${user.id}`} className="font-semibold text-foreground truncate block hover:text-primary text-sm leading-tight">
-              {user.display_name ?? 'İsim belirtilmemiş'}
-            </Link>
-            {user.teacher_title && (
-              <span className="text-[10px] text-muted-foreground">{user.teacher_title}</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Info body */}
-      <div className="flex-1 px-3 pt-2.5 pb-2 space-y-2">
-        {/* Branch & subjects */}
-        <div className="flex flex-wrap gap-1">
-          {user.teacher_branch && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
-              <GraduationCap className="size-3" />
-              {user.teacher_branch}
-            </span>
-          )}
-          {subjectNames && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-950/50 dark:text-violet-300 truncate max-w-[140px]" title={subjectNames}>
-              <BookOpen className="size-3 shrink-0" />
-              {subjectNames}
-            </span>
-          )}
-        </div>
-
-        {/* Contact */}
-        <div className="space-y-1">
-          <a href={`mailto:${user.email}`} className="flex items-center gap-1.5 text-[11px] text-muted-foreground truncate hover:text-primary transition-colors">
-            <Mail className="size-3 shrink-0 text-muted-foreground/70" />
-            <span className="truncate">{user.email}</span>
-          </a>
-          {user.teacher_phone && (
-            <a href={`tel:${user.teacher_phone}`} className="flex items-center gap-1.5 text-[11px] text-muted-foreground truncate hover:text-primary transition-colors">
-              <Phone className="size-3 shrink-0 text-muted-foreground/70" />
-              <span className="truncate">{user.teacher_phone}</span>
-            </a>
-          )}
-        </div>
-
-        {/* Membership badge */}
-        <div className="pt-0.5">
-          <MembershipBadge user={user} />
-          {isSchoolAdmin && user.teacher_school_membership === 'pending' && (
-            <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
-              {user.school_join_stage === 'school_pending'
-                ? 'Onay kuyruğundan onaylayabilirsiniz.'
-                : 'E-posta doğrulandıktan sonra onay kuyruğundan onaylayabilirsiniz.'}
-            </p>
-          )}
-        </div>
-
-        {/* Registration date */}
-        <div className="flex items-center gap-1 text-[10px] text-muted-foreground/80">
-          <Calendar className="size-3 shrink-0" />
-          {formatDate(user.created_at)}
-        </div>
-      </div>
-
-      {/* Footer actions */}
-      <div className="flex items-center justify-between gap-1.5 px-3 py-2 border-t border-slate-100 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30">
-        <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold', STATUS_STYLES[user.status] ?? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400')}>
+            Seç
+          </label>
+        ) : (
+          <span />
+        )}
+        <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold', STATUS_STYLES[user.status] ?? 'bg-muted text-muted-foreground')}>
           {STATUS_LABELS[user.status] ?? user.status}
         </span>
-        <div className="flex items-center gap-0.5">
-          {isSchoolAdmin && user.is_passwordless_stub && onOpenMerge && (
-            <button
-              type="button"
-              onClick={onOpenMerge}
-              className="rounded-lg p-1.5 text-sky-600 hover:bg-sky-50 hover:text-sky-800 dark:hover:bg-sky-950/50 dark:hover:text-sky-200 transition-colors"
-              title="Web hesabı ile birleştir"
-            >
-              <Link2 className="size-3.5" />
-            </button>
-          )}
-          {isSchoolAdmin && user.school_verified && onRevoke && (
-            <button
-              type="button"
-              onClick={() => onRevoke(user.id)}
-              className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40 dark:hover:text-rose-300 transition-colors"
-              title="Onayı geri al"
-            >
-              <Undo2 className="size-3.5" />
-            </button>
-          )}
-          <button type="button" onClick={onEdit} className="rounded-lg p-1.5 text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-slate-800 transition-colors" title="Düzenle">
-            <Pencil className="size-3.5" />
-          </button>
-          <StatusSelect userId={user.id} currentStatus={user.status} token={token} onSuccess={onStatusChange} />
+      </div>
+
+      <div className="flex gap-3 px-4 pb-3 pt-1">
+        <div className="shrink-0 rounded-2xl bg-muted/40 p-0.5 ring-1 ring-border/60">
+          <UserAvatarBubble
+            avatarKey={user.avatar_key}
+            avatarUrl={user.avatar_url}
+            displayName={displayName}
+            email={user.email}
+            size="md"
+            verified={!!user.school_verified}
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <Link href={`/teachers/${user.id}`} className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight text-foreground hover:text-primary">
+            {displayName}
+          </Link>
+          {(user.teacher_title || user.teacher_branch) ? (
+            <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+              {user.teacher_title ? <span>{user.teacher_title}</span> : null}
+              {user.teacher_title && user.teacher_branch ? <span className="text-border">·</span> : null}
+              {user.teacher_branch ? (
+                <span className={cn('inline-flex items-center gap-1 font-medium', accent.chip, 'rounded-md px-1.5 py-0.5 ring-1')}>
+                  <GraduationCap className="size-3 shrink-0 opacity-80" aria-hidden />
+                  {user.teacher_branch}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
         </div>
       </div>
-    </div>
+
+      <div className="mx-4 space-y-2 border-t border-border/50 py-3">
+        <a
+          href={`mailto:${user.email}`}
+          className="flex items-center gap-2 rounded-lg bg-muted/25 px-2.5 py-2 text-[11px] text-foreground/90 transition-colors hover:bg-muted/45"
+        >
+          <Mail className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="truncate">{user.email}</span>
+        </a>
+        {user.teacher_phone ? (
+          <a
+            href={`tel:${user.teacher_phone}`}
+            className="flex items-center gap-2 rounded-lg bg-muted/25 px-2.5 py-2 text-[11px] text-foreground/90 transition-colors hover:bg-muted/45"
+          >
+            <Phone className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="truncate">{user.teacher_phone}</span>
+          </a>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-3">
+        <MembershipBadge user={user} compact />
+        <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+          <Calendar className="size-3 shrink-0" aria-hidden />
+          {formatDate(user.created_at)}
+        </span>
+      </div>
+
+      {isSchoolAdmin && user.teacher_school_membership === 'pending' ? (
+        <p className="px-4 pb-3 text-[10px] leading-snug text-muted-foreground">
+          {user.school_join_stage === 'school_pending'
+            ? 'Onay kuyruğundan onaylayabilirsiniz.'
+            : 'Kurumsal e-posta doğrulandıktan sonra onay kuyruğundan onaylayabilirsiniz.'}
+        </p>
+      ) : null}
+
+      <div className="mt-auto flex items-center justify-end gap-1 border-t border-border/50 bg-muted/20 px-3 py-2">
+        {isSchoolAdmin && user.is_passwordless_stub && onOpenMerge ? (
+          <button
+            type="button"
+            onClick={onOpenMerge}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium text-sky-700 hover:bg-sky-500/10 dark:text-sky-300"
+            title="Web hesabı ile birleştir"
+          >
+            <Link2 className="size-3.5" />
+            Birleştir
+          </button>
+        ) : null}
+        {isSchoolAdmin && user.school_verified && onRevoke ? (
+          <button
+            type="button"
+            onClick={() => onRevoke(user.id)}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium text-rose-600 hover:bg-rose-500/10 dark:text-rose-300"
+            title="Onayı geri al"
+          >
+            <Undo2 className="size-3.5" />
+            Geri al
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={onEdit}
+          className="inline-flex items-center gap-1 rounded-lg bg-primary/10 px-2.5 py-1.5 text-[11px] font-semibold text-primary hover:bg-primary/15"
+        >
+          <Pencil className="size-3.5" />
+          Düzenle
+        </button>
+        <StatusSelect userId={user.id} currentStatus={user.status} token={token} onSuccess={onStatusChange} />
+      </div>
+    </article>
   );
 }
 
@@ -1230,10 +1224,11 @@ const TITLE_OPTIONS = [
   { value: 'Maaş karşılığı', label: 'Maaş karşılığı' },
 ];
 
-function TeacherBranchDatalist({ id }: { id: string }) {
+function TeacherBranchDatalist({ id, schoolType }: { id: string; schoolType?: string | null }) {
+  const options = useMemo(() => getTeacherBranchOptionsForSchoolType(schoolType), [schoolType]);
   return (
     <datalist id={id}>
-      {TEACHER_BRANCH_OPTIONS.map((b) => (
+      {options.map((b) => (
         <option key={b} value={b} />
       ))}
     </datalist>
@@ -1244,11 +1239,13 @@ function AddTeacherModal({
   open,
   onOpenChange,
   token,
+  schoolType,
   onSuccess,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   token: string | null;
+  schoolType?: string | null;
   onSuccess: () => void;
 }) {
   const [email, setEmail] = useState('');
@@ -1367,7 +1364,7 @@ function AddTeacherModal({
                   <label htmlFor="teacher-branch" className={labelClass}>
                     Branş
                   </label>
-                  <TeacherBranchDatalist id="teacher-branch-datalist-add" />
+                  <TeacherBranchDatalist id="teacher-branch-datalist-add" schoolType={schoolType} />
                   <input
                     id="teacher-branch"
                     type="text"
@@ -1496,16 +1493,16 @@ function EditTeacherModal({
   open,
   onOpenChange,
   token,
-  subjects,
-  readOnlyProfile,
+  schoolType,
+  schoolAdminMode,
   onSuccess,
 }: {
   user: UserItem;
   open: boolean;
   onOpenChange: (v: boolean) => void;
   token: string | null;
-  subjects: SchoolSubject[];
-  readOnlyProfile?: boolean;
+  schoolType?: string | null;
+  schoolAdminMode?: boolean;
   onSuccess: () => void;
 }) {
   const [displayName, setDisplayName] = useState(user.display_name ?? '');
@@ -1513,7 +1510,9 @@ function EditTeacherModal({
   const [teacherPhone, setTeacherPhone] = useState(user.teacher_phone ?? '');
   const [teacherTitle, setTeacherTitle] = useState(user.teacher_title ?? '');
   const [avatarUrl, setAvatarUrl] = useState(user.avatar_url ?? '');
-  const [subjectIds, setSubjectIds] = useState<string[]>(user.teacher_subject_ids ?? []);
+  const [officialState, setOfficialState] = useState<OfficialProfileState>(() =>
+    officialStateFromDefaults(user.evrak_defaults ?? null),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1523,28 +1522,56 @@ function EditTeacherModal({
     setTeacherPhone(user.teacher_phone ?? '');
     setTeacherTitle(user.teacher_title ?? '');
     setAvatarUrl(user.avatar_url ?? '');
-    setSubjectIds(user.teacher_subject_ids ?? []);
+    setOfficialState(officialStateFromDefaults(user.evrak_defaults ?? null));
   }, [user]);
+
+  useEffect(() => {
+    if (!open || !token || !schoolAdminMode) return;
+    let cancelled = false;
+    apiFetch<{ evrak_defaults?: EvrakDefaults }>(`/users/${user.id}`, { token })
+      .then((r) => {
+        if (!cancelled) setOfficialState(officialStateFromDefaults(r.evrak_defaults ?? null));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open, token, schoolAdminMode, user.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (readOnlyProfile) return;
     if (!token) return;
     setSubmitting(true);
     setError(null);
     try {
-      await apiFetch(`/users/${user.id}`, {
-        method: 'PATCH',
-        token,
-        body: JSON.stringify({
-          display_name: displayName.trim() || null,
-          teacher_branch: teacherBranch.trim() || null,
-          teacher_phone: teacherPhone.trim() || null,
-          teacher_title: teacherTitle || null,
-          avatar_url: avatarUrl.trim() || null,
-          teacher_subject_ids: subjectIds.length ? subjectIds : null,
-        }),
-      });
+      if (schoolAdminMode) {
+        const { payload, error: serErr } = serializeOfficialProfile(officialState);
+        if (serErr) {
+          setError(serErr);
+          setSubmitting(false);
+          return;
+        }
+        await apiFetch(`/users/${user.id}`, {
+          method: 'PATCH',
+          token,
+          body: JSON.stringify({
+            evrak_defaults: { yolluk_teacher: payload },
+            avatar_url: avatarUrl.trim() || null,
+          }),
+        });
+      } else {
+        await apiFetch(`/users/${user.id}`, {
+          method: 'PATCH',
+          token,
+          body: JSON.stringify({
+            display_name: displayName.trim() || null,
+            teacher_branch: teacherBranch.trim() || null,
+            teacher_phone: teacherPhone.trim() || null,
+            teacher_title: teacherTitle || null,
+            avatar_url: avatarUrl.trim() || null,
+          }),
+        });
+      }
       toast.success('Öğretmen güncellendi');
       onSuccess();
     } catch (e) {
@@ -1557,115 +1584,11 @@ function EditTeacherModal({
   };
 
   const previewName = displayName.trim() || user.email.split('@')[0];
-  const selectedSubjectNames = (user.teacher_subject_ids ?? [])
-    .map((id) => subjects.find((s) => s.id === id)?.name)
-    .filter(Boolean);
   const titleLabel = TITLE_OPTIONS.find((o) => o.value === user.teacher_title)?.label;
-
-  if (readOnlyProfile) {
-    return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent title="Öğretmen bilgisi" className="max-w-lg">
-          <div className="flex flex-col min-h-0 flex-1">
-            {/* Profile header with gradient */}
-            <div className="relative overflow-hidden rounded-t-lg">
-              <div className="h-20 bg-gradient-to-br from-indigo-400 via-violet-400 to-purple-500 dark:from-indigo-600 dark:via-violet-600 dark:to-purple-700" />
-              <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-background to-transparent" />
-            </div>
-
-            <div className="relative px-5 -mt-10">
-              <div className="flex items-end gap-4">
-                <div className="rounded-2xl ring-4 ring-background shadow-lg shrink-0 overflow-hidden">
-                  <UserAvatarBubble
-                    avatarKey={user.avatar_key}
-                    avatarUrl={user.avatar_url}
-                    displayName={previewName}
-                    email={user.email}
-                    size="lg"
-                    verified={!!user.school_verified}
-                  />
-                </div>
-                <div className="min-w-0 flex-1 pb-1">
-                  <h2 className="text-lg font-bold text-foreground truncate">{previewName}</h2>
-                  {user.teacher_branch && (
-                    <span className="inline-flex items-center gap-1 mt-0.5 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
-                      <GraduationCap className="size-3.5" />
-                      {user.teacher_branch}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Info rows */}
-            <div className="px-5 pt-5 pb-2 space-y-3.5">
-              {/* Status + membership */}
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', STATUS_STYLES[user.status] ?? 'bg-slate-100 text-slate-600')}>
-                  {STATUS_LABELS[user.status] ?? user.status}
-                </span>
-                <MembershipBadge user={user} />
-              </div>
-
-              {/* Detail grid */}
-              <div className="rounded-xl border border-border/60 bg-muted/20 divide-y divide-border/50">
-                <InfoRow icon={<Mail className="size-4" />} label="E-posta">
-                  <a href={`mailto:${user.email}`} className="text-sm text-foreground hover:text-primary transition-colors truncate">{user.email}</a>
-                </InfoRow>
-
-                {user.teacher_phone && (
-                  <InfoRow icon={<Phone className="size-4" />} label="Telefon">
-                    <a href={`tel:${user.teacher_phone}`} className="text-sm text-foreground hover:text-primary transition-colors">{user.teacher_phone}</a>
-                  </InfoRow>
-                )}
-
-                {titleLabel && titleLabel !== 'Seçiniz' && (
-                  <InfoRow icon={<Briefcase className="size-4" />} label="Ünvan">
-                    <span className="text-sm text-foreground">{titleLabel}</span>
-                  </InfoRow>
-                )}
-
-                <InfoRow icon={<Calendar className="size-4" />} label="Kayıt tarihi">
-                  <span className="text-sm text-foreground">{formatDate(user.created_at)}</span>
-                </InfoRow>
-
-                {selectedSubjectNames.length > 0 && (
-                  <InfoRow icon={<BookOpen className="size-4" />} label="Dersler">
-                    <div className="flex flex-wrap gap-1">
-                      {selectedSubjectNames.map((name) => (
-                        <span key={name} className="inline-flex rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
-                          {name}
-                        </span>
-                      ))}
-                    </div>
-                  </InfoRow>
-                )}
-              </div>
-
-              {/* School admin info note */}
-              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-muted-foreground dark:border-slate-700 dark:bg-slate-800/50">
-                Kişisel bilgiler öğretmenin kendi hesabından güncellenir. Okul üyeliğini onay kuyruğundan, hesap durumunu öğretmen listesinden yönetebilirsiniz.
-              </p>
-            </div>
-
-            <div className="shrink-0 flex justify-end px-5 py-4 border-t border-border bg-muted/20">
-              <button
-                type="button"
-                onClick={() => onOpenChange(false)}
-                className="rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted transition-colors"
-              >
-                Kapat
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="Öğretmen düzenle" className="max-w-2xl">
+      <DialogContent title={schoolAdminMode ? 'Öğretmen — okul düzenlemesi' : 'Öğretmen düzenle'} className="max-w-2xl">
         <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1">
           {/* Header */}
           <div className="shrink-0 flex items-center gap-4 px-6 py-4 border-b border-border bg-muted/30 rounded-t-lg">
@@ -1693,7 +1616,33 @@ function EditTeacherModal({
 
           <div className="flex-1 overflow-y-auto px-6 py-5">
             {error && <Alert message={error} className="mb-4" />}
+            {schoolAdminMode && (
+              <p className="mb-4 rounded-xl border border-amber-200/70 bg-amber-50/80 px-3 py-2 text-[11px] leading-snug text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100 sm:text-xs">
+                Ad, telefon, branş ve ünvan öğretmenin kayıt bilgileridir; yalnızca öğretmen güncelleyebilir. Resmî bilgiler ve fotoğraf URL’sini okul düzenleyebilir.
+              </p>
+            )}
+            {schoolAdminMode ? (
+              <div className="mb-5 grid gap-2 rounded-xl border border-border/60 bg-muted/20 p-3 text-sm sm:grid-cols-2">
+                <div><span className="text-[10px] font-semibold uppercase text-muted-foreground">Ad</span><p className="font-medium">{previewName}</p></div>
+                <div><span className="text-[10px] font-semibold uppercase text-muted-foreground">E-posta</span><p className="truncate font-medium">{user.email}</p></div>
+                <div><span className="text-[10px] font-semibold uppercase text-muted-foreground">Telefon</span><p className="font-medium">{teacherPhone || '—'}</p></div>
+                <div><span className="text-[10px] font-semibold uppercase text-muted-foreground">Branş</span><p className="font-medium">{teacherBranch || '—'}</p></div>
+                <div className="sm:col-span-2"><span className="text-[10px] font-semibold uppercase text-muted-foreground">Ünvan</span><p className="font-medium">{titleLabel && titleLabel !== 'Seçiniz' ? titleLabel : teacherTitle || '—'}</p></div>
+              </div>
+            ) : null}
+            {schoolAdminMode ? (
+              <div className="mb-5">
+                <TeacherOfficialProfileFields
+                  state={officialState}
+                  onChange={setOfficialState}
+                  fieldClass={inputBase}
+                  hint="TC, IBAN, kadro ve adres — yolluk / resmî evrak için."
+                />
+              </div>
+            ) : null}
             <div className="grid gap-5 sm:grid-cols-2">
+              {!schoolAdminMode ? (
+              <>
               <div className="sm:col-span-2">
                 <label htmlFor="edit-display-name" className="block text-sm font-medium text-foreground mb-1.5">Görünen ad</label>
                 <div className="relative">
@@ -1705,7 +1654,7 @@ function EditTeacherModal({
                 <label htmlFor="edit-branch" className="block text-sm font-medium text-foreground mb-1.5">Branş</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"><SvgBook /></span>
-                  <TeacherBranchDatalist id="teacher-branch-datalist-edit" />
+                  <TeacherBranchDatalist id="teacher-branch-datalist-edit" schoolType={schoolType} />
                   <input
                     id="edit-branch"
                     type="text"
@@ -1736,6 +1685,8 @@ function EditTeacherModal({
                   <input id="edit-phone" type="tel" value={teacherPhone} onChange={(e) => setTeacherPhone(e.target.value)} maxLength={32} placeholder="05XX XXX XX XX" className={inputBase} />
                 </div>
               </div>
+              </>
+              ) : null}
               <div className="sm:col-span-2">
                 <label htmlFor="edit-avatar" className="block text-sm font-medium text-foreground mb-1.5">Fotoğraf URL</label>
                 <div className="relative">
@@ -1744,27 +1695,6 @@ function EditTeacherModal({
                 </div>
               </div>
             </div>
-            {subjects.length > 0 && (
-              <div className="mt-5 pt-5 border-t border-border">
-                <label className="block text-sm font-medium text-foreground mb-2">Okuttuğu dersler</label>
-                <div className="flex flex-wrap gap-2">
-                  {subjects.map((s) => (
-                    <label
-                      key={s.id}
-                      className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm cursor-pointer transition-colors hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:text-primary"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={subjectIds.includes(s.id)}
-                        onChange={(e) => setSubjectIds((prev) => e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id))}
-                        className="rounded border-input"
-                      />
-                      {s.name}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="shrink-0 flex justify-end gap-3 px-6 py-4 border-t border-border bg-muted/20">

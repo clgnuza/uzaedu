@@ -1,4 +1,4 @@
-import { IsArray, IsOptional, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsOptional, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class CustomItemDto {
@@ -11,6 +11,11 @@ class CustomItemDto {
 }
 
 export class PatchAcademicCalendarOverridesDto {
+  /** true = süperadmin kurum türü hazır şablonu + ortak öğeler; varsayılan kapalı */
+  @IsOptional()
+  @IsBoolean()
+  useTypeTemplate?: boolean;
+
   @IsOptional()
   @IsArray()
   hiddenItemIds?: string[];

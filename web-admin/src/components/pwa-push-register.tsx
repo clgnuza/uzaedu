@@ -2,52 +2,20 @@
 
 import { useEffect, useRef } from 'react';
 import { useAuthOptional } from '@/providers/auth-provider';
-import {
-  subscribeWebPush,
-  repairPushSubscriptionIfNeeded,
-  canSubscribePushOnDevice,
-} from '@/lib/web-push';
+import { repairPushSubscriptionIfNeeded } from '@/lib/web-push';
+import { shouldSilentRepairPushOnLogin } from '@/lib/pwa-push-permission';
 
-const STORAGE_KEY = 'pwa-push-auto-requested';
-
-/** Giriş sonrası bir kez push izni dener (PWA / mobil kilit ekranı). */
+/** Giriş sonrası: izin zaten verilmişse push aboneliğini sessizce onarır (yeni izin istemez). */
 export function PwaPushRegister() {
   const token = useAuthOptional()?.token ?? null;
   const tried = useRef(false);
 
   useEffect(() => {
-    if (!token || tried.current || process.env.NODE_ENV === 'development') return;
-    const gate = canSubscribePushOnDevice();
-    if (!gate.ok) return;
-    try {
-      if (localStorage.getItem(STORAGE_KEY) === '1') {
-        if (Notification.permission === 'granted') {
-          void repairPushSubscriptionIfNeeded(token).catch(() => undefined);
-        }
-        return;
-      }
-    } catch {
-      /* ignore */
-    }
-    if (Notification.permission === 'denied') return;
-    if (Notification.permission === 'granted') {
-      void repairPushSubscriptionIfNeeded(token).catch(() => undefined);
-      return;
-    }
+    if (!token || tried.current) return;
+    if (!shouldSilentRepairPushOnLogin()) return;
 
     tried.current = true;
-    const t = window.setTimeout(() => {
-      void subscribeWebPush(token)
-        .then((r) => {
-          try {
-            localStorage.setItem(STORAGE_KEY, '1');
-          } catch {
-            /* ignore */
-          }
-        })
-        .catch(() => undefined);
-    }, 2500);
-    return () => window.clearTimeout(t);
+    void repairPushSubscriptionIfNeeded(token).catch(() => undefined);
   }, [token]);
 
   return null;

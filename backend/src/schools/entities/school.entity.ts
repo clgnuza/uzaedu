@@ -442,6 +442,8 @@ export class School {
   /** Akademik takvim okul özelleştirmesi: { hiddenItemIds: uuid[], customItems: [{ weekId, type, title, path?, sortOrder }] } */
   @Column({ name: 'academic_calendar_overrides', type: 'jsonb', nullable: true })
   academic_calendar_overrides: {
+    /** true/undefined: kurum türüne özel süperadmin şablonları dahil */
+    useTypeTemplate?: boolean;
     hiddenItemIds?: string[];
     customItems?: { id: string; weekId: string; type: 'belirli_gun_hafta' | 'ogretmen_isleri'; title: string; path?: string; sortOrder: number }[];
   } | null;

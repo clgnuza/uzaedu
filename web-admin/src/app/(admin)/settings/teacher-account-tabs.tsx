@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   User,
@@ -14,6 +14,9 @@ import {
   FileDown,
   ShieldCheck,
   Clock,
+  Phone,
+  Landmark,
+  Briefcase,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/lib/api';
@@ -32,7 +35,9 @@ import { BackupExportPanel } from '@/components/account/backup-export-panel';
 import { AvatarPickerField } from '@/components/account/avatar-picker';
 import { UserAvatarBubble } from '@/components/user-avatar';
 import { formatSchoolTypeLabel } from '@/lib/school-labels';
-import { TEACHER_BRANCH_OPTIONS } from '@/lib/teacher-branch-options';
+import { getTeacherBranchOptionsForSchoolType } from '@/lib/teacher-branch-options';
+import { TEACHER_TITLE_OPTIONS } from '@/lib/teacher-title-options';
+import { TeacherOfficialProfileForm } from '@/components/account/teacher-official-profile-form';
 
 const fieldIn = cn(
   'h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-sm',
@@ -44,11 +49,12 @@ const lblB = 'mb-0.5 block text-xs font-medium text-foreground sm:mb-1 sm:text-s
 const lblRow = 'mb-0 flex items-center gap-1.5 text-xs font-medium text-foreground sm:gap-2 sm:text-sm';
 const iconBox = 'flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/10 sm:size-7';
 
-type TabId = 'hesap' | 'okul' | 'zumre' | 'yedek';
+type TabId = 'hesap' | 'okul' | 'resmi' | 'zumre' | 'yedek';
 
 const TABS: { id: TabId; label: string; ariaLabel: string; icon: React.ElementType }[] = [
   { id: 'hesap', label: 'Hesap', ariaLabel: 'Hesap', icon: User },
   { id: 'okul', label: 'Okul', ariaLabel: 'Okul ve branş', icon: Building2 },
+  { id: 'resmi', label: 'Resmî', ariaLabel: 'Resmî bilgiler', icon: Landmark },
   { id: 'zumre', label: 'Zümre', ariaLabel: 'Zümre', icon: Users },
   { id: 'yedek', label: 'Yedek', ariaLabel: 'Yedek', icon: FileDown },
 ];
@@ -81,6 +87,14 @@ const TAB_STYLE: Record<
     iconActive: 'text-white',
     iconIdle: 'text-violet-600 dark:text-violet-400',
   },
+  resmi: {
+    active:
+      'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-400/45 dark:bg-indigo-500 dark:ring-indigo-300/35',
+    idle:
+      'border border-indigo-200/80 bg-indigo-500/12 text-indigo-950 hover:bg-indigo-500/22 dark:border-indigo-800/60 dark:bg-indigo-950/45 dark:text-indigo-100 dark:hover:bg-indigo-900/55',
+    iconActive: 'text-white',
+    iconIdle: 'text-indigo-600 dark:text-indigo-400',
+  },
   yedek: {
     active:
       'bg-amber-500 text-amber-950 shadow-md ring-2 ring-amber-400/55 dark:bg-amber-500 dark:text-amber-950 dark:ring-amber-300/40',
@@ -91,7 +105,7 @@ const TAB_STYLE: Record<
   },
 };
 
-const TAB_IDS: TabId[] = ['hesap', 'okul', 'zumre', 'yedek'];
+const TAB_IDS: TabId[] = ['hesap', 'okul', 'resmi', 'zumre', 'yedek'];
 
 export function TeacherAccountTabs() {
   const searchParams = useSearchParams();
@@ -114,6 +128,8 @@ export function TeacherAccountTabs() {
   const [assignmentActive, setAssignmentActive] = useState(!!me?.teacher_assignment_active);
   const [assignmentSchoolId, setAssignmentSchoolId] = useState(me?.teacher_assignment_school_id ?? '');
   const [branchSelect, setBranchSelect] = useState(me?.teacher_branch ?? '');
+  const [teacherPhone, setTeacherPhone] = useState(me?.teacher_phone ?? '');
+  const [teacherTitle, setTeacherTitle] = useState(me?.teacher_title ?? '');
   const [savingOkul, setSavingOkul] = useState(false);
   const [okulError, setOkulError] = useState<string | null>(null);
   const [nameMasked, setNameMasked] = useState(me?.teacher_public_name_masked !== false);
@@ -136,7 +152,9 @@ export function TeacherAccountTabs() {
     setAssignmentActive(!!me?.teacher_assignment_active);
     setAssignmentSchoolId(me?.teacher_assignment_school_id ?? '');
     setBranchSelect(me?.teacher_branch ?? '');
-  }, [me?.school_id, me?.teacher_assignment_active, me?.teacher_assignment_school_id, me?.teacher_branch]);
+    setTeacherPhone(me?.teacher_phone ?? '');
+    setTeacherTitle(me?.teacher_title ?? '');
+  }, [me?.school_id, me?.teacher_assignment_active, me?.teacher_assignment_school_id, me?.teacher_branch, me?.teacher_phone, me?.teacher_title]);
 
   useEffect(() => {
     setNameMasked(me?.teacher_public_name_masked !== false);
@@ -163,6 +181,7 @@ export function TeacherAccountTabs() {
           display_name: displayName.trim() || null,
           avatar_key: avatarKey,
           teacher_public_name_masked: nameMasked,
+          teacher_phone: teacherPhone.trim() || null,
         }),
       });
       toast.success('Profil güncellendi');
@@ -223,6 +242,10 @@ export function TeacherAccountTabs() {
   };
 
   const school = me?.school;
+  const branchOptions = useMemo(
+    () => getTeacherBranchOptionsForSchoolType(school?.type),
+    [school?.type],
+  );
   const evrakDefaults = (me as { evrak_defaults?: EvrakDefaults })?.evrak_defaults ?? null;
 
   const handleSaveOkul = async (e: React.FormEvent) => {
@@ -239,6 +262,7 @@ export function TeacherAccountTabs() {
           teacher_assignment_active: assignmentActive,
           teacher_assignment_school_id: assignmentActive ? assignmentSchoolId || null : null,
           teacher_branch: branchSelect.trim() || null,
+          teacher_title: teacherTitle.trim() || null,
         }),
       });
       toast.success('Okul ve branş güncellendi');
@@ -259,7 +283,7 @@ export function TeacherAccountTabs() {
         role="tablist"
         aria-label="Profil bölümleri"
       >
-        <div className="flex snap-x snap-mandatory gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:grid sm:grid-cols-4 sm:gap-1.5 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
+        <div className="flex snap-x snap-mandatory gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:grid sm:grid-cols-5 sm:gap-1.5 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
           {TABS.map((t) => {
             const Icon = t.icon;
             const isActive = tab === t.id;
@@ -356,6 +380,25 @@ export function TeacherAccountTabs() {
                   Okuldaki öğretmenlere tam adı gösterme; nöbette kısalt.
                 </span>
               </label>
+            </section>
+
+            <section className="space-y-1.5 rounded-xl border border-sky-200/50 bg-linear-to-br from-sky-500/8 to-cyan-500/5 p-2.5 dark:border-sky-900/40 sm:p-4">
+              <label htmlFor="hesap-telefon" className={lblRow}>
+                <span className={iconBox}>
+                  <Phone className="size-3.5 text-primary" />
+                </span>
+                Telefon
+              </label>
+              <input
+                id="hesap-telefon"
+                type="tel"
+                inputMode="tel"
+                value={teacherPhone}
+                onChange={(e) => setTeacherPhone(e.target.value)}
+                maxLength={32}
+                placeholder="05XX XXX XX XX"
+                className={cn(fieldIn, 'placeholder:text-muted-foreground/70')}
+              />
             </section>
 
             {/* E-Posta */}
@@ -519,22 +562,35 @@ export function TeacherAccountTabs() {
                     className={cn(fieldIn, 'cursor-pointer')}
                   >
                     <option value="">Branş seçin</option>
-                    {branchSelect && !TEACHER_BRANCH_OPTIONS.includes(branchSelect) && (
+                    {branchSelect && !branchOptions.includes(branchSelect) && (
                       <option value={branchSelect}>{branchSelect}</option>
                     )}
-                    {TEACHER_BRANCH_OPTIONS.map((b) => (
+                    {branchOptions.map((b) => (
                       <option key={b} value={b}>{b}</option>
                     ))}
                   </select>
                 </div>
                 <div className="space-y-1 rounded-lg border border-border/60 bg-linear-to-br from-muted/15 via-muted/10 to-muted/15 p-2.5 dark:border-zinc-700/60 dark:from-zinc-800/40 dark:via-zinc-800/25 dark:to-zinc-800/40 sm:rounded-xl sm:p-4">
-                  <label className={cn(lblRow, 'mb-0')}>
+                  <label htmlFor="okul-unvan" className={cn(lblRow, 'mb-0')}>
                     <span className={iconBox}>
-                      <User className="size-3.5 text-primary" />
+                      <Briefcase className="size-3.5 text-primary" />
                     </span>
-                    Görev
+                    Ünvan / statü
                   </label>
-                  <p className="text-sm font-medium text-foreground">Öğretmen</p>
+                  <select
+                    id="okul-unvan"
+                    value={teacherTitle}
+                    onChange={(e) => setTeacherTitle(e.target.value)}
+                    className={cn(fieldIn, 'cursor-pointer')}
+                  >
+                    <option value="">Seçin</option>
+                    {teacherTitle && !TEACHER_TITLE_OPTIONS.some((o) => o.value === teacherTitle) && (
+                      <option value={teacherTitle}>{teacherTitle}</option>
+                    )}
+                    {TEACHER_TITLE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="space-y-1.5 rounded-lg border border-border/60 bg-linear-to-r from-muted/10 via-muted/5 to-muted/10 p-2.5 dark:border-zinc-700/60 dark:from-zinc-800/30 dark:via-zinc-800/20 dark:to-zinc-800/30 sm:rounded-xl sm:p-4">
@@ -589,6 +645,20 @@ export function TeacherAccountTabs() {
                 </Button>
               </div>
             </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === 'resmi' && (
+        <Card className="overflow-hidden rounded-lg border border-indigo-200/50 bg-card shadow-sm ring-1 ring-indigo-500/10 sm:rounded-xl sm:border-2">
+          <CardHeader className="border-b border-indigo-200/40 bg-linear-to-r from-indigo-500/10 to-violet-500/8 px-2.5 py-2 sm:px-5 sm:py-4">
+            <CardTitle className="text-sm font-semibold sm:text-base">Resmî ve ödeme bilgileri</CardTitle>
+            <CardDescription className="text-[11px] sm:text-xs">
+              Yolluk, ek ders ve resmî evraklar için. Doldurması zorunlu değil; modül kullanırken istenebilir.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-2.5 sm:p-5">
+            <TeacherOfficialProfileForm token={token} evrakDefaults={evrakDefaults} onSuccess={() => void refetchMe()} />
           </CardContent>
         </Card>
       )}

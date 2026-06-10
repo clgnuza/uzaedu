@@ -45,34 +45,12 @@ const serwist = new Serwist({
 
 serwist.addEventListeners();
 
-type PushPayload = {
-  id?: string;
-  title?: string;
-  body?: string;
-  url?: string;
-  tag?: string;
-  channel?: string;
-  channelLabel?: string;
-  silent?: boolean;
-  vibrate?: boolean;
-  requireInteraction?: boolean;
-  unreadCount?: number;
-};
-
-async function syncAppBadgeFromPush(unreadCount: number | undefined): Promise<void> {
-  if (typeof unreadCount !== 'number' || unreadCount < 0) return;
-  const nav = self.navigator as Navigator & {
-    setAppBadge?: (n: number) => Promise<void>;
-    clearAppBadge?: () => Promise<void>;
-  };
-  if (!nav.setAppBadge) return;
-  try {
-    if (unreadCount > 0) await nav.setAppBadge(Math.min(99, unreadCount));
-    else await nav.clearAppBadge?.();
-  } catch {
-    /* ignore */
-  }
-}
+import {
+  buildPushNotificationContent,
+  handleNotificationClick,
+  syncAppBadgeFromPush,
+  type PushPayload,
+} from './sw/push-notification';
 
 function notifyClientsPushReceived(): Promise<void> {
   return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
@@ -80,29 +58,6 @@ function notifyClientsPushReceived(): Promise<void> {
       client.postMessage({ type: PUSH_RECEIVED });
     }
   });
-}
-
-const PUSH_ICON: Record<string, string> = {
-  nobet: '/push-icons/nobet.svg',
-  ders_programi: '/push-icons/ders_programi.svg',
-  akilli_tahta: '/push-icons/akilli_tahta.svg',
-  sinav_gorevi: '/push-icons/sinav_gorevi.svg',
-  sinav_modulleri: '/push-icons/sinav_modulleri.svg',
-  destek: '/push-icons/destek.svg',
-  ajanda: '/push-icons/ajanda.svg',
-  bilsem: '/push-icons/bilsem.svg',
-  belirli_gun: '/push-icons/belirli_gun.svg',
-  mesaj_merkezi: '/push-icons/mesaj_merkezi.svg',
-  market: '/push-icons/market.svg',
-  yolluk: '/push-icons/yolluk.svg',
-  okul_degerlendirme: '/push-icons/okul_degerlendirme.svg',
-  duyuru: '/push-icons/duyuru.svg',
-  genel: '/push-icons/genel.svg',
-};
-
-function pushIconForChannel(channel?: string): string {
-  if (channel && PUSH_ICON[channel]) return PUSH_ICON[channel];
-  return '/icon-192.png';
 }
 
 self.addEventListener('push', (event) => {
@@ -113,46 +68,15 @@ self.addEventListener('push', (event) => {
       return {} as PushPayload;
     }
   })();
-  const channel = data.channel?.trim() || 'genel';
-  const channelLabel = data.channelLabel?.trim();
-  const title = data.title?.trim() || 'Uzaedu';
-  const body = data.body?.trim() || '';
-  const icon = pushIconForChannel(channel);
-  const silent = data.silent === true;
-  const vibrate: number[] | undefined =
-    data.vibrate === false ? undefined : [120, 60, 120];
+  const { title, options } = buildPushNotificationContent(data);
   event.waitUntil(
     Promise.all([
-      self.registration.showNotification(channelLabel ? `Uzaedu · ${channelLabel}` : title, {
-        body: body || title,
-        icon,
-        badge: '/icon-192.png',
-        tag: data.tag || data.id || `uzaedu-${channel}`,
-        data: { url: data.url || '/bildirimler', notificationId: data.id, channel },
-        requireInteraction: data.requireInteraction === true,
-        silent,
-        ...(vibrate ? { vibrate } : {}),
-        actions: [{ action: 'open', title: 'Aç' }],
-      } as NotificationOptions),
+      self.registration.showNotification(title, options),
       syncAppBadgeFromPush(data.unreadCount),
       notifyClientsPushReceived(),
     ]),
   );
 });
-
-function safeNotificationUrl(raw: string): string {
-  try {
-    const u = new URL(raw, self.location.origin);
-    if (u.origin !== self.location.origin) return new URL('/bildirimler', self.location.origin).href;
-    const blocked = ['/tv', '/bakim', '/login', '/register'];
-    if (blocked.some((b) => u.pathname === b || u.pathname.startsWith(`${b}/`))) {
-      return new URL('/dashboard', self.location.origin).href;
-    }
-    return u.href;
-  } catch {
-    return new URL('/bildirimler', self.location.origin).href;
-  }
-}
 
 function flushOfflineToClients() {
   return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
@@ -175,20 +99,5 @@ self.addEventListener('periodicsync', (event) => {
 });
 
 self.addEventListener('notificationclick', (event) => {
-  const action = event.action;
-  event.notification.close();
-  if (action && action !== 'open') return;
-  const raw = (event.notification.data?.url as string) || '/bildirimler';
-  const target = safeNotificationUrl(raw);
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-      for (const client of list) {
-        if ('focus' in client && client.url.startsWith(self.location.origin)) {
-          void (client as WindowClient).navigate(target);
-          return (client as WindowClient).focus();
-        }
-      }
-      return self.clients.openWindow(target);
-    }),
-  );
+  handleNotificationClick(event);
 });

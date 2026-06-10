@@ -26,7 +26,7 @@ import { UserPlus } from 'lucide-react';
 import { PwaInstallHomeCard } from '@/components/landing/pwa-install-home-card';
 import { AuthTransitionLink } from '@/components/landing/auth-transition-link';
 import { LandingLoginLink } from '@/components/landing/landing-login-link';
-import { SealHub } from '@/components/landing/seal-hub';
+import { SealHubClient } from '@/components/landing/seal-hub-client';
 import { LandingFeaturesSection } from '@/components/landing/landing-features-section';
 import { CookiePreferencesLink } from '@/components/cookie-preferences-link';
 
@@ -106,7 +106,7 @@ export default function HomePage() {
           style={{ animation: 'landing-fadein 0.7s ease 0.1s both' }}
         >
         <div className="flex w-full min-w-0 flex-col items-center justify-start gap-0 sm:justify-center">
-          <SealHub />
+          <SealHubClient />
         </div>
 
         {/* ── Bottom CTA strip ── */}

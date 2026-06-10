@@ -27,24 +27,26 @@ const ITEMS = LANDING_HUB_ITEMS;
 
 const OUTER_R = 45.2;
 const STAR_R  = 39.4;
-const NODE_R  = 37.0;
+const ICON_R  = 35.6;
+const LABEL_R = 41.4;
 const INNER_R = 20.8;
 
 /** Sabit id — landing’de tek SealHub; useId + Turbopack/SSR gradient id uyuşmazlığı olmasın */
 const SEAL_HUB_ROPE_GRAD_ID = 'seal-hub-rope-grad';
 const SEAL_HUB_C_BLOOM_ID = 'seal-hub-c-bloom';
 
-/** Sabit yüzdeler — SSR / istemci kayan nokta farkı hidrasyon hatası vermesin */
-const NODE_POSITIONS: { left: string; top: string }[] = (() => {
-  const n = ITEMS.length;
-  const r = NODE_R;
+function hubRingPositions(r: number, n: number): { left: string; top: string }[] {
   return Array.from({ length: n }, (_, i) => {
     const angle = -Math.PI / 2 + (i / n) * Math.PI * 2;
     const x = 50 + r * Math.cos(angle);
     const y = 50 + r * Math.sin(angle);
     return { left: `${x.toFixed(4)}%`, top: `${y.toFixed(4)}%` };
   });
-})();
+}
+
+/** Sabit yüzdeler — SSR / istemci kayan nokta farkı hidrasyon hatası vermesin */
+const ICON_POSITIONS = hubRingPositions(ICON_R, ITEMS.length);
+const LABEL_POSITIONS = hubRingPositions(LABEL_R, ITEMS.length);
 
 function hubItemTargetPath(href: string): string {
   if (href.startsWith('/login')) {
@@ -331,61 +333,95 @@ function HubDetailModal({ item, onClose, hubRect }: { item: HubItem; onClose: ()
   );
 }
 
-function hubNodeLabelAbove(index: number, total: number): boolean {
-  const angle = -Math.PI / 2 + (index / total) * Math.PI * 2;
-  return Math.sin(angle) < -0.1;
+function hubNodeAngle(index: number, total: number): number {
+  return -Math.PI / 2 + (index / total) * Math.PI * 2;
+}
+
+function HubNodeLabel({
+  text,
+  className,
+  isTopHalf,
+}: {
+  text: string;
+  className?: string;
+  isTopHalf: boolean;
+}) {
+  const arcD = isTopHalf ? 'M 3 11 Q 40 5 77 11' : 'M 3 3 Q 40 9 77 3';
+  return (
+    <span className={cn('flex flex-col items-center gap-0.5', isTopHalf && 'flex-col-reverse', className)}>
+      <span className="landing-seal-hub-node-label whitespace-nowrap text-center font-semibold leading-none text-zinc-100">
+        {text}
+      </span>
+      <svg className="h-[6px] w-[clamp(36px,8vmin,72px)] overflow-visible opacity-75" viewBox="0 0 80 14" aria-hidden>
+        <path d={arcD} fill="none" stroke="rgba(228,228,231,0.5)" strokeWidth="1.15" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
 }
 
 const Node3D = memo(function Node3D({
   item,
   onSelect,
-  labelAbove,
+  index,
+  total,
 }: {
   item: HubItem;
   onSelect: (item: HubItem) => void;
-  labelAbove: boolean;
+  index: number;
+  total: number;
 }) {
   const Icon = item.icon;
+  const isTopHalf = Math.sin(hubNodeAngle(index, total)) < 0;
+
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(item)}
-      aria-label={`${item.label} bilgi kartını aç`}
-      className={cn(
-        'group flex max-w-full items-center gap-0.5 outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 sm:gap-1',
-        labelAbove ? 'flex-col-reverse' : 'flex-col',
-      )}
-    >
-      <span className="relative flex h-[clamp(36px,7.2vmin,50px)] w-[clamp(36px,7.2vmin,50px)] shrink-0 items-center justify-center overflow-hidden rounded-full transition-transform duration-200 group-hover:scale-105 sm:h-[clamp(40px,7.5vmin,56px)] sm:w-[clamp(40px,7.5vmin,56px)] sm:group-hover:scale-110">
-        {/* Metallic base */}
+    <div className="absolute inset-0">
+      <button
+        type="button"
+        onClick={() => onSelect(item)}
+        aria-label={`${item.label} bilgi kartını aç`}
+        className="group absolute -translate-x-1/2 -translate-y-1/2 appearance-none border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-red-500/70"
+        style={ICON_POSITIONS[index]}
+      >
+      <span className="relative z-10 flex h-[clamp(34px,7.2vmin,60px)] w-[clamp(34px,7.2vmin,60px)] items-center justify-center overflow-visible rounded-full transition-transform duration-200 group-hover:scale-[1.07] sm:h-[clamp(48px,9.2vmin,66px)] sm:w-[clamp(48px,9.2vmin,66px)] sm:group-hover:scale-110">
+        <span
+          className="absolute -inset-[7%] rounded-full bg-[radial-gradient(circle,rgba(220,38,38,0.22)_0%,transparent_68%)] opacity-80 blur-[2px] transition group-hover:opacity-100"
+          aria-hidden
+        />
+        <span
+          className="absolute inset-0 rounded-full shadow-[0_5px_18px_-4px_rgba(0,0,0,0.88),0_3px_10px_-2px_rgba(185,28,28,0.35)]"
+          aria-hidden
+        />
         <span
           className="absolute inset-0 rounded-full"
-          style={{ background: 'radial-gradient(circle at 38% 30%, #3f3f46 0%, #09090b 72%)' }}
+          style={{ background: 'radial-gradient(circle at 36% 28%, #52525b 0%, #18181b 38%, #09090b 78%)' }}
         />
-        {/* Top glass highlight */}
+        <span
+          className="absolute inset-[6%] rounded-full"
+          style={{ background: 'radial-gradient(circle at 38% 26%, rgba(255,255,255,0.2) 0%, transparent 48%)' }}
+        />
         <span
           className="absolute inset-0 rounded-full"
-          style={{ background: 'linear-gradient(165deg, rgba(255,255,255,0.13) 0%, transparent 45%)' }}
+          style={{ background: 'linear-gradient(168deg, rgba(255,255,255,0.16) 0%, transparent 42%)' }}
         />
-        {/* Inner rim shadow */}
         <span
           className="absolute inset-0 rounded-full"
-          style={{ boxShadow: 'inset 0 -2px 6px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.07)' }}
+          style={{ boxShadow: 'inset 0 -3px 8px rgba(0,0,0,0.62), inset 0 2px 0 rgba(255,255,255,0.1)' }}
         />
-        {/* Red glow border */}
-        <span
-          className="absolute inset-0 rounded-full border border-red-700/65 transition-all duration-200 group-hover:border-red-400/90 group-hover:shadow-[0_0_22px_-2px_rgba(220,38,38,0.65)]"
-        />
-        {/* Icon */}
+        <span className="absolute inset-0 rounded-full border border-red-600/70 transition-all duration-200 group-hover:border-red-400/95 group-hover:shadow-[0_0_24px_-2px_rgba(220,38,38,0.7)]" />
         <Icon
-          className="relative z-10 h-[clamp(16px,3.1vmin,22px)] w-[clamp(16px,3.1vmin,22px)] text-red-400 drop-shadow-[0_0_5px_rgba(220,38,38,0.8)] transition-colors duration-200 group-hover:text-red-200 sm:h-[clamp(18px,3.5vmin,26px)] sm:w-[clamp(18px,3.5vmin,26px)]"
-          strokeWidth={1.6}
+          className="relative z-10 h-[clamp(14px,2.9vmin,24px)] w-[clamp(14px,2.9vmin,24px)] text-red-400 drop-shadow-[0_1px_6px_rgba(220,38,38,0.85)] transition-colors duration-200 group-hover:text-red-100 sm:h-[clamp(19px,3.7vmin,28px)] sm:w-[clamp(19px,3.7vmin,28px)]"
+          strokeWidth={1.65}
         />
       </span>
-      <span className="line-clamp-2 max-w-[min(5rem,24vw)] text-balance text-center text-[clamp(8px,1.3vmin,10px)] font-semibold leading-[1.1] text-zinc-200 [text-shadow:0_1px_6px_rgba(0,0,0,0.95)] transition-colors duration-200 group-hover:text-white sm:max-w-[min(88px,18vw)] sm:text-[clamp(8.5px,1.4vmin,11px)] sm:leading-tight">
-        {item.label}
-      </span>
-    </button>
+      </button>
+      <div
+        className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2"
+        style={LABEL_POSITIONS[index]}
+      >
+        <HubNodeLabel isTopHalf={isTopHalf} text={item.shortLabel ?? item.label} className="2xl:hidden" />
+        <HubNodeLabel isTopHalf={isTopHalf} text={item.label} className="hidden 2xl:block" />
+      </div>
+    </div>
   );
 });
 
@@ -457,7 +493,7 @@ export function SealHub() {
       {/* Yuvarlak logo + çevrede simgeler — tüm ekranlar */}
       <div
         ref={hubRef}
-        className="landing-seal-hub relative isolate mx-auto aspect-square w-full min-h-0 max-w-[min(88vw,400px)] sm:max-w-[min(92vw,500px)] md:max-w-[min(90vw,540px)] lg:max-w-[min(88vw,620px)] xl:max-w-[min(84vw,700px)]"
+        className="landing-seal-hub relative isolate mx-auto aspect-square w-full min-h-0 max-w-[min(94vw,380px)] overflow-visible sm:max-w-[min(94vw,520px)] md:max-w-[min(92vw,560px)] lg:max-w-[min(90vw,640px)] xl:max-w-[min(88vw,720px)]"
       >
         {/* Ambient bloom */}
         <div
@@ -506,20 +542,10 @@ export function SealHub() {
         </svg>
 
         {/* Module nodes — z-10: kenar etiketleri orta logonun altında kalmasın */}
-        <div className="landing-seal-hub-nodes absolute inset-[3%] z-10 sm:inset-[3%] md:inset-[2.5%]">
-          <div className="landing-seal-hub-nodes-ring relative h-full min-h-0 w-full min-w-0 origin-center">
+        <div className="landing-seal-hub-nodes absolute inset-[1.5%] z-10 overflow-visible sm:inset-[3%] md:inset-[2.5%]">
+          <div className="landing-seal-hub-nodes-ring relative h-full min-h-0 w-full min-w-0 origin-center overflow-visible">
             {ITEMS.map((item, i) => (
-              <div
-                key={item.href}
-                className="absolute flex w-[15%] min-w-0 max-w-[15%] -translate-x-1/2 -translate-y-1/2 justify-center sm:w-[16%] sm:max-w-[16%] md:w-[17%] md:max-w-[17%] lg:w-[17.5%] lg:max-w-[17.5%]"
-                style={NODE_POSITIONS[i]}
-              >
-                <Node3D
-                  item={item}
-                  onSelect={handleSelect}
-                  labelAbove={hubNodeLabelAbove(i, ITEMS.length)}
-                />
-              </div>
+              <Node3D key={item.href} item={item} onSelect={handleSelect} index={i} total={ITEMS.length} />
             ))}
           </div>
         </div>
@@ -529,7 +555,7 @@ export function SealHub() {
         )}
 
         {/* Orta logo */}
-        <div className="landing-seal-hub-center pointer-events-none absolute inset-[30%] z-1 flex items-center justify-center max-sm:inset-[33%]">
+        <div className="landing-seal-hub-center pointer-events-none absolute inset-[30%] z-1 flex items-center justify-center max-sm:inset-[36%]">
           <div className="seal-hub-logo-breathe relative flex h-[84%] w-[84%] items-center justify-center overflow-hidden rounded-full">
             <div className="absolute inset-[8%] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.98)_0%,rgba(255,255,255,0.78)_30%,rgba(255,255,255,0.24)_52%,rgba(255,255,255,0)_72%)] blur-md" />
             <Image

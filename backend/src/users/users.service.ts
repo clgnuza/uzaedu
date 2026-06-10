@@ -88,17 +88,7 @@ export class UsersService {
     }
     if (dto.school_id) qb.andWhere('u.school_id = :schoolId', { schoolId: dto.school_id });
     if (dto.role) {
-      // Öğretmen listesi: school_admin da ders veriyorsa listeye dahil et (tek hesap, çift rol yok)
-      if (
-        dto.role === UserRole.teacher &&
-        scope.role === UserRole.school_admin
-      ) {
-        qb.andWhere('u.role IN (:...teacherOrAdmin)', {
-          teacherOrAdmin: [UserRole.teacher, UserRole.school_admin],
-        });
-      } else {
-        qb.andWhere('u.role = :role', { role: dto.role });
-      }
+      qb.andWhere('u.role = :role', { role: dto.role });
     }
     if (dto.status) qb.andWhere('u.status = :status', { status: dto.status });
     if (dto.teacher_school_membership === TeacherSchoolMembershipStatus.approved) {
@@ -126,12 +116,12 @@ export class UsersService {
     return paginate(items, total, page, limit);
   }
 
-  /** Okul panelindeki öğretmen sayacı ile aynı (öğretmen + ders veren okul yöneticisi). */
+  /** Okul panelindeki öğretmen sayacı (yalnızca role=teacher). */
   async countTeachersForSchool(schoolId: string): Promise<number> {
     return this.userRepo
       .createQueryBuilder('u')
       .where('u.school_id = :schoolId', { schoolId })
-      .andWhere('u.role IN (:...roles)', { roles: [UserRole.teacher, UserRole.school_admin] })
+      .andWhere('u.role = :role', { role: UserRole.teacher })
       .getCount();
   }
 
@@ -289,8 +279,6 @@ export class UsersService {
         'teacher_branch',
         'teacher_phone',
         'teacher_title',
-        'avatar_url',
-        'teacher_subject_ids',
         'moderator_modules',
         'teacher_school_membership',
       ];
@@ -299,8 +287,20 @@ export class UsersService {
           throw new ForbiddenException({
             code: 'CANNOT_EDIT_TEACHER_PROFILE',
             message:
-              'Okul yöneticisi öğretmenin ad, iletişim ve profil alanlarını değiştiremez; öğretmen kendi hesabından günceller.',
+              'Ad, branş, ünvan ve telefon yalnızca öğretmen tarafından güncellenir.',
           });
+        }
+      }
+      if (dto.evrak_defaults !== undefined) {
+        const ev = dto.evrak_defaults as Record<string, unknown>;
+        const allowedKeys = new Set(['yolluk_teacher']);
+        for (const key of Object.keys(ev)) {
+          if (!allowedKeys.has(key)) {
+            throw new ForbiddenException({
+              code: 'CANNOT_EDIT_TEACHER_PROFILE',
+              message: 'Okul yöneticisi yalnızca resmî öğretmen bilgilerini (TC, IBAN, kadro, adres) güncelleyebilir.',
+            });
+          }
         }
       }
     }
@@ -380,6 +380,25 @@ export class UsersService {
     if (dto.moderator_modules !== undefined) user.moderatorModules = dto.moderator_modules;
     if (dto.duty_exempt !== undefined) user.dutyExempt = dto.duty_exempt;
     if (dto.duty_exempt_reason !== undefined) user.dutyExemptReason = dto.duty_exempt_reason;
+    if (dto.evrak_defaults !== undefined) {
+      const incoming =
+        typeof dto.evrak_defaults === 'object' && dto.evrak_defaults !== null
+          ? (JSON.parse(JSON.stringify(dto.evrak_defaults)) as Record<string, unknown>)
+          : {};
+      const existing = (user.evrakDefaults ?? {}) as Record<string, unknown>;
+      const merged: Record<string, unknown> = { ...existing, ...incoming };
+      if (
+        incoming.yolluk_teacher &&
+        typeof incoming.yolluk_teacher === 'object' &&
+        !Array.isArray(incoming.yolluk_teacher)
+      ) {
+        merged.yolluk_teacher = {
+          ...((existing.yolluk_teacher as Record<string, unknown> | undefined) ?? {}),
+          ...(incoming.yolluk_teacher as Record<string, unknown>),
+        };
+      }
+      user.evrakDefaults = merged as Record<string, unknown>;
+    }
     if (dto.teacher_school_membership !== undefined) {
       if (scope.role !== UserRole.superadmin && scope.role !== UserRole.school_admin) {
         throw new ForbiddenException({
@@ -431,7 +450,18 @@ export class UsersService {
           ? (JSON.parse(JSON.stringify(dto.evrak_defaults)) as Record<string, unknown>)
           : {};
       const existing = (user.evrakDefaults ?? {}) as Record<string, unknown>;
-      user.evrakDefaults = { ...existing, ...incoming } as Record<string, unknown>;
+      const merged: Record<string, unknown> = { ...existing, ...incoming };
+      if (
+        incoming.yolluk_teacher &&
+        typeof incoming.yolluk_teacher === 'object' &&
+        !Array.isArray(incoming.yolluk_teacher)
+      ) {
+        merged.yolluk_teacher = {
+          ...((existing.yolluk_teacher as Record<string, unknown> | undefined) ?? {}),
+          ...(incoming.yolluk_teacher as Record<string, unknown>),
+        };
+      }
+      user.evrakDefaults = merged as Record<string, unknown>;
     }
     if (dto.school_id !== undefined) {
       if (user.role !== UserRole.teacher) {
@@ -497,6 +527,12 @@ export class UsersService {
         throw new BadRequestException({ code: 'INVALID_INPUT', message: 'Geçersiz karakter.' });
       }
       user.teacherBranch = b;
+    }
+    if (dto.teacher_phone !== undefined) {
+      user.teacherPhone = dto.teacher_phone?.trim().slice(0, 32) || null;
+    }
+    if (dto.teacher_title !== undefined) {
+      user.teacherTitle = dto.teacher_title?.trim().slice(0, 64) || null;
     }
     if (dto.avatar_key !== undefined) {
       user.avatarKey = dto.avatar_key;

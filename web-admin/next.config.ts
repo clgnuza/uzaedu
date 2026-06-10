@@ -10,6 +10,29 @@ function serwistRevision(): string {
   return crypto.randomUUID();
 }
 
+const PUSH_ICON_CHANNELS = [
+  "nobet",
+  "ders_programi",
+  "akilli_tahta",
+  "sinav_gorevi",
+  "sinav_modulleri",
+  "destek",
+  "ajanda",
+  "bilsem",
+  "belirli_gun",
+  "mesaj_merkezi",
+  "market",
+  "yolluk",
+  "okul_degerlendirme",
+  "duyuru",
+  "genel",
+] as const;
+
+const pushIconPrecache = PUSH_ICON_CHANNELS.flatMap((id) => [
+  { url: `/push-icons/${id}.png`, revision: serwistRevision() },
+  { url: `/push-icons/banners/${id}.png`, revision: serwistRevision() },
+]);
+
 const withSerwist = withSerwistInit({
   swSrc: "src/sw.ts",
   swDest: "public/sw.js",
@@ -19,6 +42,8 @@ const withSerwist = withSerwistInit({
     { url: "/offline", revision: serwistRevision() },
     { url: "/icon-192.png", revision: serwistRevision() },
     { url: "/icon-512.png", revision: serwistRevision() },
+    { url: "/push-icons/badge.png", revision: serwistRevision() },
+    ...pushIconPrecache,
     { url: "/pwa/uzaedu-app-icon.png", revision: serwistRevision() },
     { url: "/landing/uza-logo.png", revision: serwistRevision() },
     { url: "/pwa/icon-maskable-512.png", revision: serwistRevision() },

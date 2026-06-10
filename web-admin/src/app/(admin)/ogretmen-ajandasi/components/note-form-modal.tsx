@@ -1,13 +1,21 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { BellRing, Layers, Palette, Pin, Tag } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { ReminderFormSection } from './reminder-form-section';
 import { FileUploadSection, type PendingFile } from './file-upload-section';
+import {
+  AGENDA_DIALOG_CLASS,
+  AgendaClassPills,
+  AgendaFormActions,
+  agendaInput,
+  agendaLabel,
+  agendaSection,
+  agendaTextarea,
+} from './agenda-form-ui';
 
 export type NoteFormData = {
   title: string;
@@ -49,6 +57,7 @@ export function NoteFormModal({
   const [pinned, setPinned] = useState(initial?.pinned ?? false);
   const [remindAt, setRemindAt] = useState<string | undefined>();
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -63,7 +72,6 @@ export function NoteFormModal({
       setPendingFiles([]);
     }
   }, [open, initial]);
-  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,10 +93,6 @@ export function NoteFormModal({
         attachments: attachments.length > 0 ? attachments : undefined,
       });
       onOpenChange(false);
-      setTitle('');
-      setBody('');
-      setTags('');
-      setPendingFiles([]);
     } finally {
       setLoading(false);
     }
@@ -96,130 +100,127 @@ export function NoteFormModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={initial ? 'Notu Düzenle' : 'Yeni Not'}>
-        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
+      <DialogContent title={initial ? 'Notu Düzenle' : 'Yeni Not'} className={AGENDA_DIALOG_CLASS}>
+        <form onSubmit={handleSubmit} className="space-y-2">
           <div>
-            <Label htmlFor="note-title" className="text-xs sm:text-sm">
-              Başlık
-            </Label>
+            <span className={agendaLabel}>Başlık *</span>
             <Input
               id="note-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Not başlığı"
               required
-              className="mt-1 min-h-10 text-sm sm:min-h-11"
+              className={agendaInput}
             />
           </div>
           <div>
-            <Label htmlFor="note-body" className="text-xs sm:text-sm">
-              Açıklama
-            </Label>
+            <span className={agendaLabel}>Açıklama</span>
             <textarea
               id="note-body"
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              placeholder="Açıklama (opsiyonel)"
+              placeholder="Opsiyonel açıklama…"
               rows={3}
-              className="mt-1 min-h-[88px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-[100px] sm:px-3 sm:py-2.5"
+              className={agendaTextarea}
             />
           </div>
-          <div>
-            <Label htmlFor="note-tags" className="text-xs sm:text-sm">
+          <div className={agendaSection}>
+            <span className={cn(agendaLabel, 'inline-flex items-center gap-1')}>
+              <Tag className="size-3 text-fuchsia-500" aria-hidden />
               Etiketler
-            </Label>
+            </span>
             <Input
               id="note-tags"
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="Virgülle ayırın"
-              className="mt-1 min-h-10 text-sm sm:min-h-11"
+              className={cn(agendaInput, 'mt-1')}
             />
           </div>
-          {(subjects.length > 0 || classes.length > 0) && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
-              {subjects.length > 0 && (
-                <div>
-                  <Label className="text-xs sm:text-sm">Ders</Label>
-                  <select
-                    value={subjectId}
-                    onChange={(e) => setSubjectId(e.target.value)}
-                    className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-11"
-                  >
-                    <option value="">Seçin</option>
-                    {subjects.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              {classes.length > 0 && (
-                <div>
-                  <Label className="text-xs sm:text-sm">Sınıf</Label>
-                  <select
-                    value={classId}
-                    onChange={(e) => setClassId(e.target.value)}
-                    className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-11"
-                  >
-                    <option value="">Seçin</option>
-                    {classes.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+
+          {subjects.length > 0 && (
+            <div className={agendaSection}>
+              <span className={cn(agendaLabel, 'inline-flex items-center gap-1')}>
+                <Layers className="size-3 text-sky-500" aria-hidden />
+                Ders
+              </span>
+              <select
+                value={subjectId}
+                onChange={(e) => setSubjectId(e.target.value)}
+                className={cn(agendaInput, 'mt-1 w-full')}
+              >
+                <option value="">Seçin</option>
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-            <div className="min-w-0">
-              <Label className="text-[11px] sm:text-xs">Renk</Label>
-              <div className="mt-1 flex flex-wrap gap-1.5 sm:gap-2">
-                {COLORS.map((c) => (
-                  <button
-                    key={c || 'none'}
-                    type="button"
-                    onClick={() => setColor(c)}
-                    className={cn(
-                      'size-7 rounded-full border-2 transition-all sm:size-8',
-                      color === c ? 'border-foreground ring-2 ring-offset-1 ring-offset-background sm:ring-offset-2' : 'border-transparent',
-                    )}
-                    style={c ? { backgroundColor: c } : { backgroundColor: 'var(--muted)' }}
-                  />
-                ))}
-              </div>
+
+          <AgendaClassPills classes={classes} value={classId} onChange={setClassId} label="İlgili sınıf" emptyLabel="Genel" />
+
+          <div className={agendaSection}>
+            <span className={cn(agendaLabel, 'inline-flex items-center gap-1')}>
+              <Palette className="size-3 text-amber-500" aria-hidden />
+              Renk
+            </span>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {COLORS.map((c) => (
+                <button
+                  key={c || 'none'}
+                  type="button"
+                  onClick={() => setColor(c)}
+                  className={cn(
+                    'size-7 rounded-full border-2 transition-all',
+                    color === c ? 'border-foreground ring-2 ring-primary/20 ring-offset-1 ring-offset-background' : 'border-transparent',
+                  )}
+                  style={c ? { backgroundColor: c } : { backgroundColor: 'var(--muted)' }}
+                  aria-label={c ? 'Renk seç' : 'Renksiz'}
+                />
+              ))}
             </div>
-            <label className="flex cursor-pointer items-center gap-2">
+            <label className="mt-2 flex cursor-pointer items-center gap-2 rounded-md border border-border/50 bg-background/60 px-2 py-1.5">
               <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} className="rounded" />
-              <span className="text-xs sm:text-sm">Sabitle</span>
+              <Pin className="size-3 text-muted-foreground" aria-hidden />
+              <span className="text-[11px] font-medium text-foreground">Üste sabitle</span>
             </label>
           </div>
+
           {!initial && (
-            <ReminderFormSection remindAt={remindAt} onChange={setRemindAt} disabled={loading} />
+            <details className={cn(agendaSection, 'group open:pb-1.5')}>
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+                <BellRing className="size-3.5 text-teal-500" aria-hidden />
+                Hatırlatıcı
+              </summary>
+              <div className="mt-1.5">
+                <ReminderFormSection remindAt={remindAt} onChange={setRemindAt} disabled={loading} showLeadingBell={false} />
+              </div>
+            </details>
           )}
+
           {onUploadFile && !initial && (
-            <div>
-              <Label className="text-[11px] text-muted-foreground sm:text-xs">Ekler</Label>
-              <FileUploadSection
-                files={pendingFiles}
-                onFilesChange={setPendingFiles}
-                onUpload={onUploadFile}
-                disabled={loading}
-                maxFiles={5}
-              />
+            <div className={agendaSection}>
+              <span className={agendaLabel}>Ekler</span>
+              <div className="mt-1">
+                <FileUploadSection
+                  files={pendingFiles}
+                  onFilesChange={setPendingFiles}
+                  onUpload={onUploadFile}
+                  disabled={loading}
+                  maxFiles={5}
+                />
+              </div>
             </div>
           )}
-          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end sm:pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
-              İptal
-            </Button>
-            <Button type="submit" disabled={loading || !title.trim()} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
-              {loading ? 'Kaydediliyor…' : 'Kaydet'}
-            </Button>
-          </div>
+
+          <AgendaFormActions
+            onCancel={() => onOpenChange(false)}
+            loading={loading}
+            submitLabel="Kaydet"
+            disabled={!title.trim()}
+          />
         </form>
       </DialogContent>
     </Dialog>

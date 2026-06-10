@@ -97,6 +97,11 @@ export const BELIRLI_ALLOWED: ReadonlySet<string> = new Set([
   'Güvenli Okul ve Farkındalık Haftası',
   'Rehberlik ve Kariyer Haftası',
   'Meslek Tanıtım ve İşyeri Gezisi Haftası',
+  'Dünya Okul Sütü Günü',
+  'Öğrenciler Günü',
+  '15 Temmuz Demokrasi ve Millî Birlik Günü',
+  'Şehitler Günü',
+  'Dünya Su Günü',
 ]);
 
 /** Eski verilerdeki varyasyonlar → site uyumlu başlık (örn. "Dünyayı Temizlik Günü" → "Dünyayı Temizlik Günü (7 Eylül)") */
@@ -104,14 +109,15 @@ export const BELIRLI_NORMALIZE: Record<string, string> = {
   'Dünyayı Temizlik Günü': 'Dünyayı Temizlik Günü (7 Eylül)',
 };
 
+/** MEB 2025-2026 çalışma takvimi + belirli gün/haftalar çizelgesi (RG-18/1/2023-EK-8) ile hizalı */
 export const ACADEMIC_CALENDAR_2025_2026 = [
   { w: 0, title: 'Seminer Haftası & İlköğretim Uyum Haftası', start: '2025-09-01', end: '2025-09-08', belirli: ['Uluslararası Temiz Hava Günü', 'Dünyayı Temizlik Günü (7 Eylül)'], ogretmen: ['Öğretmenler Kurulu', 'Zümre Tutanakları', 'Yıllık Planlar', 'BEP Programı', 'Kulüp Planları', 'Şeflik Planlar', 'Kazanım Ara', 'Öğretmen Ağı'] },
-  { w: 1, title: '1. Dönem Başlangıcı', start: '2025-09-08', end: '2025-09-12', belirli: ['Uluslararası Temiz Hava Günü', 'İlköğretim Haftası'], ogretmen: ['Günlük Planlar', 'Kazanım Ara'] },
-  { w: 2, title: null, start: '2025-09-15', end: '2025-09-19', belirli: ['İlköğretim Haftası', 'Dünyayı Temizlik Günü (7 Eylül)', 'Mevlid-i Nebî Haftası', 'Gaziler Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara'] },
-  { w: 3, title: null, start: '2025-09-22', end: '2025-09-26', belirli: ['Türk Dil Bayramı'], ogretmen: ['Günlük Planlar', 'Kazanım Ara'] },
-  { w: 4, title: null, start: '2025-09-29', end: '2025-10-03', belirli: ['Disleksi Haftası', 'Dünya Disleksi Günü', 'Hayvanları Koruma Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Kulüp Raporu', 'Şeflik Raporu'] },
-  { w: 5, title: null, start: '2025-10-06', end: '2025-10-10', belirli: ['Ahilik Kültürü Haftası', 'Dünya Afet Azaltma Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Öğretmen Ağı'] },
-  { w: 6, title: null, start: '2025-10-13', end: '2025-10-17', belirli: ['Birleşmiş Milletler Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Proje Asistanı'] },
+  { w: 1, title: '1. Dönem Başlangıcı', start: '2025-09-08', end: '2025-09-12', belirli: [], ogretmen: ['Günlük Planlar', 'Kazanım Ara'] },
+  { w: 2, title: null, start: '2025-09-15', end: '2025-09-19', belirli: ['İlköğretim Haftası', 'Öğrenciler Günü', 'Gaziler Günü', '15 Temmuz Demokrasi ve Millî Birlik Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara'] },
+  { w: 3, title: null, start: '2025-09-22', end: '2025-09-26', belirli: ['Türk Dil Bayramı', 'Mevlid-i Nebî Haftası'], ogretmen: ['Günlük Planlar', 'Kazanım Ara'] },
+  { w: 4, title: null, start: '2025-09-29', end: '2025-10-03', belirli: ['Dünya Okul Sütü Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Kulüp Raporu', 'Şeflik Raporu'] },
+  { w: 5, title: null, start: '2025-10-06', end: '2025-10-10', belirli: ['Disleksi Haftası', 'Dünya Disleksi Günü', 'Hayvanları Koruma Günü', 'Ahilik Kültürü Haftası'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Öğretmen Ağı'] },
+  { w: 6, title: null, start: '2025-10-13', end: '2025-10-17', belirli: ['Dünya Afet Azaltma Günü', 'Birleşmiş Milletler Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Proje Asistanı'] },
   { w: 7, title: null, start: '2025-10-20', end: '2025-10-24', belirli: [], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Sınav Hazırla', 'Soru Üret'] },
   { w: 8, title: null, start: '2025-10-27', end: '2025-10-31', belirli: ['Cumhuriyet Bayramı', 'Kızılay Haftası'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Kulüp Raporu', 'Şeflik Raporu', 'Veli Toplantıları'] },
   { w: 9, title: null, start: '2025-11-03', end: '2025-11-07', belirli: ['Kızılay Haftası', 'Organ Bağışı ve Nakli Haftası', 'Lösemili Çocuklar Haftası'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Sınav Analizleri', 'Performans Değerlendir', 'Öğretmen Ağı'] },
@@ -131,9 +137,9 @@ export const ACADEMIC_CALENDAR_2025_2026 = [
   { w: 23, title: null, start: '2026-02-16', end: '2026-02-20', belirli: ['Sivil Savunma Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara'] },
   { w: 24, title: null, start: '2026-02-23', end: '2026-02-27', belirli: ['Vergi Haftası', 'Yeşilay Haftası'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Sınav Hazırla', 'Soru Üret'] },
   { w: 25, title: null, start: '2026-03-02', end: '2026-03-06', belirli: ['Girişimcilik Haftası', 'Yeşilay Haftası', 'Dünya Kadınlar Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Veli Toplantıları', 'Öğretmen Ağı'] },
-  { w: 26, title: null, start: '2026-03-09', end: '2026-03-13', belirli: ["Bilim ve Teknoloji Haftası", "İstiklâl Marşı'nın Kabulü ve Mehmet Akif Ersoy'u Anma Günü", "Çanakkale Zaferi ve Şehitleri Anma Günü"], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Sınav Analizleri', 'Performans Değerlendir'] },
-  { w: 27, title: '2. Dönem Ara Tatili', start: '2026-03-16', end: '2026-03-20', belirli: ['Tüketiciyi Koruma Haftası', 'Türk Dünyası ve Toplulukları Haftası', 'Nevruz Bayramı'], ogretmen: [] },
-  { w: 28, title: null, start: '2026-03-23', end: '2026-03-27', belirli: ['Orman Haftası', 'Dünya Meteoroloji Günü', 'Dünya Tiyatrolar Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara'] },
+  { w: 26, title: null, start: '2026-03-09', end: '2026-03-13', belirli: ['Bilim ve Teknoloji Haftası', "İstiklâl Marşı'nın Kabulü ve Mehmet Akif Ersoy'u Anma Günü"], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Sınav Analizleri', 'Performans Değerlendir'] },
+  { w: 27, title: '2. Dönem Ara Tatili', start: '2026-03-16', end: '2026-03-20', belirli: ['Tüketiciyi Koruma Haftası', 'Şehitler Günü', 'Yaşlılar Haftası', 'Türk Dünyası ve Toplulukları Haftası', 'Nevruz Bayramı'], ogretmen: [] },
+  { w: 28, title: null, start: '2026-03-23', end: '2026-03-27', belirli: ['Orman Haftası', 'Dünya Su Günü', 'Dünya Meteoroloji Günü', 'Dünya Tiyatrolar Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara'] },
   { w: 29, title: null, start: '2026-03-30', end: '2026-04-03', belirli: ['Kütüphaneler Haftası', 'Kanser Haftası', 'Dünya Otizm Farkındalık Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Kulüp Raporu', 'Şeflik Raporu'] },
   { w: 30, title: null, start: '2026-04-06', end: '2026-04-10', belirli: ['Kanser Haftası', 'Dünya Sağlık Günü', 'Kişisel Verileri Koruma Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Öğretmen Ağı'] },
   { w: 31, title: null, start: '2026-04-13', end: '2026-04-17', belirli: ['Turizm Haftası', 'Dünya Fikrî Mülkiyet Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara'] },
@@ -144,8 +150,10 @@ export const ACADEMIC_CALENDAR_2025_2026 = [
   { w: 36, title: null, start: '2026-05-18', end: '2026-05-22', belirli: ["Müzeler Haftası", "Atatürk'ü Anma ve Gençlik ve Spor Bayramı"], ogretmen: ['Günlük Planlar', 'Kazanım Ara'] },
   { w: 37, title: null, start: '2026-05-25', end: '2026-05-29', belirli: ["Etik Günü", "İstanbul'un Fethi"], ogretmen: ['Günlük Planlar', 'Kazanım Ara'] },
   { w: 38, title: null, start: '2026-06-01', end: '2026-06-05', belirli: ['Hayat Boyu Öğrenme Haftası', 'Dünya Çevre Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Sınav Hazırla', 'Soru Üret', 'Öğretmen Ağı'] },
-  { w: 39, title: '2. Dönem Bitişi (36. Hafta)', start: '2026-06-08', end: '2026-06-12', belirli: ['Çevre ve İklim Değişikliği Haftası', 'Babalar Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Sınav Analizleri', 'Performans Değerlendir'] },
-  { w: 40, title: 'Eğitim Öğretim Yılı Sonu Seminer Haftası', start: '2026-06-29', end: '2026-07-03', belirli: [], ogretmen: ['Öğretmenler Kurulu', 'Zümre Tutanakları', 'İdareye Teslim Evraklar', 'Kulüp Raporu', 'Şeflik Raporu'] },
+  { w: 39, title: null, start: '2026-06-08', end: '2026-06-12', belirli: ['Çevre ve İklim Değişikliği Haftası', 'Babalar Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Sınav Analizleri', 'Performans Değerlendir'] },
+  { w: 40, title: null, start: '2026-06-15', end: '2026-06-19', belirli: ['Dünya Çevre Günü'], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'İdareye Teslim Evraklar'] },
+  { w: 41, title: '2. Dönem Bitişi', start: '2026-06-22', end: '2026-06-26', belirli: [], ogretmen: ['Günlük Planlar', 'Kazanım Ara', 'Sınav Analizleri', 'Performans Değerlendir', 'İdareye Teslim Evraklar'] },
+  { w: 42, title: 'Eğitim Öğretim Yılı Sonu Seminer Haftası', start: '2026-06-29', end: '2026-07-03', belirli: [], ogretmen: ['Öğretmenler Kurulu', 'Zümre Tutanakları', 'İdareye Teslim Evraklar', 'Kulüp Raporu', 'Şeflik Raporu'] },
 ];
 
 /** Öğretmen işleri → path eşlemesi (route yoksa /evrak veya /dashboard) */

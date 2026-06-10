@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { AcademicCalendarItem } from './entities/academic-calendar-item.entity';
@@ -23,10 +23,13 @@ export interface WeekWithItems {
   id: string;
   academicYear: string;
   weekNumber: number;
+  weekOrder: number;
   title: string | null;
   dateStart: string | null;
   dateEnd: string | null;
   sortOrder: number;
+  isTatil: boolean;
+  ay?: string;
   belirliGunHafta: ItemView[];
   ogretmenIsleri: ItemView[];
 }
@@ -58,6 +61,15 @@ export class AcademicCalendarService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
+  /** Kurum türü hazır şablonu yalnızca okul açıkça isterse */
+  private resolveSchoolTypeForItems(
+    schoolType: string | undefined,
+    useTypeTemplate: boolean | undefined,
+  ): string | undefined {
+    if (useTypeTemplate !== true) return undefined;
+    return schoolType;
+  }
+
   /** Okul türüne göre şablon öğesi görünür mü (null/[] = herkese) */
   itemVisibleForSchoolType(item: AcademicCalendarItem, schoolType: string | undefined): boolean {
     const st = item.schoolTypes;
@@ -82,9 +94,14 @@ export class AcademicCalendarService {
       order: { sortOrder: 'ASC' },
     });
     let schoolType: string | undefined;
+    let useTypeTemplate = false;
     if (schoolId) {
-      const school = await this.schoolRepo.findOne({ where: { id: schoolId }, select: ['type'] });
+      const school = await this.schoolRepo.findOne({
+        where: { id: schoolId },
+        select: ['type', 'academic_calendar_overrides'],
+      });
       schoolType = school?.type;
+      useTypeTemplate = school?.academic_calendar_overrides?.useTypeTemplate === true;
     } else if (role === UserRole.superadmin) {
       const q = schoolTypeQuery?.trim();
       if (q === '' || q === '__global__') schoolType = undefined;
@@ -92,12 +109,18 @@ export class AcademicCalendarService {
     } else {
       schoolType = schoolTypeQuery?.trim() || undefined;
     }
-    const filtered = items.filter((i) => this.itemVisibleForSchoolType(i, schoolType));
+    const typeForFilter = this.resolveSchoolTypeForItems(schoolType, useTypeTemplate);
+    const filtered = items.filter((i) => this.itemVisibleForSchoolType(i, typeForFilter));
     const overrides = schoolId ? await this.getSchoolOverrides(schoolId) : null;
     const hiddenIds = new Set(overrides?.hiddenItemIds ?? []);
     const customItems = overrides?.customItems ?? [];
-    const belirliItemIds = filtered.filter((i) => i.itemType === 'belirli_gun_hafta').map((i) => i.id);
-    const assignments = schoolId && belirliItemIds.length > 0 ? await this.getAssignmentsByItem(schoolId, belirliItemIds) : new Map<string, AssignedUserView[]>();
+    const assignableItemIds = filtered
+      .filter((i) => i.itemType === 'belirli_gun_hafta' || i.itemType === 'ogretmen_isleri')
+      .map((i) => i.id);
+    const assignments =
+      schoolId && assignableItemIds.length > 0
+        ? await this.getAssignmentsByItem(schoolId, assignableItemIds)
+        : new Map<string, AssignedUserView[]>();
     return this.buildWeeksWithItems(workWeeks, filtered, hiddenIds, customItems, assignments);
   }
 
@@ -105,9 +128,16 @@ export class AcademicCalendarService {
   async resolveTemplateSchoolType(
     payload: { role: UserRole; schoolId: string | null },
     schoolTypeQuery: string | undefined,
+    useTypeTemplateOverride?: boolean,
   ): Promise<string | null> {
     if (payload.schoolId) {
-      const school = await this.schoolRepo.findOne({ where: { id: payload.schoolId }, select: ['type'] });
+      const school = await this.schoolRepo.findOne({
+        where: { id: payload.schoolId },
+        select: ['type', 'academic_calendar_overrides'],
+      });
+      const useType =
+        useTypeTemplateOverride ?? school?.academic_calendar_overrides?.useTypeTemplate === true;
+      if (!useType) return null;
       return school?.type ?? SchoolType.ilkokul;
     }
     const q = schoolTypeQuery?.trim();
@@ -194,6 +224,7 @@ export class AcademicCalendarService {
           iconKey: i.iconKey,
           sortOrder: i.sortOrder,
           schoolTypes: i.schoolTypes ?? null,
+          assignedUsers: assignments.get(i.id) ?? [],
         }));
       for (const c of customByWeek.get(w.id) ?? []) {
         const view: ItemView = { id: c.id, title: c.title, path: c.path ?? null, iconKey: null, sortOrder: c.sortOrder };
@@ -271,16 +302,23 @@ export class AcademicCalendarService {
     const school = await this.schoolRepo.findOne({ where: { id: schoolId } });
     if (!school) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Okul bulunamadı.' });
     const ov = school.academic_calendar_overrides;
-    return { hiddenItemIds: ov?.hiddenItemIds ?? [], customItems: ov?.customItems ?? [] };
+    return {
+      useTypeTemplate: ov?.useTypeTemplate === true,
+      hiddenItemIds: ov?.hiddenItemIds ?? [],
+      customItems: ov?.customItems ?? [],
+    };
   }
 
   async patchSchoolOverrides(schoolId: string, dto: PatchAcademicCalendarOverridesDto): Promise<void> {
     const school = await this.schoolRepo.findOne({ where: { id: schoolId } });
     if (!school) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Okul bulunamadı.' });
     const current = school.academic_calendar_overrides ?? { hiddenItemIds: [], customItems: [] };
+    const useTypeTemplate =
+      dto.useTypeTemplate !== undefined ? dto.useTypeTemplate === true : current.useTypeTemplate === true;
     school.academic_calendar_overrides = {
-      hiddenItemIds: dto.hiddenItemIds ?? current.hiddenItemIds,
-      customItems: dto.customItems ?? current.customItems,
+      useTypeTemplate,
+      hiddenItemIds: dto.hiddenItemIds ?? current.hiddenItemIds ?? [],
+      customItems: dto.customItems ?? current.customItems ?? [],
     };
     await this.schoolRepo.save(school);
   }
@@ -294,14 +332,24 @@ export class AcademicCalendarService {
   ): Promise<Array<{ id: string; title: string; dateStart: string; gorevTipi: string }>> {
     const weeks = await this.workCalendarService.findWeeksInDateRange(startDate, endDate);
     if (weeks.length === 0) return [];
-    const school = await this.schoolRepo.findOne({ where: { id: schoolId }, select: ['type'] });
-    const schoolType = school?.type;
+    const school = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: ['type', 'academic_calendar_overrides'],
+    });
+    const typeForFilter = this.resolveSchoolTypeForItems(
+      school?.type,
+      school?.academic_calendar_overrides?.useTypeTemplate === true,
+    );
     const weekIds = weeks.map((w) => w.id);
     const items = await this.itemRepo.find({
-      where: { weekId: In(weekIds), itemType: 'belirli_gun_hafta', isActive: true },
+      where: {
+        weekId: In(weekIds),
+        itemType: In(['belirli_gun_hafta', 'ogretmen_isleri']),
+        isActive: true,
+      },
       relations: ['workCalendar'],
     });
-    const itemsF = items.filter((i) => this.itemVisibleForSchoolType(i, schoolType));
+    const itemsF = items.filter((i) => this.itemVisibleForSchoolType(i, typeForFilter));
     const itemIds = itemsF.map((i) => i.id);
     if (itemIds.length === 0) return [];
     const gorevler = await this.gorevRepo.find({
@@ -315,7 +363,7 @@ export class AcademicCalendarService {
       const dateStart = wc?.weekStart ?? '';
       return {
         id: g.id,
-        title: item?.title ?? 'Belirli Gün',
+        title: item?.title ?? 'Takvim görevi',
         dateStart,
         gorevTipi: g.gorevTipi ?? 'sorumlu',
       };
@@ -325,15 +373,25 @@ export class AcademicCalendarService {
   /** Teacher: Kendi Belirli Gün görevlendirmeleri (dashboard için) */
   async getMyAssignments(userId: string, schoolId: string | null, academicYear: string) {
     if (!schoolId) return [];
-    const school = await this.schoolRepo.findOne({ where: { id: schoolId }, select: ['type'] });
-    const schoolType = school?.type;
+    const school = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: ['type', 'academic_calendar_overrides'],
+    });
+    const typeForFilter = this.resolveSchoolTypeForItems(
+      school?.type,
+      school?.academic_calendar_overrides?.useTypeTemplate === true,
+    );
     const workWeeks = await this.workCalendarService.findAll(academicYear.trim());
     if (workWeeks.length === 0) return [];
     const weekIds = workWeeks.map((w) => w.id);
     const items = await this.itemRepo.find({
-      where: { weekId: In(weekIds), itemType: 'belirli_gun_hafta', isActive: true },
+      where: {
+        weekId: In(weekIds),
+        itemType: In(['belirli_gun_hafta', 'ogretmen_isleri']),
+        isActive: true,
+      },
     });
-    const itemsF = items.filter((i) => this.itemVisibleForSchoolType(i, schoolType));
+    const itemsF = items.filter((i) => this.itemVisibleForSchoolType(i, typeForFilter));
     const itemIds = itemsF.map((i) => i.id);
     if (itemIds.length === 0) return [];
     const gorevler = await this.gorevRepo.find({
@@ -356,25 +414,34 @@ export class AcademicCalendarService {
     }).sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
   }
 
-  /** School_admin: Belirli Gün görevlendirmeleri listesi */
+  /** School_admin: Takvim görevlendirmeleri listesi */
   async getAssignments(schoolId: string, academicYear: string) {
-    const school = await this.schoolRepo.findOne({ where: { id: schoolId }, select: ['type'] });
-    const schoolType = school?.type;
+    const school = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: ['type', 'academic_calendar_overrides'],
+    });
+    const typeForFilter = this.resolveSchoolTypeForItems(
+      school?.type,
+      school?.academic_calendar_overrides?.useTypeTemplate === true,
+    );
     const workWeeks = await this.workCalendarService.findAll(academicYear.trim());
     if (workWeeks.length === 0) return [];
     const weekIds = workWeeks.map((w) => w.id);
     const items = await this.itemRepo.find({
-      where: { weekId: In(weekIds), itemType: 'belirli_gun_hafta', isActive: true },
+      where: {
+        weekId: In(weekIds),
+        itemType: In(['belirli_gun_hafta', 'ogretmen_isleri']),
+        isActive: true,
+      },
       order: { sortOrder: 'ASC' },
     });
-    const itemsF = items.filter((i) => this.itemVisibleForSchoolType(i, schoolType));
+    const itemsF = items.filter((i) => this.itemVisibleForSchoolType(i, typeForFilter));
     const itemIds = itemsF.map((i) => i.id);
     if (itemIds.length === 0) return [];
     const gorevler = await this.gorevRepo.find({
       where: { schoolId, academicCalendarItemId: In(itemIds) },
       relations: ['user', 'academicCalendarItem'],
     });
-    const weekMap = new Map(workWeeks.map((w) => [w.id, w]));
     return gorevler.map((g) => ({
       id: g.id,
       itemId: g.academicCalendarItemId,
@@ -386,69 +453,125 @@ export class AcademicCalendarService {
     }));
   }
 
-  /** School_admin: Belirli Gün'e öğretmen ata. Bildirim gönderilir. */
+  private async resolveAssignmentUserIds(
+    schoolId: string,
+    dto: CreateBelirliGunHaftaGorevDto,
+  ): Promise<string[]> {
+    if (dto.all_teachers) {
+      const rows = await this.userRepo.find({
+        where: { school_id: schoolId, role: UserRole.teacher },
+        select: ['id'],
+      });
+      return rows.map((t) => t.id);
+    }
+    const branch = dto.teacher_branch?.trim();
+    if (branch) {
+      const rows = await this.userRepo.find({
+        where: { school_id: schoolId, role: UserRole.teacher, teacherBranch: branch },
+        select: ['id'],
+      });
+      return rows.map((t) => t.id);
+    }
+    if (dto.user_ids?.length) return [...new Set(dto.user_ids)];
+    if (dto.user_id) return [dto.user_id];
+    throw new BadRequestException({
+      code: 'MISSING_TARGET',
+      message: 'Öğretmen, branş veya tüm öğretmenler seçilmelidir.',
+    });
+  }
+
+  /** School_admin: Belirli gün / öğretmen işi görevlendirmesi. Bildirim gönderilir. */
   async createAssignment(
     schoolId: string,
     dto: CreateBelirliGunHaftaGorevDto,
     createdBy: string,
-  ): Promise<BelirliGunHaftaGorev> {
+  ): Promise<{ created: number; updated: number; itemId: string }> {
     const item = await this.itemRepo.findOne({
       where: { id: dto.item_id },
       relations: ['workCalendar'],
     });
     if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Etkinlik bulunamadı.' });
-    if (item.itemType !== 'belirli_gun_hafta')
-      throw new ForbiddenException({ code: 'INVALID_ITEM', message: 'Sadece Belirli Gün ve Haftalar etkinliklerine görev atanabilir.' });
-    const schoolRow = await this.schoolRepo.findOne({ where: { id: schoolId }, select: ['type'] });
-    if (!this.itemVisibleForSchoolType(item, schoolRow?.type))
+    if (item.itemType !== 'belirli_gun_hafta' && item.itemType !== 'ogretmen_isleri')
+      throw new ForbiddenException({ code: 'INVALID_ITEM', message: 'Bu öğeye görev atanamaz.' });
+    const schoolRow = await this.schoolRepo.findOne({
+      where: { id: schoolId },
+      select: ['type', 'academic_calendar_overrides'],
+    });
+    const typeForFilter = this.resolveSchoolTypeForItems(
+      schoolRow?.type,
+      schoolRow?.academic_calendar_overrides?.useTypeTemplate === true,
+    );
+    if (!this.itemVisibleForSchoolType(item, typeForFilter))
       throw new ForbiddenException({ code: 'INVALID_ITEM', message: 'Bu etkinlik bu okul türü için geçerli değil.' });
 
-    const teacher = await this.userRepo.findOne({
-      where: { id: dto.user_id, school_id: schoolId, role: UserRole.teacher },
-    });
-    if (!teacher)
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Öğretmen bulunamadı veya bu okulda değil.' });
-
-    let gorev = await this.gorevRepo.findOne({
-      where: { schoolId, academicCalendarItemId: dto.item_id, userId: dto.user_id },
-    });
-    if (gorev) {
-      gorev.gorevTipi = (dto.gorev_tipi as 'sorumlu' | 'yardimci') ?? gorev.gorevTipi;
-      return this.gorevRepo.save(gorev);
+    const userIds = await this.resolveAssignmentUserIds(schoolId, dto);
+    if (userIds.length === 0) {
+      throw new BadRequestException({ code: 'NO_TEACHERS', message: 'Görevlendirilecek öğretmen bulunamadı.' });
     }
 
-    gorev = this.gorevRepo.create({
-      schoolId,
-      academicCalendarItemId: dto.item_id,
-      userId: dto.user_id,
-      gorevTipi: (dto.gorev_tipi as 'sorumlu' | 'yardimci') ?? 'sorumlu',
-      createdBy,
+    const teachers = await this.userRepo.find({
+      where: { id: In(userIds), school_id: schoolId, role: UserRole.teacher },
     });
-    gorev = await this.gorevRepo.save(gorev);
+    if (teachers.length !== userIds.length) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bazı öğretmenler bulunamadı veya bu okulda değil.' });
+    }
 
-    await this.notificationsService.createInboxEntry({
-      user_id: dto.user_id,
-      event_type: 'belirli_gun_hafta.assigned',
-      entity_id: gorev.id,
-      target_screen: 'akademik-takvim',
-      title: 'Belirli Gün ve Hafta görevlendirmesi',
-      body: `"${item.title}" etkinliği için görevlendirildiniz. Takvime giderek detayları görüntüleyebilirsiniz.`,
-      metadata: { itemId: item.id, itemTitle: item.title },
-    });
+    const gorevTipi = (dto.gorev_tipi as 'sorumlu' | 'yardimci') ?? 'sorumlu';
+    const notifyTitle =
+      item.itemType === 'ogretmen_isleri' ? 'Öğretmen işi görevlendirmesi' : 'Belirli Gün ve Hafta görevlendirmesi';
+    let created = 0;
+    let updated = 0;
 
-    // Okul adminine: bildirim gönderildi onayı
-    const teacherLabel = teacher.display_name || teacher.email || 'Öğretmen';
-    await this.notificationsService.createInboxEntry({
-      user_id: createdBy,
-      event_type: 'belirli_gun_hafta.notification_sent',
-      entity_id: gorev.id,
-      target_screen: 'akademik-takvim',
-      title: 'Bildirim gönderildi',
-      body: `"${teacherLabel}" öğretmene "${item.title}" etkinliği için görevlendirme bildirimi iletildi.`,
-      metadata: { itemId: item.id, itemTitle: item.title, teacherId: teacher.id },
-    });
+    for (const teacher of teachers) {
+      let gorev = await this.gorevRepo.findOne({
+        where: { schoolId, academicCalendarItemId: dto.item_id, userId: teacher.id },
+      });
+      if (gorev) {
+        gorev.gorevTipi = gorevTipi;
+        await this.gorevRepo.save(gorev);
+        updated++;
+        continue;
+      }
 
-    return gorev;
+      gorev = await this.gorevRepo.save(
+        this.gorevRepo.create({
+          schoolId,
+          academicCalendarItemId: dto.item_id,
+          userId: teacher.id,
+          gorevTipi,
+          createdBy,
+        }),
+      );
+      created++;
+
+      await this.notificationsService.createInboxEntry({
+        user_id: teacher.id,
+        event_type: 'belirli_gun_hafta.assigned',
+        entity_id: gorev.id,
+        target_screen: 'akademik-takvim',
+        title: notifyTitle,
+        body: `"${item.title}" için görevlendirildiniz. Takvime giderek detayları görüntüleyebilirsiniz.`,
+        metadata: { itemId: item.id, itemTitle: item.title },
+      });
+    }
+
+    if (created > 0) {
+      const summary =
+        created === 1
+          ? `"${teachers[0].display_name || teachers[0].email || 'Öğretmen'}" öğretmene`
+          : `${created} öğretmene`;
+      await this.notificationsService.createInboxEntry({
+        user_id: createdBy,
+        event_type: 'belirli_gun_hafta.notification_sent',
+        entity_id: dto.item_id,
+        target_screen: 'akademik-takvim-ayarlar',
+        title: 'Görevlendirme yapıldı',
+        body: `${summary} "${item.title}" için bildirim gönderildi.`,
+        metadata: { itemId: item.id, itemTitle: item.title, count: created },
+      });
+    }
+
+    return { created, updated, itemId: dto.item_id };
   }
 
   /** School_admin: Görevlendirmeyi kaldır */

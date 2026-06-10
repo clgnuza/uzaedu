@@ -1,6 +1,6 @@
 /**
- * Kurum türüne ek Belirli Gün / Öğretmen işleri (2025-2026, w: 0–40).
- * Ortak şablona eklenir; MEB belirli gün/haftalar ve kademe pedagojisiyle uyumlu.
+ * Kurum türüne ek Belirli Gün / Öğretmen işleri (2025-2026, w: 0–42).
+ * Ortak şablona eklenir; MEB belirli gün/haftalar çizelgesi (RG-18/1/2023-EK-8) ve kademe pedagojisi.
  */
 import { SchoolType } from '../types/enums';
 
@@ -52,7 +52,9 @@ const ANAOKUL: WeekExtra[] = [
   ao(37, ['Sınıf İçi Oyun ve Drama'], []),
   ao(38, [], ['Hayat Boyu Öğrenme Haftası']),
   ao(39, ['Veli Toplantıları', 'Gelişim Takibi'], []),
-  ao(40, ['İdareye Teslim Evraklar', 'Kulüp Raporu'], []),
+  ao(40, ['Gelişim Takibi', 'Veli Toplantıları'], []),
+  ao(41, ['Performans Değerlendir'], []),
+  ao(42, ['İdareye Teslim Evraklar', 'Kulüp Raporu'], []),
 ];
 
 /** İlkokul — temel beceriler, okuma, veli iş birliği */
@@ -96,7 +98,9 @@ const ILKOKUL: WeekExtra[] = [
   Wx(37, [], ['Proje Asistanı']),
   Wx(38, ['Hayat Boyu Öğrenme Haftası'], ['Okuma Kültürü ve Kitap', 'Veli Toplantıları']),
   Wx(39, [], ['Sınav Analizleri', 'Performans Değerlendir', 'Rehberlik ve Sosyal Beceri']),
-  Wx(40, [], ['İdareye Teslim Evraklar', 'Veli Toplantıları']),
+  Wx(40, [], ['Okuma Kültürü ve Kitap', 'Veli Toplantıları']),
+  Wx(41, [], ['Performans Değerlendir', 'İdareye Teslim Evraklar']),
+  Wx(42, [], ['İdareye Teslim Evraklar', 'Veli Toplantıları']),
 ];
 
 const LGS = ['LGS Hazırlık ve Rehberlik'];
@@ -126,7 +130,7 @@ const ORTAOKUL: WeekExtra[] = [
   Wx(23, ['Güvenli Okul ve Farkındalık Haftası'], [...LGS]),
   Wx(24, [], [...LGS, 'Soru Üret', 'Sınav Hazırla']),
   Wx(25, [], [...LGS, 'Veli Toplantıları', 'Proje Asistanı']),
-  Wx(26, ['Çanakkale Zaferi ve Şehitleri Anma Günü'], [...LGS, 'Sınav Analizleri', 'Performans Değerlendir']),
+  Wx(26, ['Şehitler Günü'], [...LGS, 'Sınav Analizleri', 'Performans Değerlendir']),
   Wx(27, [], [...LGS, 'Rehberlik ve Sosyal Beceri']),
   Wx(28, [], [...LGS, 'Tema Etkinliği ve Örnek']),
   Wx(29, [], [...LGS, 'Kulüp Raporu', 'Veli Toplantıları']),
@@ -140,7 +144,9 @@ const ORTAOKUL: WeekExtra[] = [
   Wx(37, [], [...LGS, 'Proje Asistanı']),
   Wx(38, [], [...LGS, 'Sınav Hazırla', 'Soru Üret']),
   Wx(39, [], [...LGS, 'Sınav Analizleri', 'Performans Değerlendir']),
-  Wx(40, [], [...LGS, 'İdareye Teslim Evraklar', 'Veli Toplantıları']),
+  Wx(40, [], [...LGS, 'Sınav Analizleri']),
+  Wx(41, [], [...LGS, 'İdareye Teslim Evraklar', 'Performans Değerlendir']),
+  Wx(42, [], [...LGS, 'İdareye Teslim Evraklar', 'Veli Toplantıları']),
 ];
 
 const buildLise = (): WeekExtra[] =>
@@ -196,7 +202,9 @@ const MESLEK: WeekExtra[] = [
   Wx(37, [], ['Proje Asistanı', 'Performans Değerlendir']),
   Wx(38, ['Hayat Boyu Öğrenme Haftası'], ['Mesleki Yeterlilik ve MYK', 'Staj ve İşyeri Eğitimi', 'Veli Toplantıları']),
   Wx(39, [], ['Sınav Analizleri', 'Kurum Staj Değerlendirme']),
-  Wx(40, [], ['Mesleki Yeterlilik ve MYK', 'İdareye Teslim Evraklar']),
+  Wx(40, [], ['Kurum Staj Değerlendirme', 'Mesleki Yeterlilik ve MYK']),
+  Wx(41, [], ['İdareye Teslim Evraklar', 'Performans Değerlendir']),
+  Wx(42, [], ['Mesleki Yeterlilik ve MYK', 'İdareye Teslim Evraklar']),
 ];
 
 const IHL_O: WeekExtra[] = ORTAOKUL.map((row) => ({
@@ -251,7 +259,9 @@ const OZEL: WeekExtra[] = [
   Wx(37, [], ['Özel Eğitim BEP ve Raporlar', 'Proje Asistanı']),
   Wx(38, ['Hayat Boyu Öğrenme Haftası'], ['Özel Eğitim BEP ve Raporlar', 'Veli Toplantıları']),
   Wx(39, [], ['Özel Eğitim BEP ve Raporlar', 'Sınav Analizleri']),
-  Wx(40, [], ['Özel Eğitim BEP ve Raporlar', 'İdareye Teslim Evraklar']),
+  Wx(40, [], ['Özel Eğitim BEP ve Raporlar', 'Veli Toplantıları']),
+  Wx(41, [], ['Özel Eğitim BEP ve Raporlar', 'İdareye Teslim Evraklar']),
+  Wx(42, [], ['Özel Eğitim BEP ve Raporlar', 'İdareye Teslim Evraklar']),
 ];
 
 const HALK: WeekExtra[] = [
@@ -294,7 +304,9 @@ const HALK: WeekExtra[] = [
   Wx(37, [], ['Halk Eğitimi Kurs Planları', 'Proje Asistanı']),
   Wx(38, ['Hayat Boyu Öğrenme Haftası', 'Dünya Çevre Günü'], ['Halk Eğitimi Kurs Planları', 'Veli Toplantıları']),
   Wx(39, [], ['Halk Eğitimi Kurs Planları', 'Performans Değerlendir']),
-  Wx(40, [], ['Halk Eğitimi Kurs Planları', 'İdareye Teslim Evraklar']),
+  Wx(40, [], ['Halk Eğitimi Kurs Planları', 'Veli Toplantıları']),
+  Wx(41, [], ['Halk Eğitimi Kurs Planları', 'İdareye Teslim Evraklar']),
+  Wx(42, [], ['Halk Eğitimi Kurs Planları', 'İdareye Teslim Evraklar']),
 ];
 
 const BILSEM_W: WeekExtra[] = [
@@ -337,7 +349,9 @@ const BILSEM_W: WeekExtra[] = [
   Wx(37, [], ['BILSEM Özel Gelişim Programı', 'Proje Asistanı']),
   Wx(38, ['Hayat Boyu Öğrenme Haftası', 'Dünya Çevre Günü'], ['BILSEM Özel Gelişim Programı', 'Veli Toplantıları']),
   Wx(39, [], ['BILSEM Özel Gelişim Programı', 'Sınav Analizleri']),
-  Wx(40, [], ['BILSEM Özel Gelişim Programı', 'İdareye Teslim Evraklar']),
+  Wx(40, [], ['BILSEM Özel Gelişim Programı', 'Proje Asistanı']),
+  Wx(41, [], ['BILSEM Özel Gelişim Programı', 'İdareye Teslim Evraklar']),
+  Wx(42, [], ['BILSEM Özel Gelişim Programı', 'İdareye Teslim Evraklar']),
 ];
 
 const LISE_FAMILY = buildLise();

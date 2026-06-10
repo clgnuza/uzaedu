@@ -191,7 +191,7 @@ export class WebauthnService {
     origin: string,
     response: RegistrationResponseJSON,
     name?: string,
-  ): Promise<{ ok: true }> {
+  ): Promise<{ ok: true; already_exists?: boolean }> {
     this.assertOrigin(origin);
     const expectedChallenge = await this.takeChallenge(userId);
     const verification = await verifyRegistrationResponse({
@@ -207,6 +207,22 @@ export class WebauthnService {
     }
 
     const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
+    const trimmedName = name?.trim()?.slice(0, 120) || null;
+
+    const existing = await this.credRepo.findOne({ where: { credential_id: credential.id } });
+    if (existing) {
+      if (existing.user_id !== userId) {
+        throw new BadRequestException({
+          code: 'CREDENTIAL_IN_USE',
+          message: 'Bu cihaz kimliği başka bir hesaba bağlı.',
+        });
+      }
+      if (trimmedName) existing.name = trimmedName;
+      existing.last_used_at = new Date();
+      await this.credRepo.save(existing);
+      return { ok: true, already_exists: true };
+    }
+
     const row = this.credRepo.create({
       user_id: userId,
       credential_id: credential.id,
@@ -215,7 +231,7 @@ export class WebauthnService {
       device_type: credentialDeviceType,
       backed_up: credentialBackedUp,
       transports: credential.transports ?? null,
-      name: name?.trim()?.slice(0, 120) || this.defaultDeviceName(),
+      name: trimmedName || this.defaultDeviceName(),
     });
     await this.credRepo.save(row);
     return { ok: true };

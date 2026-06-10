@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState, useEffect } from 'react';
+import { Suspense, useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AuthFlowSubnav } from '@/components/auth/auth-flow-subnav';
@@ -12,7 +12,9 @@ import { CardContent, CardHeader } from '@/components/ui/card';
 import { LoadingDots } from '@/components/ui/loading-spinner';
 import { AuthCard } from '@/components/auth/auth-card';
 import { toast } from 'sonner';
-import { ArrowRight, GraduationCap, Info, MapPin, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Briefcase, GraduationCap, Info, MapPin, Phone, ShieldCheck, User } from 'lucide-react';
+import { getTeacherBranchOptionsForSchoolType } from '@/lib/teacher-branch-options';
+import { TEACHER_TITLE_OPTIONS } from '@/lib/teacher-title-options';
 import { cn } from '@/lib/utils';
 import { AuthCompactDetails } from '@/components/auth/auth-compact-details';
 import { TURKEY_CITIES, getDistrictsForCity } from '@/lib/turkey-addresses';
@@ -58,6 +60,15 @@ function RegisterOgretmenContent() {
   const [regPhase, setRegPhase] = useState<'form' | 'otp'>('form');
   const [regEmail, setRegEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
+  const [teacherPhone, setTeacherPhone] = useState('');
+  const [branchSelect, setBranchSelect] = useState('');
+  const [teacherTitle, setTeacherTitle] = useState('');
+
+  const branchSchoolType = selectedSchool?.type ?? regType || null;
+  const branchOptions = useMemo(
+    () => getTeacherBranchOptionsForSchoolType(branchSchoolType),
+    [branchSchoolType],
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -110,6 +121,24 @@ function RegisterOgretmenContent() {
       setError('Gizlilik politikası ve kullanım şartlarını kabul etmelisiniz.');
       return;
     }
+    const nameTrim = displayName.trim();
+    if (nameTrim.length < 2) {
+      setError('Ad soyad en az 2 karakter olmalıdır.');
+      return;
+    }
+    const phoneTrim = teacherPhone.trim();
+    if (!/^[\d\s+()-]{10,32}$/.test(phoneTrim)) {
+      setError('Geçerli bir telefon numarası girin.');
+      return;
+    }
+    if (!branchSelect.trim()) {
+      setError('Branş seçin.');
+      return;
+    }
+    if (!teacherTitle.trim()) {
+      setError('Ünvan / statü seçin.');
+      return;
+    }
     setLoading(true);
     try {
       const res = await apiFetch<RegisterResponse>('/auth/register', {
@@ -117,11 +146,14 @@ function RegisterOgretmenContent() {
         body: JSON.stringify({
           email: e1,
           password,
-          display_name: displayName.trim() || undefined,
+          display_name: nameTrim,
           consent_terms: true,
           consent_marketing: consentMarketing,
           school_id: selectedSchool?.id,
           invite_code: inviteCode.trim() || undefined,
+          teacher_phone: phoneTrim,
+          teacher_branch: branchSelect.trim(),
+          teacher_title: teacherTitle.trim(),
         }),
       });
       if (res.verification_required) {
@@ -251,43 +283,111 @@ function RegisterOgretmenContent() {
             <ArrowRight className="size-4 shrink-0 text-violet-600 dark:text-violet-400" aria-hidden />
           </Link>
 
-          <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-3">
-            <div>
-              <label htmlFor="reg-email" className="mb-1 block text-left text-[11px] font-bold text-foreground sm:text-xs">
-                E-posta <span className="text-destructive">*</span>
-              </label>
-              <input
-                id="reg-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="ornek@okul.edu.tr"
-                autoComplete="email"
-                required
-                className={inputClass}
-              />
+          <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
+            <div className="space-y-2.5 rounded-2xl border border-violet-200/50 bg-linear-to-br from-violet-500/10 via-fuchsia-500/5 to-indigo-500/8 p-3 dark:border-violet-800/40 sm:p-4">
+              <p className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wide text-violet-800 dark:text-violet-200">
+                <User className="size-3.5" aria-hidden />
+                Kişisel bilgiler
+              </p>
+              <div>
+                <label htmlFor="reg-display-name" className="mb-1 block text-left text-[11px] font-bold text-foreground sm:text-xs">
+                  Ad soyad <span className="text-destructive">*</span>
+                </label>
+                <input
+                  id="reg-display-name"
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Ad Soyad"
+                  autoComplete="name"
+                  required
+                  minLength={2}
+                  maxLength={255}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label htmlFor="reg-phone" className="mb-1 block text-left text-[11px] font-bold text-foreground sm:text-xs">
+                  Telefon <span className="text-destructive">*</span>
+                </label>
+                <input
+                  id="reg-phone"
+                  type="tel"
+                  inputMode="tel"
+                  value={teacherPhone}
+                  onChange={(e) => setTeacherPhone(e.target.value)}
+                  placeholder="05XX XXX XX XX"
+                  autoComplete="tel"
+                  required
+                  maxLength={32}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label htmlFor="reg-email" className="mb-1 block text-left text-[11px] font-bold text-foreground sm:text-xs">
+                  E-posta <span className="text-destructive">*</span>
+                </label>
+                <input
+                  id="reg-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="ornek@okul.edu.tr"
+                  autoComplete="email"
+                  required
+                  className={inputClass}
+                />
+              </div>
             </div>
-            <div>
-              <label htmlFor="reg-display-name" className="mb-1 block text-left text-[11px] font-bold text-foreground sm:text-xs">
-                Görünen ad
-              </label>
-              <input
-                id="reg-display-name"
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="İsteğe bağlı"
-                autoComplete="nickname"
-                maxLength={255}
-                className={inputClass}
-              />
-              <AuthCompactDetails
-                icon={<Info className="size-3.5" strokeWidth={2} aria-hidden />}
-                title="Görünen ad"
-                className="mt-1.5"
-              >
-                Zorunlu değil; aynı okulda maskelenebilir.
-              </AuthCompactDetails>
+
+            <div className="space-y-2.5 rounded-2xl border border-emerald-200/50 bg-linear-to-br from-emerald-500/10 via-teal-500/5 to-cyan-500/8 p-3 dark:border-emerald-800/40 sm:p-4">
+              <p className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wide text-emerald-900 dark:text-emerald-200">
+                <Briefcase className="size-3.5" aria-hidden />
+                Mesleki bilgiler
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="reg-branch" className="mb-1 block text-left text-[11px] font-bold text-foreground sm:text-xs">
+                    Branş <span className="text-destructive">*</span>
+                  </label>
+                  <select
+                    id="reg-branch"
+                    value={branchSelect}
+                    onChange={(e) => setBranchSelect(e.target.value)}
+                    required
+                    className={inputClass}
+                  >
+                    <option value="">Branş seçin</option>
+                    {branchSelect && !branchOptions.includes(branchSelect) && (
+                      <option value={branchSelect}>{branchSelect}</option>
+                    )}
+                    {branchOptions.map((b) => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="reg-title" className="mb-1 block text-left text-[11px] font-bold text-foreground sm:text-xs">
+                    Ünvan / statü <span className="text-destructive">*</span>
+                  </label>
+                  <select
+                    id="reg-title"
+                    value={teacherTitle}
+                    onChange={(e) => setTeacherTitle(e.target.value)}
+                    required
+                    className={inputClass}
+                  >
+                    <option value="">Seçin</option>
+                    {TEACHER_TITLE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="flex items-center gap-1 text-[10px] text-muted-foreground sm:text-[11px]">
+                <Phone className="size-3 shrink-0 opacity-70" aria-hidden />
+                T.C., IBAN ve kadro bilgilerini kayıt sonrası Profil → Resmî sekmesinden ekleyebilirsiniz.
+              </p>
             </div>
             <div>
               <label htmlFor="reg-invite" className="mb-1 block text-left text-[11px] font-bold text-foreground sm:text-xs">

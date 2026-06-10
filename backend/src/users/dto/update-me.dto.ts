@@ -55,6 +55,16 @@ export class YollukTeacherDefaultsDto {
   @IsString()
   @MaxLength(120)
   pdf_unvan?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  adres_il?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  adres_ilce?: string;
 }
 
 /** Evrak formunda varsayılan değerler */
@@ -149,6 +159,28 @@ export class UpdateMeDto {
   @IsString()
   @MaxLength(100)
   teacher_branch?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === null || value === undefined) return value;
+    if (typeof value !== 'string') return value;
+    const t = value.trim().replace(/\s+/g, ' ').slice(0, 32);
+    return t === '' ? null : t;
+  })
+  @IsString()
+  @MaxLength(32)
+  teacher_phone?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === null || value === undefined) return value;
+    if (typeof value !== 'string') return value;
+    const t = value.trim().slice(0, 64);
+    return t === '' ? null : t;
+  })
+  @IsString()
+  @MaxLength(64)
+  teacher_title?: string | null;
 
   /** Aynı okuldaki diğer öğretmenlere tam ad gösterilmesin */
   @IsOptional()

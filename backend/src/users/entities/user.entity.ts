@@ -19,6 +19,8 @@ export interface YollukTeacherProfile {
   kadro_kademesi?: string;
   /** Bildirim / PDF «ünvan» metni (profilde saklanır) */
   pdf_unvan?: string;
+  adres_il?: string;
+  adres_ilce?: string;
 }
 
 /** Evrak formunda varsayılan değerler (profil ayarlarından) */

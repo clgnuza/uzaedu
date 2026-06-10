@@ -1,4 +1,6 @@
-/** Kilit ekranı / iOS tarzı göreli zaman */
+import { TURKEY_TZ } from '@/lib/exam-duty-turkey-time';
+
+/** Kilit ekranı / iOS tarzı göreli zaman (TSİ) */
 export function formatNotificationRelativeTime(iso: string): string {
   const d = new Date(iso);
   const diffMs = Date.now() - d.getTime();
@@ -9,5 +11,5 @@ export function formatNotificationRelativeTime(iso: string): string {
   if (diffHours < 24) return `${diffHours} sa. önce`;
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays} gün önce`;
-  return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+  return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', timeZone: TURKEY_TZ });
 }

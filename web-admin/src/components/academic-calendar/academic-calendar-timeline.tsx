@@ -3,6 +3,12 @@
 import Link from 'next/link';
 import { Star, FileText, Users, BookOpen, Search, User, LayoutGrid, Trash2, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  formatAcademicWeekHeading,
+  getAcademicWeekKind,
+  getCurrentWeekIndex,
+  isNonTeachingWeek,
+} from '@/lib/academic-week-label';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -26,12 +32,37 @@ export interface WeekWithItems {
   id: string;
   academicYear: string;
   weekNumber: number;
+  weekOrder?: number;
   title: string | null;
   dateStart: string | null;
   dateEnd: string | null;
   sortOrder: number;
+  isTatil?: boolean;
+  ay?: string;
   belirliGunHafta: WeekItem[];
   ogretmenIsleri: WeekItem[];
+}
+
+export {
+  findWeekIndexForDate,
+  formatAcademicWeekHeading,
+  formatAcademicWeekShort,
+  getAcademicWeekKind,
+  getAcademicWeekKindLabel,
+  getCurrentWeekIndex,
+  isDateInAcademicWeek,
+  isNonTeachingWeek,
+} from '@/lib/academic-week-label';
+
+function weekCircleLabel(week: WeekWithItems): string {
+  if (isNonTeachingWeek(week)) {
+    const k = getAcademicWeekKind(week);
+    if (k === 'seminer') return 'S';
+    if (k === 'ara_tatil') return 'A';
+    if (k === 'yariyil') return 'Y';
+    return '·';
+  }
+  return String(week.weekOrder && week.weekOrder > 0 ? week.weekOrder : week.weekNumber);
 }
 
 const OGRETMEN_ICONS: Record<string, LucideIcon> = {
@@ -163,7 +194,7 @@ export function AcademicCalendarWeekCard({
               : 'border-muted-foreground/25 bg-background text-muted-foreground shadow-sm'
           )}
         >
-          {week.weekNumber}
+          {weekCircleLabel(week)}
         </div>
         {showConnector && <div className="h-8 w-0.5 shrink-0 bg-muted-foreground/20" />}
       </div>
@@ -176,7 +207,8 @@ export function AcademicCalendarWeekCard({
         )}
       >
         <div className="mb-5 text-base font-semibold text-muted-foreground">
-          {dateRange || week.title || `${week.weekNumber}. Hafta`}
+          {formatAcademicWeekHeading(week)}
+          {dateRange ? ` · ${dateRange}` : ''}
         </div>
 
         {week.belirliGunHafta.length > 0 && (
@@ -220,10 +252,13 @@ export function AcademicCalendarPaletteItem({
   id,
   title,
   variant,
+  compact = false,
 }: {
   id: string;
   title: string;
   variant: 'belirli' | 'ogretmen';
+  /** Dar palet: tek sütun, kısa chip */
+  compact?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id,
@@ -231,22 +266,31 @@ export function AcademicCalendarPaletteItem({
   });
   const baseClass =
     variant === 'belirli'
-      ? 'inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200'
-      : 'inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3.5 py-1.5 text-sm font-medium text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200';
+      ? 'border-amber-200/80 bg-amber-50 text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/45 dark:text-amber-100'
+      : 'border-sky-200/80 bg-sky-50 text-sky-900 dark:border-sky-800/60 dark:bg-sky-950/45 dark:text-sky-100';
   return (
     <span
       ref={setNodeRef}
       title={title}
       {...attributes}
       {...listeners}
-      className={cn(baseClass, 'cursor-grab active:cursor-grabbing', isDragging && 'opacity-40')}
+      className={cn(
+        'cursor-grab border font-medium active:cursor-grabbing',
+        compact
+          ? 'flex w-full min-w-0 items-center gap-1 rounded-lg px-2 py-1 text-[10px] leading-tight'
+          : 'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm',
+        !compact && variant === 'ogretmen' && 'gap-2 px-3.5',
+        baseClass,
+        isDragging && 'opacity-40',
+      )}
     >
-      {variant === 'belirli' && <Star className="size-3.5 shrink-0" aria-hidden />}
-      {variant === 'ogretmen' && (() => {
-        const Icon = getOgretmenIcon(title);
-        return <Icon className="size-3.5 shrink-0" aria-hidden />;
-      })()}
-      {title}
+      {variant === 'belirli' && <Star className={cn('shrink-0', compact ? 'size-3' : 'size-3.5')} aria-hidden />}
+      {variant === 'ogretmen' &&
+        (() => {
+          const Icon = getOgretmenIcon(title);
+          return <Icon className={cn('shrink-0', compact ? 'size-3' : 'size-3.5')} aria-hidden />;
+        })()}
+      <span className={cn(compact && 'min-w-0 truncate')}>{title}</span>
     </span>
   );
 }
@@ -281,53 +325,68 @@ export function AcademicCalendarDropZone({
   section,
   isEmpty,
   children,
+  paletteDragSection = null,
 }: {
   weekId: string;
   section: 'belirli' | 'ogretmen';
   isEmpty: boolean;
   children: React.ReactNode;
+  /** Paletten sürüklenen öğe türü; eşleşmeyen alanlar devre dışı */
+  paletteDragSection?: 'belirli' | 'ogretmen' | null;
 }) {
   const dropId = `drop__${weekId}__${section}`;
+  const acceptsDrop = paletteDragSection == null || paletteDragSection === section;
+  const rejectsDrop = paletteDragSection != null && paletteDragSection !== section;
   const { isOver, setNodeRef } = useDroppable({
     id: dropId,
     data: { weekId, section },
+    disabled: rejectsDrop,
   });
-  const sectionHint = section === 'belirli' ? 'turuncu' : 'mavi';
+  const accent =
+    section === 'belirli'
+      ? {
+          idle: 'border-amber-300/50 bg-amber-500/5 dark:border-amber-800/40',
+          over: 'border-amber-500 bg-amber-500/15 ring-2 ring-amber-400/35',
+          reject: 'border-border/40 bg-muted/15 opacity-45',
+          label: 'Belirli gün öğeleri',
+        }
+      : {
+          idle: 'border-sky-300/50 bg-sky-500/5 dark:border-sky-800/40',
+          over: 'border-sky-500 bg-sky-500/15 ring-2 ring-sky-400/35',
+          reject: 'border-border/40 bg-muted/15 opacity-45',
+          label: 'Öğretmen işi öğeleri',
+        };
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        'min-h-[52px] min-w-[min(100%,12rem)] rounded-lg px-2 py-2 transition-all',
-        isEmpty
-          ? 'flex items-center border-2 border-dashed border-muted-foreground/35 bg-muted/20'
-          : 'border border-transparent bg-muted/10',
-        isOver &&
-          'border-primary bg-primary/15 ring-2 ring-primary/40 ring-offset-2 ring-offset-background dark:ring-offset-background',
-        isEmpty && isOver && 'border-primary border-solid bg-primary/20'
+        'min-h-10 rounded-lg px-2 py-1.5 transition-all',
+        isEmpty ? 'flex items-center border-2 border-dashed' : 'border',
+        rejectsDrop ? accent.reject : isEmpty ? accent.idle : 'border-transparent bg-muted/10',
+        isOver && acceptsDrop && accent.over,
       )}
     >
       {isEmpty ? (
-        <span className="w-full px-1 text-center text-xs leading-snug text-muted-foreground">
-          {isOver ? (
-            <span className="font-medium text-primary">Bırakın — eklenecek</span>
+        <span className="w-full px-1 text-center text-[10px] leading-snug text-muted-foreground">
+          {rejectsDrop ? (
+            <span className="text-muted-foreground/70">Bu alana bırakılamaz</span>
+          ) : isOver ? (
+            <span className="font-semibold text-foreground">Bırakın — eklenecek</span>
           ) : (
             <>
-              {section === 'belirli' ? '★' : '●'} Buraya sürükleyin
-              <span className="mt-0.5 block text-[10px] opacity-80">({sectionHint} alan)</span>
+              {section === 'belirli' ? '★' : '●'} {accent.label}
+              <span className="mt-0.5 block text-[9px] opacity-75">Yalnızca eşleşen palet öğesi</span>
             </>
           )}
         </span>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {children}
-          <p
-            className={cn(
-              'text-center text-[10px] text-muted-foreground/80',
-              isOver && 'font-medium text-primary'
-            )}
-          >
-            {isOver ? '↑ Buraya bırakın (mevcutların yanına eklenir)' : '↑ Aynı haftaya başka öğe eklemek için buraya bırakın'}
-          </p>
+          {!rejectsDrop && (
+            <p className={cn('text-center text-[9px] text-muted-foreground/80', isOver && 'font-medium text-foreground')}>
+              {isOver ? 'Buraya bırakın' : 'Ek öğe için buraya bırakın'}
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -352,13 +411,14 @@ export function AcademicCalendarWeekCardEdit({
     <div className="relative flex gap-6">
       <div className="relative flex shrink-0 flex-col items-center">
         <div className="flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-muted-foreground/25 bg-background text-sm font-bold text-muted-foreground shadow-sm">
-          {week.weekNumber}
+          {weekCircleLabel(week)}
         </div>
         {showConnector && <div className="h-8 w-0.5 shrink-0 bg-muted-foreground/20" />}
       </div>
       <div className="mb-2 min-w-0 flex-1 rounded-xl border border-border bg-card p-6 shadow-sm hover:shadow-md">
         <div className="mb-5 text-base font-semibold text-muted-foreground">
-          {dateRange || week.title || `${week.weekNumber}. Hafta`}
+          {formatAcademicWeekHeading(week)}
+          {dateRange ? ` · ${dateRange}` : ''}
         </div>
         <div className="mb-5">
           <div className="mb-2.5 flex items-center gap-2 text-sm font-bold text-foreground">
@@ -472,15 +532,11 @@ function SortablePill({
   );
 }
 
-/** Hafta numarasına göre "şu anki hafta" tespiti – work_calendar sırasına göre */
+/** Öğretim hafta numarası (0 = seminer/tatil haftasındayız) */
 export function getCurrentWeekOrder(weeks: WeekWithItems[]): number {
-  const now = new Date();
-  for (let i = 0; i < weeks.length; i++) {
-    const w = weeks[i];
-    if (!w.dateStart || !w.dateEnd) continue;
-    const start = new Date(w.dateStart);
-    const end = new Date(w.dateEnd);
-    if (now >= start && now <= end) return w.weekNumber;
-  }
-  return -1;
+  const idx = getCurrentWeekIndex(weeks);
+  if (idx < 0) return -1;
+  const w = weeks[idx];
+  const order = w.weekOrder ?? w.weekNumber;
+  return order > 0 ? order : 0;
 }

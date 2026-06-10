@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { Building2, MapPin, Hash, Mail } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatSchoolTypeLabel } from '@/lib/school-labels';
+import { emailMatchesSchoolInstitution, schoolEmailExample } from '@/lib/school-institutional-email';
 
 type LookupResponse = {
   school_id: string;
@@ -25,6 +26,7 @@ type LookupResponse = {
   institution_code: string | null;
   required_email_domain: string | null;
   institutional_email_sample: string | null;
+  email_format_example: string | null;
 };
 type RegStart = { verification_required: true; email: string; school_id: string };
 type RegVerify = { token: string };
@@ -102,13 +104,13 @@ function SchoolFoundHero({ lookup }: { lookup: LookupResponse }) {
         <p className="flex items-start gap-1.5 text-[11px] font-semibold text-foreground sm:text-xs">
           <Mail className="mt-0.5 size-3.5 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden />
           <span>
-            E-posta alan adı:{' '}
-            <strong className="text-amber-900 dark:text-amber-100">@{lookup.required_email_domain}</strong>
+            E-posta <strong className="text-amber-900 dark:text-amber-100">{lookup.institution_code}</strong> ile başlamalı,{' '}
+            <strong className="text-amber-900 dark:text-amber-100">@{lookup.required_email_domain}</strong> alan adını kullanmalıdır.
           </span>
         </p>
-        {lookup.institutional_email_sample && (
-          <p className="pl-5 text-[10px] text-muted-foreground sm:text-[11px]">Örnek: {lookup.institutional_email_sample}</p>
-        )}
+        <p className="pl-5 text-[10px] font-bold text-amber-900 dark:text-amber-100 sm:text-[11px]">
+          Örnek: {lookup.email_format_example ?? schoolEmailExample(lookup.institution_code ?? '', lookup.required_email_domain)}
+        </p>
       </div>
     </div>
   );
@@ -145,6 +147,9 @@ function RegisterOkulContent() {
       const qs = new URLSearchParams({ institution_code: c });
       const res = await apiFetch<LookupResponse>(`/auth/school/lookup?${qs.toString()}`);
       setLookup(res);
+      const example =
+        res.email_format_example ?? schoolEmailExample(res.institution_code ?? c, res.required_email_domain);
+      setEmail(example);
       setStep('form');
       toast.success('Okul bulundu.');
     } catch (err) {
@@ -164,6 +169,16 @@ function RegisterOkulContent() {
     const e1 = email.trim().toLowerCase();
     if (!e1 || password.length < 8) {
       setError('E-posta ve şifre (min. 8) gerekli.');
+      return;
+    }
+    const code = institutionCode.trim();
+    if (
+      lookup &&
+      !emailMatchesSchoolInstitution(e1, lookup.institution_code ?? code, lookup.required_email_domain)
+    ) {
+      const example =
+        lookup.email_format_example ?? schoolEmailExample(lookup.institution_code ?? code, lookup.required_email_domain);
+      setError(`E-posta kurum kodu (${code}) ile başlamalıdır. Örnek: ${example}`);
       return;
     }
     if (!/^(?=.*\p{L})(?=.*\d).{8,128}$/u.test(password)) {
@@ -288,8 +303,15 @@ function RegisterOkulContent() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className={inputClass}
+                  placeholder={
+                    lookup.email_format_example ??
+                    schoolEmailExample(lookup.institution_code ?? institutionCode, lookup.required_email_domain)
+                  }
                   required
                 />
+                <p className="mt-1 text-left text-[10px] text-muted-foreground sm:text-[11px]">
+                  Kurum kodu ile başlayan adres (ör. {lookup.institution_code}@…)
+                </p>
               </div>
               <div>
                 <label className="mb-1 block text-left text-[11px] font-bold sm:text-xs">Görünen ad</label>

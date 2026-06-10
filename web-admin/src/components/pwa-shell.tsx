@@ -28,21 +28,10 @@ export function PwaShell() {
       )
       .catch(() => undefined);
     if (PWA_DEV) {
+      // Dev/emulator: SW kaydi yok — sw.js veya push worker yenileme dongusu yapar.
       void navigator.serviceWorker
         .getRegistrations()
-        .then((regs) =>
-          Promise.all(
-            regs
-              .filter((r) => {
-                const url = r.active?.scriptURL ?? r.waiting?.scriptURL ?? r.installing?.scriptURL ?? '';
-                return !url.includes('sw-push.js');
-              })
-              .map((r) => r.unregister()),
-          ),
-        )
-        .then(() =>
-          navigator.serviceWorker.register('/sw-push.js', { scope: '/', updateViaCache: 'none' }),
-        )
+        .then((regs) => Promise.all(regs.map((r) => r.unregister())))
         .catch(() => undefined);
     }
   }, []);

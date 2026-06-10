@@ -769,6 +769,10 @@ export type ExamDutySyncOptions = {
    * false: yalnızca kaynak URL / external_id ile tekrar engellenir (takvim dedup kapalı).
    */
   dedupe_exam_schedule: boolean;
+  /** Son başvuru İstanbul günü ±N (kaynaklar arası küçük parse farkları; sınav günü eşleşmesi öncelikli) */
+  dedupe_application_end_slack_days?: number;
+  /** Sınav tarihi aralığına ±N gün payı (örtüşme; aynı sınav günü kuralından sonra) */
+  dedupe_exam_range_pad_days?: number;
   /** Scrape: 0–14 = 1–15. slayt; her tam sync’te yalnızca bu slayt içerik kontrolüne alınır, sonra +1 (mod 15). */
   scrape_slider_slot_index: number;
 };
@@ -1997,6 +2001,14 @@ export class AppConfigService {
         notify_superadmin_on_sync_items: parsed.notify_superadmin_on_sync_items !== false,
         auto_publish_gpt_sync_duties: parsed.auto_publish_gpt_sync_duties === true,
         dedupe_exam_schedule: parsed.dedupe_exam_schedule !== false,
+        dedupe_application_end_slack_days: Math.min(
+          7,
+          Math.max(0, Math.floor(Number(parsed.dedupe_application_end_slack_days)) || 0),
+        ),
+        dedupe_exam_range_pad_days: Math.min(
+          7,
+          Math.max(0, Math.floor(Number(parsed.dedupe_exam_range_pad_days)) || 0),
+        ),
         scrape_slider_slot_index: Math.min(
           14,
           Math.max(0, Math.floor(Number(parsed.scrape_slider_slot_index)) || 0),
@@ -2082,6 +2094,14 @@ export class AppConfigService {
           dto.sync_options.dedupe_exam_schedule !== undefined
             ? dto.sync_options.dedupe_exam_schedule !== false
             : current.dedupe_exam_schedule,
+        dedupe_application_end_slack_days:
+          dto.sync_options.dedupe_application_end_slack_days !== undefined
+            ? Math.min(7, Math.max(0, Math.floor(Number(dto.sync_options.dedupe_application_end_slack_days)) || 0))
+            : current.dedupe_application_end_slack_days,
+        dedupe_exam_range_pad_days:
+          dto.sync_options.dedupe_exam_range_pad_days !== undefined
+            ? Math.min(7, Math.max(0, Math.floor(Number(dto.sync_options.dedupe_exam_range_pad_days)) || 0))
+            : current.dedupe_exam_range_pad_days,
         scrape_slider_slot_index:
           dto.sync_options.scrape_slider_slot_index !== undefined
             ? Math.min(14, Math.max(0, Math.floor(Number(dto.sync_options.scrape_slider_slot_index)) || 0))

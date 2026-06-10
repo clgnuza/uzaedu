@@ -14,6 +14,8 @@
     "generate:optik-golden-ppm": "npx --yes tsx scripts/generate-optik-golden-ppm.ts",
     "optik:golden:ppm": "npx --yes tsx scripts/generate-optik-golden-ppm.ts",
     "pwa:assets": "node scripts/generate-pwa-brand-assets.mjs",
+    "pwa:push-icons": "node scripts/generate-push-notification-assets.mjs",
+    "pwa:sw-push": "npx --yes esbuild src/sw-push-standalone.ts --bundle --outfile=public/sw-push.js --format=iife --target=es2020",
     "pwa:lighthouse": "npx --yes lighthouse http://127.0.0.1:3000/dashboard --only-categories=pwa --output=html --output-path=./lighthouse-pwa.html --chrome-flags=\"--headless=new\""
   },
   "dependencies": {

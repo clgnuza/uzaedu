@@ -11,23 +11,30 @@ import {
 import { PWA_FILE_HANDLERS, PWA_LAUNCH_HANDLER, PWA_SHARE_TARGET } from '@/lib/pwa-manifest-extras';
 
 const ICONS: MetadataRoute.Manifest['icons'] = [
-  { src: PWA_ICON_512, sizes: '512x512', type: 'image/png', purpose: 'any' },
+  { src: UZAEDU_APP_ICON_PNG, sizes: '512x512', type: 'image/png', purpose: 'any' },
   { src: PWA_ICON_192, sizes: '192x192', type: 'image/png', purpose: 'any' },
+  { src: PWA_ICON_512, sizes: '512x512', type: 'image/png', purpose: 'any' },
   { src: PWA_SEAL_CENTER_LOGO, sizes: '1024x1024', type: 'image/png', purpose: 'any' },
-  { src: UZAEDU_APP_ICON_PNG, sizes: '1024x1024', type: 'image/png', purpose: 'any' },
   { src: PWA_MASKABLE_ICON, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
 ];
 
+function pwaDisplayNames(raw: string | null | undefined) {
+  const base = raw?.trim() || 'Uzaedu Öğretmen';
+  const name = /^Uzaedu\s/i.test(base) ? base.replace(/\s+Pro$/i, '') : `Uzaedu ${base.replace(/\s+Pro$/i, '')}`;
+  return { name, short_name: 'Öğretmen' };
+}
+
 export default async function manifest(): Promise<MetadataRoute.Manifest> {
   const extras = await fetchWebExtrasPublic();
-  const shortName = extras?.pwa_short_name?.trim() || 'Öğretmen';
+  const { name, short_name } = pwaDisplayNames(extras?.pwa_short_name);
   const theme = extras?.theme_color?.trim() || '#991b1b';
+  const description = 'Uzaedu Öğretmen';
 
   return {
     id: '/',
-    name: `Uzaedu ${shortName}`,
-    short_name: shortName,
-    description: 'Okul yönetimi: ders programı, optik, akıllı tahta, nöbet, ek ders ve daha fazlası',
+    name,
+    short_name,
+    description,
     start_url: '/dashboard?source=pwa',
     scope: '/',
     display: 'standalone',

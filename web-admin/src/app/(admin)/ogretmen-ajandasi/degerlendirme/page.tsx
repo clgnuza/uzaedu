@@ -36,6 +36,7 @@ import {
   GraduationCap,
   type LucideIcon,
 } from 'lucide-react';
+import { getLatestScore, getLatestScoreForDate } from './lib/eval-score-utils';
 import { splitStudentNameForCard } from './lib/student-avatar';
 import { StudentMascotIcon } from './lib/student-mascot-icon';
 import { buildWeekSummary, getWeekBounds } from './lib/eval-week-summary';
@@ -43,9 +44,12 @@ import { HaftalikOzetPanel } from './components/HaftalikOzetPanel';
 import { SinifAraclariPanel } from './components/SinifAraclariPanel';
 import { EvalBlobMascot, EvalEmptyIllustration, EvalSparkleCluster } from './components/eval-decor';
 import { BehaviorPresetsGrid } from './components/behavior-presets-grid';
+import { DefinedBehaviorCriteriaGrid } from './components/defined-behavior-criteria-grid';
+import { LessonPresetsGrid } from './components/lesson-presets-grid';
 import { DegerlendirmeHero } from './components/DegerlendirmeHero';
 import { PrintReportModal } from './components/print-report-modal';
 import { GridStudentScoreSheet } from './components/GridStudentScoreSheet';
+import { StudentDetailModal } from './components/student-detail-modal';
 import { StudentEvalQuickCards, evalQuickKindTags, type EvalQuickKind } from './components/student-eval-quick-cards';
 import { ForbiddenView } from '@/components/errors/forbidden-view';
 import * as XLSX from 'xlsx';
@@ -277,6 +281,14 @@ export default function DegerlendirmePage() {
     [displayCriteria],
   );
 
+  const lessonCriteriaNames = useMemo(
+    () =>
+      new Set(
+        displayCriteria.filter((c) => (c.criterionCategory ?? 'lesson') === 'lesson').map((c) => c.name),
+      ),
+    [displayCriteria],
+  );
+
   const subjectLabel = useCallback(
     (subjectId: string | null | undefined) => {
       if (!subjectId) return 'Tüm dersler';
@@ -324,6 +336,11 @@ export default function DegerlendirmePage() {
     return listPart;
   }, [selectedListId, selectedClassFilterId, displayLists, classes]);
 
+  const weekSummaryCriteria = useMemo(() => {
+    if (tableSubjectFilterId === null) return displayCriteria;
+    return displayCriteria.filter((c) => !c.subjectId || c.subjectId === tableSubjectFilterId);
+  }, [displayCriteria, tableSubjectFilterId]);
+
   const weekBounds = useMemo(() => getWeekBounds(weekOffset), [weekOffset]);
   const weekRows = useMemo(
     () =>
@@ -331,7 +348,7 @@ export default function DegerlendirmePage() {
         displayStudentsResolved,
         displayScores,
         displayStudentNotes,
-        displayCriteria,
+        weekSummaryCriteria,
         weekBounds.weekStart,
         weekBounds.weekEnd,
       ),
@@ -339,7 +356,7 @@ export default function DegerlendirmePage() {
       displayStudentsResolved,
       displayScores,
       displayStudentNotes,
-      displayCriteria,
+      weekSummaryCriteria,
       weekBounds.weekStart,
       weekBounds.weekEnd,
     ],
@@ -366,7 +383,10 @@ export default function DegerlendirmePage() {
   }, [fetchData]);
 
   const getScore = (studentId: string, criterionId: string) =>
-    displayScores.find((s) => s.studentId === studentId && s.criterionId === criterionId);
+    getLatestScore(displayScores, studentId, criterionId);
+
+  const getTodayScore = (studentId: string, criterionId: string) =>
+    getLatestScoreForDate(displayScores, studentId, criterionId, today);
 
   const persistScore = async (studentId: string, criterionId: string, score: number, quiet?: boolean) => {
     if (!token) return;
@@ -651,6 +671,7 @@ export default function DegerlendirmePage() {
                 <h3 className="text-sm font-bold text-indigo-950 dark:text-indigo-100">Sınıf içi ders kriterleri</h3>
               </div>
               <p className="text-xs text-muted-foreground">Dersle ilişkilendirilebilir; tabloda ders filtresine göre görünür.</p>
+              <LessonPresetsGrid token={token} existingNames={lessonCriteriaNames} onAdded={() => void fetchData()} />
               {lessonCriteriaGrouped.genel.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Genel (tüm dersler)</p>
@@ -775,7 +796,7 @@ export default function DegerlendirmePage() {
                 </div>
               ))}
               {lessonCriteriaGrouped.genel.length === 0 && lessonCriteriaGrouped.bySubject.length === 0 && (
-                <p className="text-sm text-muted-foreground">Henüz ders kriteri yok. Yukarıdan ekleyin veya tabloda kullanın.</p>
+                <p className="text-sm text-muted-foreground">Henüz tanımlı kriter yok. Hazır listeden seçin veya üstten manuel ekleyin.</p>
               )}
             </section>
 
@@ -795,48 +816,11 @@ export default function DegerlendirmePage() {
                 onAdded={() => void fetchData()}
                 onQuickApplied={() => void fetchData()}
               />
-              {behaviorCriteriaAll.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tanımlı davranışlar</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {behaviorCriteriaAll.map((c, i) => (
-                      <span
-                        key={c.id}
-                        className={cn(
-                          'inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border border-emerald-200/60 bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-900 dark:border-emerald-800/50 dark:bg-emerald-950/30 dark:text-emerald-100',
-                        )}
-                      >
-                        <span className="min-w-0 truncate">{c.name}</span>
-                        <span className="text-xs opacity-80">
-                          {(c.scoreType ?? 'numeric') === 'sign' ? '+/−' : `0–${c.maxScore}`}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openCriterionModal(c);
-                          }}
-                          className="rounded p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
-                          title="Düzenle"
-                        >
-                          <Pencil className="size-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteCriterion(c.id);
-                          }}
-                          className="rounded p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
-                          title="Kriteri sil"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <DefinedBehaviorCriteriaGrid
+                criteria={behaviorCriteriaAll}
+                onEdit={(c) => openCriterionModal(c)}
+                onDelete={handleDeleteCriterion}
+              />
             </section>
           </CardContent>
         </Card>
@@ -848,6 +832,13 @@ export default function DegerlendirmePage() {
           weekOffset={weekOffset}
           onWeekOffset={(d) => setWeekOffset((w) => w + d)}
           rows={weekRows}
+          subjects={subjects}
+          classes={classes}
+          subjectFilterId={tableSubjectFilterId}
+          classFilterId={selectedClassFilterId}
+          onSubjectFilterChange={setTableSubjectFilterId}
+          onClassFilterChange={setSelectedClassFilterId}
+          listLabel={listLabelShort}
           panelClass={EVAL_PANEL.ozet.card}
           headClass={EVAL_PANEL.ozet.head}
           iconWrapClass={EVAL_PANEL.ozet.iconWrap}
@@ -1588,7 +1579,7 @@ export default function DegerlendirmePage() {
         today={today}
         evalNotes={displayStudentNotes}
         onClose={() => setGridScoreSheetStudent(null)}
-        getScore={(sid, cid) => getScore(sid, cid)}
+        getScore={(sid, cid) => getTodayScore(sid, cid)}
         isSaving={(sid, cid) => !!scoreSavingKeys[`${sid}:${cid}`]}
         onQuickScore={handleQuickGridScore}
         onOpenScoreModal={(st, c) => {
@@ -1645,119 +1636,6 @@ export default function DegerlendirmePage() {
           onSubmit={(score) => handleAddScoreFromModal(scoreModal.student.id, scoreModal.criterion.id, score)}
         />
       )}
-    </div>
-  );
-}
-
-function StudentDetailModal({
-  student,
-  notes,
-  scores,
-  today,
-  onClose,
-  onAddEvalQuick,
-}: {
-  student: Student;
-  notes: StudentNote[];
-  scores: Score[];
-  today: string;
-  onClose: () => void;
-  onAddEvalQuick: (kind: EvalQuickKind, e?: React.MouseEvent) => void;
-}) {
-  type TimelineItem = { type: 'note'; date: string; noteType: string; description?: string } | { type: 'score'; date: string; criterionName: string; score: number; scoreType?: 'numeric' | 'sign' };
-  const items: TimelineItem[] = [
-    ...notes.map((n) => ({ type: 'note' as const, date: n.noteDate, noteType: n.noteType, description: n.description ?? undefined })),
-    ...scores.map((s) => ({ type: 'score' as const, date: s.noteDate, criterionName: s.criterion?.name ?? '-', score: s.score, scoreType: s.criterion?.scoreType })),
-  ].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
-
-  const pos = notes.filter((n) => n.noteType === 'positive').length;
-  const neg = notes.filter((n) => n.noteType === 'negative').length;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
-      <div className="bg-card max-h-[min(92vh,100dvh)] w-full max-w-lg flex flex-col rounded-t-[1.35rem] border border-border shadow-2xl sm:max-h-[90vh] sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-muted-foreground/25 sm:hidden" aria-hidden />
-        <div className="flex items-center justify-between gap-2 border-b border-border/80 p-3 sm:gap-3 sm:p-4">
-          <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-            <span
-              className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-black/5 dark:bg-zinc-800 dark:ring-white/10 sm:size-12"
-              aria-hidden
-            >
-              <StudentMascotIcon studentId={student.id} className="size-11 sm:size-12" />
-            </span>
-            <div className="min-w-0">
-              <h3 className="truncate text-base font-semibold tracking-tight sm:text-lg">{student.name}</h3>
-              <p className="text-[11px] leading-snug text-muted-foreground sm:text-sm">
-                +{pos} / −{neg} not · {scores.length} kriter
-              </p>
-            </div>
-          </div>
-          <button type="button" onClick={onClose} className="shrink-0 rounded-xl p-2 hover:bg-muted">
-            <X className="size-4" />
-          </button>
-        </div>
-        <div className="border-b border-border/60 bg-muted/5 px-3 py-2 sm:px-4 sm:py-2.5">
-          <div className="mb-1.5 flex items-center justify-between gap-2">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Bugün · hızlı</p>
-            <p className="text-[10px] font-medium tabular-nums text-muted-foreground/90">
-              {format(new Date(`${today}T12:00:00`), 'd MMM', { locale: tr })}
-            </p>
-          </div>
-          <StudentEvalQuickCards
-            variant="sheet"
-            hideNotesLink
-            studentId={student.id}
-            studentName={student.name}
-            today={today}
-            notes={notes}
-            onAdd={onAddEvalQuick}
-          />
-        </div>
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">Tüm veriler (tarihe göre)</p>
-          {items.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">Henüz veri yok.</p>
-          ) : (
-            <ul className="space-y-2">
-              {items.map((it, i) => (
-                <li
-                  key={i}
-                  className={cn(
-                    'flex items-start gap-3 rounded-xl px-4 py-3 border',
-                    it.type === 'note'
-                      ? it.noteType === 'positive'
-                        ? 'bg-emerald-500/5 border-emerald-500/20'
-                        : 'bg-red-500/5 border-red-500/20'
-                      : 'bg-violet-500/5 border-violet-500/20',
-                  )}
-                >
-                  {it.type === 'note' ? (
-                    <>
-                      <span className={cn('shrink-0 font-bold', it.noteType === 'positive' ? 'text-emerald-600' : 'text-red-600')}>
-                        {it.noteType === 'positive' ? '+' : '−'}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium">{it.date ? format(new Date(it.date), 'd MMM yyyy', { locale: tr }) : '-'}</p>
-                        {it.description && <p className="text-xs text-muted-foreground mt-0.5">{it.description}</p>}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <span className="shrink-0 font-bold text-violet-600">
-                        {it.scoreType === 'sign' ? (it.score === 1 ? '+' : it.score === -1 ? '−' : '·') : it.score}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium">{it.criterionName}</p>
-                        <p className="text-xs text-muted-foreground">{it.date ? format(new Date(it.date), 'd MMM yyyy', { locale: tr }) : '-'}</p>
-                      </div>
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
     </div>
   );
 }

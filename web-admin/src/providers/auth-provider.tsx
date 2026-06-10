@@ -55,6 +55,8 @@ export type EvrakDefaults = {
     kadro_derecesi?: number;
     kadro_kademesi?: string;
     pdf_unvan?: string;
+    adres_il?: string;
+    adres_ilce?: string;
   };
 } | null;
 
@@ -79,6 +81,8 @@ export type Me = {
     status?: string;
   } | null;
   teacher_branch?: string | null;
+  teacher_phone?: string | null;
+  teacher_title?: string | null;
   school: {
     id: string;
     name: string;

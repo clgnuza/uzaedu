@@ -229,6 +229,33 @@ function itemMatchesQuery(
   return false;
 }
 
+function menuItemIsActive(
+  item: MenuItem,
+  isActive: (path?: string) => boolean,
+  pathname: string,
+): boolean {
+  if (item.renderAsHubOnly && item.hubOnlyPath) {
+    const prefixes = item.sidebarHubActivePrefixes ?? [item.hubOnlyPath];
+    return prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  }
+  if (item.children?.length) {
+    return item.children.some((c) => c.path && isActive(c.path));
+  }
+  return !!(item.path && isActive(item.path));
+}
+
+function findActiveMenuItem(
+  items: MenuItem[],
+  isActive: (path?: string) => boolean,
+  pathname: string,
+): MenuItem | null {
+  for (const item of items) {
+    if (item.heading) continue;
+    if (menuItemIsActive(item, isActive, pathname)) return item;
+  }
+  return null;
+}
+
 function filterMenuBySearch(
   items: MenuItem[],
   rawQuery: string,
@@ -539,12 +566,22 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules, comp
     return true;
   };
 
+  const activePinnedItem = useMemo(() => {
+    if (search.trim()) return null;
+    return findActiveMenuItem(displayItems, isActive, pathname);
+  }, [displayItems, search, pathname, searchParams]);
+
+  const navItems = useMemo(() => {
+    if (!activePinnedItem) return displayItems;
+    return displayItems.filter((item) => item !== activePinnedItem);
+  }, [displayItems, activePinnedItem]);
+
   const menuScrollRef = useRef<HTMLDivElement>(null);
   const skipSmoothNavScrollRef = useRef(true);
 
   useEffect(() => {
     const root = menuScrollRef.current;
-    if (!root || compact) return;
+    if (!root || compact || activePinnedItem) return;
     const activeEl = root.querySelector<HTMLElement>('[data-nav-active="true"]');
     if (!activeEl) return;
     const behavior: ScrollBehavior = skipSmoothNavScrollRef.current ? 'auto' : 'smooth';
@@ -554,7 +591,7 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules, comp
         activeEl.scrollIntoView({ block: 'center', behavior, inline: 'nearest' });
       });
     });
-  }, [pathname, searchParams, compact, displayItems.length]);
+  }, [pathname, searchParams, compact, displayItems.length, activePinnedItem]);
 
   return (
     <div
@@ -591,13 +628,38 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules, comp
             )}
           />
         </div>
+        {activePinnedItem && (
+          <div className={cn('pt-2', compact && 'pt-1')} aria-label="Aktif menü grubu">
+            {activePinnedItem.renderAsHubOnly || (activePinnedItem.children?.length ?? 0) > 0 ? (
+              <MenuBranch
+                item={activePinnedItem}
+                role={role}
+                schoolEnabledModules={schoolEnabledModules}
+                isActive={isActive}
+                getBadgeCount={getBadgeCount}
+                variant={activePinnedItem.menuGroup ?? DEFAULT_MENU_GROUP}
+                compact={compact}
+              />
+            ) : (
+              <MenuLinkRow
+                item={activePinnedItem}
+                role={role}
+                schoolEnabledModules={schoolEnabledModules}
+                isActive={isActive}
+                getBadgeCount={getBadgeCount}
+                groupVariant={activePinnedItem.menuGroup ?? DEFAULT_MENU_GROUP}
+                compact={compact}
+              />
+            )}
+          </div>
+        )}
       </div>
       <nav
         className={cn('min-h-0 w-full flex-1', compact ? 'space-y-0.5' : 'space-y-1.5 lg:space-y-1')}
         role="navigation"
         aria-label="Ana menü"
       >
-        {displayItems.map((item, idx) => {
+        {navItems.map((item, idx) => {
           if (item.heading) {
             return (
               <div
@@ -643,7 +705,7 @@ export function SidebarMenu({ role, moderatorModules, schoolEnabledModules, comp
           );
         })}
         <SidebarExtraSearchHits hits={extraSearchHits} isActive={isActive} compact={compact} />
-        {search.trim() && displayItems.length === 0 && extraSearchHits.length === 0 && (
+        {search.trim() && navItems.length === 0 && extraSearchHits.length === 0 && (
           <p className={cn('px-1 text-center text-muted-foreground', compact ? 'py-4 text-[11px]' : 'py-6 text-sm')}>
             Eşleşen sonuç yok.
           </p>

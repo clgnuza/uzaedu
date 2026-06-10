@@ -145,6 +145,7 @@ const QUICK_SECTIONS: { label: string; theme: (typeof SECTION_THEMES)[number]; i
       { label: 'Ders programı', href: '/ders-programi', icon: Table2, hint: 'Günlük tablo', accent: 'from-cyan-500 to-sky-600' },
       { label: 'Akademik takvim', href: '/akademik-takvim', icon: Calendar, hint: 'Yıllık görünüm', accent: 'from-sky-500 to-blue-600' },
       { label: 'Takvim ayarları', href: '/akademik-takvim-ayarlar', icon: CalendarClock, hint: 'Tatil ve dönemler', accent: 'from-teal-500 to-emerald-600' },
+      { label: 'Takvim görevlendirme', href: '/akademik-takvim-ayarlar?tab=gorevlendirme', icon: Users, hint: 'Öğretmen atama', accent: 'from-sky-500 to-cyan-600' },
     ],
   },
   {

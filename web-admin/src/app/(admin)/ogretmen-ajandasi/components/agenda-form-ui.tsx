@@ -3,6 +3,8 @@ import { cn } from '@/lib/utils';
 export const AGENDA_DIALOG_CLASS =
   'max-w-[min(100%,22.5rem)] sm:max-w-md [&>div:first-of-type]:px-3 [&>div:first-of-type]:py-2 [&>div:last-child]:p-3 sm:[&>div:last-child]:p-3.5';
 
+export const AGENDA_DIALOG_WIDE = cn(AGENDA_DIALOG_CLASS, 'sm:max-w-lg');
+
 export const agendaLabel = 'text-[10px] font-semibold uppercase tracking-wide text-muted-foreground';
 
 export const agendaInput =
@@ -41,6 +43,56 @@ export function AgendaFormActions({
       >
         {loading ? 'Kaydediliyor…' : submitLabel}
       </button>
+    </div>
+  );
+}
+
+export function AgendaClassPills({
+  classes,
+  value,
+  onChange,
+  label = 'Sınıf',
+  emptyLabel = 'Yok',
+}: {
+  classes: { id: string; label: string }[];
+  value: string;
+  onChange: (id: string) => void;
+  label?: string;
+  emptyLabel?: string;
+}) {
+  if (classes.length === 0) return null;
+  return (
+    <div className={agendaSection}>
+      <span className={agendaLabel}>{label}</span>
+      <div className="mt-1 flex flex-wrap gap-1">
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          className={cn(
+            'rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-colors',
+            !value
+              ? 'border-violet-500/40 bg-violet-500/15 text-violet-900 dark:text-violet-100'
+              : 'border-border/70 bg-background/80 text-muted-foreground hover:bg-muted/50',
+          )}
+        >
+          {emptyLabel}
+        </button>
+        {classes.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => onChange(c.id)}
+            className={cn(
+              'rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-colors',
+              value === c.id
+                ? 'border-violet-500/40 bg-violet-500/15 text-violet-900 dark:text-violet-100'
+                : 'border-border/70 bg-background/80 text-muted-foreground hover:bg-muted/50',
+            )}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

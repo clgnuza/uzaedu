@@ -49,11 +49,15 @@ export class AcademicCalendarController {
   async getTemplate(
     @Query('academic_year') academicYear: string | undefined,
     @Query('school_type') schoolTypeQuery: string | undefined,
+    @Query('use_type_template') useTypeTemplateQuery: string | undefined,
     @CurrentUser() payload: CurrentUserPayload,
   ) {
+    const useOverride =
+      useTypeTemplateQuery === 'false' ? false : useTypeTemplateQuery === 'true' ? true : undefined;
     const st = await this.service.resolveTemplateSchoolType(
       { role: payload.role as UserRole, schoolId: payload.schoolId ?? null },
       schoolTypeQuery,
+      useOverride,
     );
     return this.service.getTemplate(this.getAcademicYear(academicYear), st);
   }
@@ -142,14 +146,14 @@ export class AcademicCalendarController {
     return this.service.getAssignments(payload.schoolId, this.getAcademicYear(academicYear));
   }
 
-  /** School_admin: Belirli Gün'e öğretmen ata */
+  /** School_admin: Belirli gün / öğretmen işi görevlendirmesi */
   @Post('assignments')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.school_admin)
   async createAssignment(
     @CurrentUser() payload: CurrentUserPayload,
     @Body() dto: CreateBelirliGunHaftaGorevDto,
-  ): Promise<BelirliGunHaftaGorev> {
+  ): Promise<{ created: number; updated: number; itemId: string }> {
     if (!payload.schoolId) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Bu işlem için okul atanmış olmalıdır.' });
     return this.service.createAssignment(payload.schoolId, dto, payload.userId);
   }

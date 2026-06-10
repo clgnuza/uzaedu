@@ -955,9 +955,9 @@ export default function SinavGoreviAyarlarPage() {
                         }
                       />
                       <span className="text-sm">
-                        Aynı kategoride sınav takvimi / son başvuru günü tekrarını atlama
+                        Aynı kategori + sınav günü tekrarını atlama
                         <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                          İstanbul takviminde sınav günleri çakışıyorsa veya son başvuru tarihi aynıysa yeni haber eklenmez; atlananlar listesine yazılır. Kapatırsanız yalnızca aynı kaynak URL engellenir.
+                          Aynı kurum (MEB, ÖSYM vb.) ve aynı sınav günü için farklı haber metni gelse bile ikinci duyuru eklenmez; son başvuru tarihi farklı olsa da atlanır. Kapatırsanız yalnızca aynı kaynak URL engellenir.
                         </span>
                       </span>
                     </label>

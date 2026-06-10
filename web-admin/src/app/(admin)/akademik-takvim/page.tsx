@@ -10,10 +10,12 @@ import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
+  getCurrentWeekIndex,
   getCurrentWeekOrder,
   type WeekWithItems,
 } from '@/components/academic-calendar/academic-calendar-timeline';
 import { AcademicCalendarView } from '@/components/academic-calendar/academic-calendar-view';
+import { TeacherAcademicCalendarChrome } from '@/components/academic-calendar/teacher-academic-calendar-chrome';
 import { cn } from '@/lib/utils';
 import {
   Calendar,
@@ -28,6 +30,7 @@ import {
   LayoutList,
   Info,
   ChevronDown,
+  Users,
 } from 'lucide-react';
 
 function TakvimSayfaBilgi({
@@ -38,7 +41,14 @@ function TakvimSayfaBilgi({
   showStaffNote: boolean;
 }) {
   return (
-    <details className="group mt-1.5 rounded-md border border-border/70 bg-muted/15 open:bg-muted/25 dark:border-border dark:bg-muted/10 sm:mt-2 sm:rounded-lg">
+    <details
+      className={cn(
+        'group mt-1.5 rounded-xl border open:shadow-xs sm:mt-2',
+        isTeacher
+          ? 'border-violet-200/60 bg-linear-to-br from-violet-50/50 to-amber-50/30 open:from-violet-50/70 dark:border-violet-900/40 dark:from-violet-950/30 dark:to-amber-950/15'
+          : 'border-border/70 bg-muted/15 open:bg-muted/25 dark:border-border dark:bg-muted/10 sm:rounded-lg',
+      )}
+    >
       <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1.5 text-[11px] font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden hover:bg-muted/30 sm:gap-2 sm:px-2.5 sm:py-2 sm:text-xs md:text-sm">
         <Info className="size-3.5 shrink-0 text-indigo-600 dark:text-indigo-400" aria-hidden />
         <span>Bu sayfa nasıl kullanılır?</span>
@@ -206,6 +216,12 @@ function TimeCard({
 
 const DEFAULT_ACADEMIC_YEAR = '2025-2026';
 
+function getDefaultAcademicYear(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  return now.getMonth() >= 8 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
+}
+
 function getAcademicYears(): string[] {
   const years = new Set<string>();
   const now = new Date();
@@ -215,6 +231,7 @@ function getAcademicYears(): string[] {
     years.add(`${y}-${y + 1}`);
   }
   years.add(DEFAULT_ACADEMIC_YEAR);
+  years.add(getDefaultAcademicYear());
   return Array.from(years).sort((a, b) => b.localeCompare(a));
 }
 
@@ -238,10 +255,6 @@ function AkademikTakvimPageInner() {
   const searchParams = useSearchParams();
   const haftaKey = searchParams.get('hafta');
   const haftaParsed = useMemo(() => parseHaftaQuery(haftaKey), [haftaKey]);
-  const calendarDefaultDate = useMemo(() => {
-    const d = parseHaftaQuery(haftaKey);
-    return d ?? new Date();
-  }, [haftaKey]);
   const [weeks, setWeeks] = useState<WeekWithItems[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -250,11 +263,12 @@ function AkademikTakvimPageInner() {
   const isSuperadmin = me?.role === 'superadmin';
   const isTeacher = me?.role === 'teacher';
   const academicYears = getAcademicYears();
-  const [academicYear, setAcademicYear] = useState(DEFAULT_ACADEMIC_YEAR);
+  const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear);
   const [previewSchoolType, setPreviewSchoolType] = useState('ilkokul');
   const progress = useAcademicProgress();
+  const currentWeekIdx = getCurrentWeekIndex(weeks);
+  const currentWeekData = currentWeekIdx >= 0 ? weeks[currentWeekIdx] : undefined;
   const currentWeekOrder = getCurrentWeekOrder(weeks);
-  const currentWeekData = weeks.find((w) => w.weekNumber === currentWeekOrder);
   const etkinlikSayisi = (currentWeekData?.belirliGunHafta?.length ?? 0) + (currentWeekData?.ogretmenIsleri?.length ?? 0);
 
   const fetchData = useCallback(async () => {
@@ -298,7 +312,23 @@ function AkademikTakvimPageInner() {
 
   return (
     <div className="space-y-3 md:space-y-4 lg:space-y-5">
-      {/* Header */}
+      {isTeacher && (
+        <TeacherAcademicCalendarChrome
+          academicYear={academicYear}
+          academicYears={academicYears}
+          onAcademicYearChange={setAcademicYear}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          progress={progress}
+          currentWeekOrder={currentWeekOrder}
+          currentWeekData={currentWeekData}
+          weeks={weeks}
+          userId={me?.id}
+          schoolName={me?.school?.name}
+        />
+      )}
+
+      {!isTeacher && (
       <div className="relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 px-3 py-3 shadow-lg md:rounded-2xl md:px-5 md:py-4 md:shadow-xl lg:py-5">
         <div className="relative z-10 flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-3">
           <div className="flex min-w-0 items-center gap-2.5 md:gap-3">
@@ -400,20 +430,29 @@ function AkademikTakvimPageInner() {
               </Button>
             )}
             {isSchoolAdmin && (
-              <Button variant="secondary" size="sm" asChild className="border-white/20 bg-white/10 text-white hover:bg-white/20">
-                <Link href="/akademik-takvim-ayarlar">
-                  <Settings className="mr-2 size-4" aria-hidden />
-                  Ayarlar
-                </Link>
-              </Button>
+              <>
+                <Button variant="secondary" size="sm" asChild className="border-sky-300/30 bg-sky-500/25 text-white hover:bg-sky-500/40">
+                  <Link href="/akademik-takvim-ayarlar?tab=gorevlendirme">
+                    <Users className="mr-2 size-4" aria-hidden />
+                    Görevlendirme
+                  </Link>
+                </Button>
+                <Button variant="secondary" size="sm" asChild className="border-white/20 bg-white/10 text-white hover:bg-white/20">
+                  <Link href="/akademik-takvim-ayarlar">
+                    <Settings className="mr-2 size-4" aria-hidden />
+                    Ayarlar
+                  </Link>
+                </Button>
+              </>
             )}
           </div>
         </div>
       </div>
+      )}
 
-      <DurationTableMobile elapsed={progress.elapsed} remaining={progress.remaining} />
+      {!isTeacher && <DurationTableMobile elapsed={progress.elapsed} remaining={progress.remaining} />}
 
-      {/* Özet kartları — md+ */}
+      {!isTeacher && (
       <div className="hidden w-full grid-cols-2 gap-3 md:grid md:gap-3 lg:gap-4">
         <TimeCard
           icon={Clock}
@@ -428,8 +467,9 @@ function AkademikTakvimPageInner() {
           className="border-0 bg-gradient-to-br from-teal-50/90 via-cyan-50/40 to-white dark:from-teal-950/30 dark:via-cyan-950/20 dark:to-zinc-950"
         />
       </div>
+      )}
 
-      {/* İlerleme çubuğu */}
+      {!isTeacher && (
       <Card className="w-full border-zinc-200/70 bg-gradient-to-b from-white to-zinc-50/70 shadow-sm dark:border-zinc-800 dark:from-zinc-950 dark:to-zinc-900/80 md:mx-auto md:max-w-none">
         <CardContent className="px-2.5 py-2 md:px-4 md:py-3">
           <div className="mb-1 flex items-center gap-1.5 md:mb-2">
@@ -455,9 +495,9 @@ function AkademikTakvimPageInner() {
           </p>
         </CardContent>
       </Card>
+      )}
 
-      {/* Şu an bu hafta */}
-      {currentWeekOrder > 0 && (
+      {!isTeacher && currentWeekOrder > 0 && (
         <Card className="w-full border-indigo-200/45 bg-gradient-to-br from-indigo-50/70 to-white shadow-sm dark:border-indigo-900/40 dark:from-indigo-950/35 dark:to-zinc-950 md:border-primary/30 md:bg-primary/5 md:shadow-none">
           <CardContent className="px-2.5 py-2 md:px-4 md:py-2.5">
             <div className="flex flex-col items-center gap-1.5 text-center sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:text-left md:gap-2">
@@ -487,8 +527,8 @@ function AkademikTakvimPageInner() {
 
       {/* Takvim görünümü – hafta (varsayılan) / ay (opsiyonel) */}
       <div id="akademik-takvim-icerik">
-        <div className="mb-2 md:mb-3">
-          <h2 className="text-base font-semibold tracking-tight md:text-base lg:text-lg">Hafta ve özet</h2>
+        <div className={cn('mb-2 md:mb-3', isTeacher && 'mb-1')}>
+          {!isTeacher && <h2 className="text-base font-semibold tracking-tight md:text-base lg:text-lg">Hafta ve özet</h2>}
           <TakvimSayfaBilgi isTeacher={isTeacher} showStaffNote={isSchoolAdmin || isSuperadmin} />
         </div>
 
@@ -509,10 +549,11 @@ function AkademikTakvimPageInner() {
         )}
         {!loading && !error && weeks.length > 0 && (
           <AcademicCalendarView
+            key={`${academicYear}-${haftaKey ?? 'bugun'}`}
             weeks={weeks}
             view={viewMode}
             onViewChange={(v) => setViewMode(v)}
-            defaultDate={calendarDefaultDate}
+            defaultDate={haftaParsed ?? undefined}
             currentUserId={me?.id}
             compact={isTeacher}
           />

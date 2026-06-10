@@ -60,7 +60,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Nöbet',
     shortLabel: 'Nöbet',
     icon: CalendarClock,
-    pushIcon: '/push-icons/nobet.svg',
+    pushIcon: '/push-icons/nobet.png',
     tileClass:
       'bg-linear-to-br from-indigo-400/35 to-violet-500/30 text-indigo-950 ring-2 ring-indigo-400/50 shadow-sm dark:from-indigo-600/45 dark:to-violet-700/40 dark:text-indigo-50 dark:ring-indigo-400/40',
     iconClass: ICON_SM,
@@ -75,7 +75,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Ders programı / müsaitlik',
     shortLabel: 'Program',
     icon: Table2,
-    pushIcon: '/push-icons/ders_programi.svg',
+    pushIcon: '/push-icons/ders_programi.png',
     tileClass:
       'bg-linear-to-br from-emerald-400/35 to-teal-500/30 text-emerald-950 ring-2 ring-emerald-400/50 shadow-sm dark:from-emerald-600/45 dark:to-teal-700/40 dark:text-emerald-50 dark:ring-emerald-400/40',
     iconClass: ICON_SM,
@@ -90,7 +90,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Akıllı tahta',
     shortLabel: 'Tahta',
     icon: Monitor,
-    pushIcon: '/push-icons/akilli_tahta.svg',
+    pushIcon: '/push-icons/akilli_tahta.png',
     tileClass:
       'bg-linear-to-br from-cyan-400/35 to-sky-500/30 text-cyan-950 ring-2 ring-cyan-400/50 shadow-sm dark:from-cyan-600/45 dark:to-sky-700/40 dark:text-cyan-50 dark:ring-cyan-400/40',
     iconClass: ICON_SM,
@@ -105,7 +105,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Sınav görevi (planlı)',
     shortLabel: 'Sınav görevi',
     icon: ClipboardList,
-    pushIcon: '/push-icons/sinav_gorevi.svg',
+    pushIcon: '/push-icons/sinav_gorevi.png',
     tileClass:
       'bg-linear-to-br from-sky-400/40 to-blue-600/35 text-sky-950 ring-2 ring-sky-400/50 shadow-sm dark:from-sky-600/45 dark:to-blue-800/40 dark:text-sky-50 dark:ring-sky-400/40',
     iconClass: ICON_SM,
@@ -120,7 +120,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Kertenkele / sorumluluk',
     shortLabel: 'Sınav',
     icon: LayoutGrid,
-    pushIcon: '/push-icons/sinav_modulleri.svg',
+    pushIcon: '/push-icons/sinav_modulleri.png',
     tileClass:
       'bg-linear-to-br from-amber-400/45 to-orange-500/35 text-amber-950 ring-2 ring-amber-400/50 shadow-sm dark:from-amber-600/45 dark:to-orange-800/40 dark:text-amber-50 dark:ring-amber-400/40',
     iconClass: ICON_SM,
@@ -135,7 +135,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Destek talepleri',
     shortLabel: 'Destek',
     icon: Headphones,
-    pushIcon: '/push-icons/destek.svg',
+    pushIcon: '/push-icons/destek.png',
     tileClass:
       'bg-linear-to-br from-fuchsia-400/40 to-purple-500/35 text-purple-950 ring-2 ring-fuchsia-400/50 shadow-sm dark:from-fuchsia-600/45 dark:to-purple-800/40 dark:text-fuchsia-50 dark:ring-fuchsia-400/40',
     iconClass: ICON_SM,
@@ -150,7 +150,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Öğretmen ajandası',
     shortLabel: 'Ajanda',
     icon: BookOpen,
-    pushIcon: '/push-icons/ajanda.svg',
+    pushIcon: '/push-icons/ajanda.png',
     tileClass:
       'bg-linear-to-br from-rose-400/35 to-pink-500/30 text-rose-950 ring-2 ring-rose-400/50 shadow-sm dark:from-rose-600/45 dark:to-pink-800/40 dark:text-rose-50 dark:ring-rose-400/40',
     iconClass: ICON_SM,
@@ -165,7 +165,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Bilsem takvim',
     shortLabel: 'Bilsem',
     icon: CalendarDays,
-    pushIcon: '/push-icons/bilsem.svg',
+    pushIcon: '/push-icons/bilsem.png',
     tileClass:
       'bg-linear-to-br from-violet-400/35 to-purple-500/30 text-violet-950 ring-2 ring-violet-400/50 shadow-sm dark:from-violet-600/45 dark:to-purple-700/40 dark:text-violet-100 dark:ring-violet-400/35',
     iconClass: ICON_SM,
@@ -180,7 +180,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Belirli gün / hafta',
     shortLabel: 'Belirli gün',
     icon: Award,
-    pushIcon: '/push-icons/belirli_gun.svg',
+    pushIcon: '/push-icons/belirli_gun.png',
     tileClass:
       'bg-linear-to-br from-amber-300/90 to-orange-300/80 text-amber-950 ring-2 ring-amber-400/55 shadow-sm dark:from-amber-600/40 dark:to-orange-700/35 dark:text-amber-50 dark:ring-amber-500/40',
     iconClass: ICON_SM,
@@ -195,7 +195,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Mesaj merkezi',
     shortLabel: 'Mesaj',
     icon: MessageSquare,
-    pushIcon: '/push-icons/mesaj_merkezi.svg',
+    pushIcon: '/push-icons/mesaj_merkezi.png',
     tileClass:
       'bg-linear-to-br from-emerald-400/45 to-green-600/35 text-emerald-950 ring-2 ring-emerald-400/50 shadow-sm dark:from-emerald-600/45 dark:to-green-800/40 dark:text-emerald-50 dark:ring-emerald-400/40',
     iconClass: ICON_SM,
@@ -210,7 +210,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Market',
     shortLabel: 'Market',
     icon: Wallet,
-    pushIcon: '/push-icons/market.svg',
+    pushIcon: '/push-icons/market.png',
     tileClass:
       'bg-linear-to-br from-lime-400/50 to-green-500/35 text-lime-950 ring-2 ring-lime-400/55 shadow-sm dark:from-lime-600/40 dark:to-green-800/35 dark:text-lime-50 dark:ring-lime-400/40',
     iconClass: ICON_SM,
@@ -225,7 +225,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Yolluk',
     shortLabel: 'Yolluk',
     icon: Banknote,
-    pushIcon: '/push-icons/yolluk.svg',
+    pushIcon: '/push-icons/yolluk.png',
     tileClass:
       'bg-linear-to-br from-teal-400/45 to-emerald-600/40 text-teal-950 ring-2 ring-teal-400/50 shadow-sm dark:from-teal-600/50 dark:to-emerald-800/45 dark:text-teal-50 dark:ring-teal-400/40',
     iconClass: ICON_SM,
@@ -240,7 +240,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Okul değerlendirme',
     shortLabel: 'Değerlendirme',
     icon: Gavel,
-    pushIcon: '/push-icons/okul_degerlendirme.svg',
+    pushIcon: '/push-icons/okul_degerlendirme.png',
     tileClass:
       'bg-linear-to-br from-rose-500/50 to-red-700/40 text-white ring-2 ring-rose-400/55 shadow-sm dark:from-rose-700/55 dark:to-red-900/45 dark:ring-rose-400/45',
     iconClass: ICON_SM,
@@ -255,7 +255,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Duyurular',
     shortLabel: 'Duyuru',
     icon: Newspaper,
-    pushIcon: '/push-icons/duyuru.svg',
+    pushIcon: '/push-icons/duyuru.png',
     tileClass:
       'bg-linear-to-br from-yellow-300/90 to-amber-200/90 text-amber-950 ring-2 ring-yellow-400/60 shadow-sm dark:from-yellow-600/40 dark:to-amber-700/35 dark:text-yellow-50 dark:ring-yellow-500/40',
     iconClass: ICON_SM,
@@ -270,7 +270,7 @@ export const CHANNEL_THEMES: Record<NotificationChannelId, ChannelTheme> = {
     label: 'Diğer',
     shortLabel: 'Genel',
     icon: Megaphone,
-    pushIcon: '/push-icons/genel.svg',
+    pushIcon: '/push-icons/genel.png',
     tileClass:
       'bg-linear-to-br from-slate-200/90 to-slate-300/80 text-slate-800 ring-2 ring-slate-400/40 shadow-sm dark:from-slate-600/50 dark:to-slate-700/50 dark:text-slate-100 dark:ring-slate-500/40',
     iconClass: ICON_SM,

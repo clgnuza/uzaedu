@@ -4,7 +4,7 @@ import { markPwaOnboardingPending } from '@/components/pwa-onboarding';
 import { trackPwaEvent } from '@/lib/pwa-analytics';
 import { hapticSuccess } from '@/lib/pwa-haptic';
 
-const TOAST_ID = 'pwa-install-thanks';
+export const PWA_INSTALL_THANKS_TOAST_ID = 'pwa-install-thanks';
 let lastInstalledAt = 0;
 
 /** Kurulum tamamlandığında: teşekkür toast + sonraki açılışta onboarding */
@@ -35,7 +35,7 @@ export function showPwaInstallThanksToast(): void {
       </div>
     ),
     {
-      id: TOAST_ID,
+      id: PWA_INSTALL_THANKS_TOAST_ID,
       duration: 6500,
       position: 'top-center',
       unstyled: true,

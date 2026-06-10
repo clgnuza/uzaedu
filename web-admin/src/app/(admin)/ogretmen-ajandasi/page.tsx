@@ -38,8 +38,9 @@ import { ParentMeetingFormModal } from './components/parent-meeting-form-modal';
 import { SchoolEventFormModal } from './components/school-event-form-modal';
 import { TemplatePickerModal } from './components/template-picker-modal';
 import { StudentNoteDetailModal, type StudentNoteDetail } from './components/student-note-detail-modal';
+import { AgendaPrintModal } from './components/agenda-print-modal';
 import { AgendaHeroSchool, AgendaHeroTeacher } from './components/AgendaHero';
-import { format } from 'date-fns';
+import { addDays, addMonths, addWeeks, endOfWeek, format, startOfWeek } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 
@@ -75,7 +76,7 @@ function agendaTaskRemindAtLocal(task: AgendaTask): string | undefined {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-type Student = { id: string; name: string };
+type Student = { id: string; name: string; classId?: string };
 type Subject = { id: string; label: string };
 type Class = { id: string; label: string };
 
@@ -95,10 +96,6 @@ function formatYmdSlash(ymd: string | null | undefined): string {
   if (p.length !== 3) return ymd;
   const [y, m, d] = p;
   return `${d}/${m}/${y}`;
-}
-
-function escapeHtml(s: string) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function toStartEnd(month: Date) {
@@ -226,6 +223,7 @@ function OgretmenAjandasiPageContent() {
   const [studentNoteDetailId, setStudentNoteDetailId] = useState<string | null>(null);
   const [studentNoteDetail, setStudentNoteDetail] = useState<StudentNoteDetail | null>(null);
   const [studentNoteDetailLoading, setStudentNoteDetailLoading] = useState(false);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
 
   const getCalendarRange = useCallback(() => {
     if (calendarViewMode === 'day') {
@@ -234,11 +232,8 @@ function OgretmenAjandasiPageContent() {
       return { start: ymd, end: ymd };
     }
     if (calendarViewMode === 'week') {
-      const d = new Date(month);
-      const weekStart = new Date(d);
-      weekStart.setDate(d.getDate() - d.getDay() + 1);
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
+      const weekStart = startOfWeek(month, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(month, { weekStartsOn: 1 });
       return { start: toYMD(weekStart), end: toYMD(weekEnd) };
     }
     return toStartEnd(month);
@@ -350,13 +345,15 @@ function OgretmenAjandasiPageContent() {
           apiFetch<{ id: string; name: string }[]>(`/classes-subjects/classes/${c.id}/students`, { token }).catch(() => [] as { id: string; name: string }[]),
         ),
       );
-      const byId = new Map<string, Student>();
-      for (const list of perClass) {
-        for (const s of list) {
-          if (s?.id && s?.name) byId.set(s.id, { id: s.id, name: s.name });
+      const withClass: Student[] = [];
+      for (let i = 0; i < classesArr.length; i++) {
+        const classId = classesArr[i]!.id;
+        for (const s of perClass[i] ?? []) {
+          if (s?.id && s?.name) withClass.push({ id: s.id, name: s.name, classId });
         }
       }
-      setStudents([...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'tr')));
+      withClass.sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+      setStudents(withClass);
     } catch {
       setSubjects([]);
       setClasses([]);
@@ -730,44 +727,6 @@ function OgretmenAjandasiPageContent() {
     }
   };
 
-  const handlePrint = () => {
-    const schoolName = me?.school?.name ?? 'Okul';
-    const teacherName = me?.display_name || me?.email?.split('@')[0] || 'Öğretmen';
-    const printDate = format(new Date(), "d MMMM yyyy 'tarihinde'", { locale: tr });
-    const notesHtml = displayNotes.map((n) => `<tr><td>${escapeHtml((n as AgendaNote).title)}</td><td>${escapeHtml((n as AgendaNote).body?.slice(0, 120) ?? '')}</td></tr>`).join('');
-    const tasksHtml = displayTasks.map((t) => `<tr><td>${escapeHtml(t.title)}</td><td>${t.dueDate ?? '-'}</td><td>${t.status === 'completed' ? 'Tamamlandı' : t.status === 'pending' ? 'Bekliyor' : t.status}</td></tr>`).join('');
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Öğretmen Ajandası - ${escapeHtml(schoolName)}</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI',system-ui,sans-serif;font-size:12px;line-height:1.4;color:#222;padding:0 24px 48px}
-.print-header{border-bottom:2px solid #333;padding:16px 0;margin-bottom:20px;text-align:center}
-.print-header h1{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px}
-.print-header .school{font-size:14px;font-weight:600;margin-bottom:4px}
-.print-header .meta{font-size:11px;color:#555;margin-top:8px}
-.print-footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;font-size:10px;color:#666;text-align:center}
-section{margin-bottom:24px;page-break-inside:avoid}
-section h2{font-size:13px;font-weight:600;margin-bottom:10px;padding-bottom:4px;border-bottom:1px solid #ccc}
-table{width:100%;border-collapse:collapse}
-th,td{border:1px solid #333;padding:8px 10px;text-align:left}
-th{background:#f0f0f0;font-weight:600;font-size:11px}
-@media print{body{padding:0 16px 24px}.print-header,.print-footer{position:relative}@page{margin:18mm}}
-</style></head><body>
-<div class="print-header">
-  <div class="school">${escapeHtml(schoolName)}</div>
-  <h1>Öğretmen Ajandası</h1>
-  <div class="meta">${escapeHtml(teacherName)} · ${printDate}</div>
-</div>
-<section><h2>Notlar</h2><table><thead><tr><th>Başlık</th><th>İçerik</th></tr></thead><tbody>${notesHtml || '<tr><td colspan="2">Kayıt yok</td></tr>'}</tbody></table></section>
-<section><h2>Görevler</h2><table><thead><tr><th>Başlık</th><th>Tarih</th><th>Durum</th></tr></thead><tbody>${tasksHtml || '<tr><td colspan="3">Kayıt yok</td></tr>'}</tbody></table></section>
-<div class="print-footer">${format(new Date(), 'dd.MM.yyyy HH:mm', { locale: tr })} · Öğretmen Ajandası - ${escapeHtml(schoolName)}</div>
-</body></html>`;
-    const w = window.open('', '_blank');
-    if (!w) { toast.error('Pop-up engellendi'); return; }
-    w.document.write(html);
-    w.document.close();
-    w.print();
-  };
-
   const handleTaskStatus = async (taskId: string, status: string) => {
     if (!token) return;
     setTogglingTaskId(taskId);
@@ -1025,10 +984,32 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
     refresh();
   };
 
-  const prevMonth = () => setMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1));
-  const nextMonth = () => setMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1));
+  const shiftCalendar = (delta: -1 | 1) => {
+    setMonth((m) => {
+      if (calendarViewMode === 'day') return addDays(m, delta);
+      if (calendarViewMode === 'week') return addWeeks(m, delta);
+      return addMonths(m, delta);
+    });
+  };
+  const prevPeriod = () => shiftCalendar(-1);
+  const nextPeriod = () => shiftCalendar(1);
   const goToday = () => setMonth(new Date());
-  const monthLabel = month.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
+  const periodLabel =
+    calendarViewMode === 'day'
+      ? format(month, 'd MMMM yyyy', { locale: tr })
+      : calendarViewMode === 'week'
+        ? (() => {
+            const ws = startOfWeek(month, { weekStartsOn: 1 });
+            const we = endOfWeek(month, { weekStartsOn: 1 });
+            if (ws.getFullYear() === we.getFullYear() && ws.getMonth() === we.getMonth()) {
+              return `${format(ws, 'd', { locale: tr })} – ${format(we, 'd MMMM yyyy', { locale: tr })}`;
+            }
+            if (ws.getFullYear() === we.getFullYear()) {
+              return `${format(ws, 'd MMM', { locale: tr })} – ${format(we, 'd MMM yyyy', { locale: tr })}`;
+            }
+            return `${format(ws, 'd MMM yyyy', { locale: tr })} – ${format(we, 'd MMM yyyy', { locale: tr })}`;
+          })()
+        : format(month, 'MMMM yyyy', { locale: tr });
 
   const displayNotes = notes.items;
   const displayTasks = [...tasks.items].sort((a, b) => {
@@ -1335,7 +1316,7 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                 <Download className="size-3.5 sm:mr-1 sm:size-4" />
                 <span className="max-sm:sr-only sm:inline">Görevler CSV</span>
               </Button>
-              <Button variant="outline" size="sm" onClick={handlePrint} className="h-8 rounded-lg px-2 sm:h-9 sm:rounded-xl sm:px-3" title="Yazdır">
+              <Button variant="outline" size="sm" onClick={() => setPrintModalOpen(true)} className="h-8 rounded-lg px-2 sm:h-9 sm:rounded-xl sm:px-3" title="Yazdır / PDF">
                 <Printer className="size-3.5 sm:mr-1 sm:size-4" />
                 <span className="max-sm:sr-only sm:inline">Yazdır</span>
               </Button>
@@ -1380,24 +1361,24 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
           >
             <Card className={cn('overflow-hidden rounded-2xl border bg-card', AGENDA_PANEL.calendar.card)}>
               <CardHeader className={cn('flex flex-col gap-3', AGENDA_PANEL.calendar.head)}>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <CardTitle className="flex items-center gap-2 text-base font-semibold sm:text-lg">
                     <span className={cn('flex size-8 items-center justify-center rounded-lg', AGENDA_PANEL.calendar.iconWrap)}>
                       <Calendar className={cn('size-4 shrink-0', AGENDA_PANEL.calendar.iconClass)} />
                     </span>
                     Takvim
                   </CardTitle>
-                  <div className="grid w-full grid-cols-3 gap-1 rounded-xl border border-border/60 bg-muted/40 p-1 shadow-inner sm:w-auto sm:inline-grid sm:min-w-[220px]">
+                  <div className="inline-flex w-full rounded-xl border border-border/60 bg-background/60 p-1 shadow-inner sm:w-auto">
                     {(['month', 'week', 'day'] as const).map((v) => (
                       <button
                         key={v}
                         type="button"
                         onClick={() => setCalendarViewMode(v)}
                         className={cn(
-                          'rounded-lg py-2 text-center text-[11px] font-bold transition-all sm:px-3 sm:text-xs',
+                          'flex-1 rounded-lg px-3 py-2 text-center text-[11px] font-bold transition-all sm:flex-none sm:text-xs',
                           calendarViewMode === v
-                            ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25 dark:bg-blue-600'
-                            : 'bg-background/80 text-muted-foreground ring-1 ring-border/40 hover:bg-background hover:text-foreground',
+                            ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
+                            : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
                         )}
                       >
                         {v === 'month' && 'Ay'}
@@ -1407,23 +1388,35 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                     ))}
                   </div>
                 </div>
-                <div className="flex min-w-0 flex-wrap items-center justify-center gap-1.5 sm:justify-end">
-                  <Button variant="outline" size="sm" onClick={prevMonth} className="h-9 shrink-0 rounded-lg px-2.5 sm:h-10 sm:rounded-xl sm:px-3" aria-label="Önceki">
+                <div className="flex items-center gap-1 rounded-xl border border-border/50 bg-background/70 p-1 shadow-sm">
+                  <Button variant="ghost" size="sm" onClick={prevPeriod} className="h-9 shrink-0 rounded-lg px-2 sm:h-10" aria-label="Önceki">
                     <ChevronLeft className="size-4" />
                   </Button>
-                  <Button variant="secondary" size="sm" onClick={goToday} className="h-9 shrink-0 gap-1 rounded-lg px-2.5 text-xs font-semibold sm:h-10 sm:rounded-xl sm:px-3">
+                  <div className="min-w-0 flex-1 px-1 text-center">
+                    <p className="truncate text-sm font-semibold capitalize tabular-nums text-foreground sm:text-base">
+                      {periodLabel}
+                    </p>
+                    <p className="text-[10px] font-medium text-muted-foreground">
+                      {calendarViewMode === 'month' && 'Ay görünümü'}
+                      {calendarViewMode === 'week' && 'Hafta görünümü'}
+                      {calendarViewMode === 'day' && 'Gün görünümü'}
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={nextPeriod} className="h-9 shrink-0 rounded-lg px-2 sm:h-10" aria-label="Sonraki">
+                    <ChevronRight className="size-4" />
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={goToday}
+                    className="ml-0.5 h-9 shrink-0 gap-1 rounded-lg px-2.5 text-[11px] font-semibold sm:h-10 sm:px-3 sm:text-xs"
+                  >
                     <CalendarDays className="size-3.5 sm:size-4" />
                     Bugün
                   </Button>
-                  <span className="min-w-0 flex-1 basis-32 truncate text-center text-xs font-semibold capitalize tabular-nums text-foreground sm:basis-auto sm:text-sm">
-                    {monthLabel}
-                  </span>
-                  <Button variant="outline" size="sm" onClick={nextMonth} className="h-9 shrink-0 rounded-lg px-2.5 sm:h-10 sm:rounded-xl sm:px-3" aria-label="Sonraki">
-                    <ChevronRight className="size-4" />
-                  </Button>
                 </div>
               </CardHeader>
-              <CardContent className="px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
+              <CardContent className="px-2 pb-3 pt-0 sm:px-4 sm:pb-5 lg:px-5">
                 <AgendaCalendarGrid
                   month={month}
                   events={filteredEvents}
@@ -1432,10 +1425,13 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
                   onEventDrop={handleTaskDateChange}
                   viewMode={calendarViewMode}
                 />
-                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/60 pt-4 text-[10px] font-medium sm:text-xs">
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-3 sm:mt-4 sm:pt-4">
                   {AGENDA_SOURCE_KEYS.map((k) => (
-                    <span key={k} className="flex items-center gap-1.5 text-foreground">
-                      <span className={cn('size-2.5 shrink-0 rounded-full', AGENDA_SOURCE_THEME[k].legendDot)} aria-hidden />
+                    <span
+                      key={k}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/30 px-2.5 py-1 text-[10px] font-semibold text-foreground sm:text-[11px]"
+                    >
+                      <span className={cn('size-2 shrink-0 rounded-full', AGENDA_SOURCE_THEME[k].legendDot)} aria-hidden />
                       {AGENDA_SOURCE_THEME[k].label}
                     </span>
                   ))}
@@ -1902,12 +1898,14 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
           remindAt: agendaTaskRemindAtLocal(editingTask),
         } : undefined}
         students={students}
+        classes={classes}
       />
       <StudentNoteFormModal
         open={studentNoteModalOpen}
         onOpenChange={setStudentNoteModalOpen}
         onSubmit={handleCreateStudentNote}
         students={students}
+        classes={classes}
         subjects={subjects}
       />
       <ParentMeetingFormModal
@@ -1915,6 +1913,7 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
         onOpenChange={setParentMeetingModalOpen}
         onSubmit={handleCreateParentMeeting}
         students={students}
+        classes={classes}
       />
       <SchoolEventFormModal
         open={schoolEventModalOpen || !!editingSchoolEventId}
@@ -1929,6 +1928,35 @@ th{background:#f0f0f0;font-weight:600;font-size:11px}
         token={token}
         eventId={editingSchoolEventId}
         initialData={editingSchoolEventData}
+      />
+      <AgendaPrintModal
+        open={printModalOpen}
+        onClose={() => setPrintModalOpen(false)}
+        schoolName={me?.school?.name ?? 'Okul'}
+        teacherName={me?.display_name || me?.email?.split('@')[0] || 'Öğretmen'}
+        periodLabel={periodLabel}
+        rangeStart={getCalendarRange().start}
+        rangeEnd={getCalendarRange().end}
+        summary={summary}
+        notes={displayNotes}
+        tasks={displayTasks}
+        events={filteredEvents}
+        studentNotes={
+          displayStudentNotes as {
+            noteType: string;
+            noteDate: string;
+            student?: { name: string };
+            description?: string | null;
+          }[]
+        }
+        parentMeetings={
+          displayParentMeetings as {
+            meetingDate: string;
+            student?: { name: string };
+            subject?: string | null;
+            meetingType?: string | null;
+          }[]
+        }
       />
     </div>
   );

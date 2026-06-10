@@ -61,7 +61,7 @@ export class TeacherAgendaReminderSchedulerService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
-  @Cron('*/1 * * * *')
+  @Cron('*/1 * * * *', { timeZone: 'Europe/Istanbul' })
   async dispatchDueReminders() {
     const now = new Date();
     const due = await this.reminderRepo.find({

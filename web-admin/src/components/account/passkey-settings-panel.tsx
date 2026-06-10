@@ -33,7 +33,8 @@ import {
   passkeyDeviceTypeLabel,
   suggestPasskeyDeviceName,
 } from '@/lib/passkey-device-label';
-import { getWebAuthnErrorMessage } from '@/lib/webauthn-error-message';
+import { getWebAuthnErrorMessage, isPasskeyAlreadyRegisteredError } from '@/lib/webauthn-error-message';
+import { useAuthOptional } from '@/providers/auth-provider';
 
 type SupportState = 'loading' | 'ready' | 'browser' | 'server';
 
@@ -177,6 +178,8 @@ export function PasskeySettingsPanel({
   className?: string;
   compact?: boolean;
 }) {
+  const auth = useAuthOptional();
+  const accountEmail = auth?.me?.email ?? '';
   const [support, setSupport] = useState<SupportState>('loading');
   const [rows, setRows] = useState<PasskeyCredentialRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -253,12 +256,23 @@ export function PasskeySettingsPanel({
       (portal === 'school' ? 'Okul yönetimi — bu cihaz' : suggestPasskeyDeviceName());
     setBusy(true);
     try {
-      await registerPasskey(token, label, portal);
-      toast.success('Biyometrik giriş eklendi.');
+      const r = await registerPasskey(token, label, portal, accountEmail);
+      if (r.alreadyExists) {
+        toast.warning('Bu cihazda biyometrik giriş zaten kayıtlı.');
+      } else {
+        toast.success('Biyometrik giriş eklendi.');
+      }
       setShowAdd(false);
       setAddName('');
       await reload();
     } catch (e) {
+      if (isPasskeyAlreadyRegisteredError(e)) {
+        toast.warning('Bu cihazda biyometrik giriş zaten kayıtlı.');
+        setShowAdd(false);
+        setAddName('');
+        await reload();
+        return;
+      }
       toast.error(getWebAuthnErrorMessage(e, 'register'));
     } finally {
       setBusy(false);

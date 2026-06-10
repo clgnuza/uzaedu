@@ -1,5 +1,7 @@
-import { IsOptional, IsString, IsUUID, IsEnum, MaxLength, IsArray, IsBoolean } from 'class-validator';
+import { IsOptional, IsString, IsUUID, IsEnum, MaxLength, IsArray, IsBoolean, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { UserRole, UserStatus, TeacherSchoolMembershipStatus } from '../../types/enums';
+import { EvrakDefaultsDto } from './update-me.dto';
 
 export class UpdateUserDto {
   @IsOptional()
@@ -73,4 +75,10 @@ export class UpdateUserDto {
   @IsString()
   @MaxLength(128)
   duty_exempt_reason?: string | null;
+
+  /** Okul yöneticisi: yolluk_teacher vb. (zorunlu kayıt alanları hariç) */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => EvrakDefaultsDto)
+  evrak_defaults?: EvrakDefaultsDto;
 }

@@ -1,10 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Calendar, CalendarClock, MessageSquare, Users } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
+import {
+  AGENDA_DIALOG_WIDE,
+  AgendaFormActions,
+  agendaInput,
+  agendaLabel,
+  agendaSection,
+  agendaTextarea,
+} from './agenda-form-ui';
+import { AgendaStudentPicker } from './agenda-student-picker';
 
 type ParentMeetingFormData = {
   studentId: string;
@@ -20,11 +29,13 @@ export function ParentMeetingFormModal({
   onOpenChange,
   onSubmit,
   students,
+  classes,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (data: ParentMeetingFormData) => Promise<void>;
-  students: { id: string; name: string }[];
+  students: { id: string; name: string; classId?: string }[];
+  classes: { id: string; label: string }[];
 }) {
   const [studentId, setStudentId] = useState('');
   const [meetingDate, setMeetingDate] = useState(new Date().toISOString().slice(0, 10));
@@ -33,6 +44,16 @@ export function ParentMeetingFormModal({
   const [description, setDescription] = useState('');
   const [followUpDate, setFollowUpDate] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setStudentId('');
+    setMeetingDate(new Date().toISOString().slice(0, 10));
+    setMeetingType('');
+    setSubject('');
+    setDescription('');
+    setFollowUpDate('');
+  }, [open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,12 +69,6 @@ export function ParentMeetingFormModal({
         followUpDate: followUpDate || undefined,
       });
       onOpenChange(false);
-      setStudentId('');
-      setMeetingDate(new Date().toISOString().slice(0, 10));
-      setMeetingType('');
-      setSubject('');
-      setDescription('');
-      setFollowUpDate('');
     } finally {
       setLoading(false);
     }
@@ -61,69 +76,87 @@ export function ParentMeetingFormModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="Veli Toplantısı Ekle">
-        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
-          <div>
-            <Label className="text-xs sm:text-sm">Öğrenci *</Label>
-            <select
-              value={studentId}
-              onChange={(e) => setStudentId(e.target.value)}
-              required
-              className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-11"
-            >
-              <option value="">Seçin</option>
-              {students.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
-            <div>
-              <Label className="text-xs sm:text-sm">Tarih *</Label>
-              <Input type="date" value={meetingDate} onChange={(e) => setMeetingDate(e.target.value)} className="mt-1 min-h-10 sm:min-h-11" />
+      <DialogContent title="Veli Toplantısı Ekle" className={AGENDA_DIALOG_WIDE}>
+        <form onSubmit={handleSubmit} className="space-y-2">
+          <AgendaStudentPicker
+            students={students}
+            classes={classes}
+            value={studentId}
+            onChange={setStudentId}
+            required
+          />
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className={agendaSection}>
+              <span className={cn(agendaLabel, 'inline-flex items-center gap-1')}>
+                <Calendar className="size-3 text-rose-500" aria-hidden />
+                Tarih *
+              </span>
+              <Input
+                type="date"
+                value={meetingDate}
+                onChange={(e) => setMeetingDate(e.target.value)}
+                required
+                className={cn(agendaInput, 'mt-1')}
+              />
             </div>
-            <div>
-              <Label className="text-xs sm:text-sm">Takip tarihi</Label>
-              <Input type="date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} className="mt-1 min-h-10 sm:min-h-11" />
+            <div className={agendaSection}>
+              <span className={cn(agendaLabel, 'inline-flex items-center gap-1')}>
+                <CalendarClock className="size-3 text-amber-500" aria-hidden />
+                Takip tarihi
+              </span>
+              <Input
+                type="date"
+                value={followUpDate}
+                onChange={(e) => setFollowUpDate(e.target.value)}
+                className={cn(agendaInput, 'mt-1')}
+              />
             </div>
           </div>
-          <div>
-            <Label className="text-xs sm:text-sm">Toplantı türü</Label>
+
+          <div className={agendaSection}>
+            <span className={cn(agendaLabel, 'inline-flex items-center gap-1')}>
+              <Users className="size-3 text-violet-500" aria-hidden />
+              Toplantı türü
+            </span>
             <Input
               value={meetingType}
               onChange={(e) => setMeetingType(e.target.value)}
-              placeholder="Bireysel, genel…"
-              className="mt-1 min-h-10 sm:min-h-11"
+              placeholder="Bireysel, sınıf, telefon…"
+              className={cn(agendaInput, 'mt-1')}
             />
           </div>
+
           <div>
-            <Label className="text-xs sm:text-sm">Konu</Label>
+            <span className={cn(agendaLabel, 'inline-flex items-center gap-1')}>
+              <MessageSquare className="size-3 text-sky-500" aria-hidden />
+              Konu
+            </span>
             <Input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="Toplantı konusu"
-              className="mt-1 min-h-10 sm:min-h-11"
+              placeholder="Görüşme konusu"
+              className={agendaInput}
             />
           </div>
+
           <div>
-            <Label className="text-xs sm:text-sm">Açıklama</Label>
+            <span className={agendaLabel}>Açıklama</span>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              className="mt-1 min-h-[72px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-[80px] sm:py-2.5"
+              placeholder="Özet, kararlar, notlar…"
+              rows={3}
+              className={agendaTextarea}
             />
           </div>
-          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end sm:pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
-              İptal
-            </Button>
-            <Button type="submit" disabled={loading || !studentId || !meetingDate} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
-              Kaydet
-            </Button>
-          </div>
+
+          <AgendaFormActions
+            onCancel={() => onOpenChange(false)}
+            loading={loading}
+            submitLabel="Kaydet"
+            disabled={!studentId || !meetingDate}
+          />
         </form>
       </DialogContent>
     </Dialog>

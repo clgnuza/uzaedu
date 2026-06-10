@@ -401,6 +401,7 @@ export function NotificationPushSettings() {
 
   const openEnableFlow = () => {
     setExpanded(true);
+    toast.dismiss();
     const gate = canSubscribePushOnDevice();
     if (!gate.ok) {
       toast.error(pushReasonMessage(gate.reason), { id: PUSH_TOAST_ID, duration: 5000 });
@@ -574,7 +575,9 @@ export function NotificationPushSettings() {
             {subscribed && pushEval.batteryOem ? <PushPlatformSetupTips mode="battery-only" /> : null}
 
             {settings.quiet_hours_enabled ? (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <p className="text-[10px] text-muted-foreground">Sessiz saatler TSİ (Europe/Istanbul).</p>
+                <div className="grid grid-cols-2 gap-2">
                 <label className="text-[11px] text-muted-foreground">
                   Sessiz başlangıç
                   <input
@@ -595,6 +598,7 @@ export function NotificationPushSettings() {
                     onChange={(e) => void patchSettings({ quiet_end_minutes: timeInputToMinutes(e.target.value) })}
                   />
                 </label>
+                </div>
               </div>
             ) : null}
 

@@ -44,7 +44,7 @@ export class ExamDutySchedulerService {
    * Her dakika: app_config’teki İstanbul saatleriyle eşleşince RSS/scrape sınav görevi sync.
    * Saatler: Sınav görevi ayarları → Senkronizasyon → otomatik senkron zamanları.
    */
-  @Cron('* * * * *')
+  @Cron('* * * * *', { timeZone: 'Europe/Istanbul' })
   async runSyncJob() {
     try {
       const slots = await this.appConfig.getExamDutySyncScheduleTimes();
@@ -59,8 +59,8 @@ export class ExamDutySchedulerService {
     }
   }
 
-  /** Her dakika 03:00–10:59 UTC ≈ 06:00–13:59 Turkey – tercih edilen HH:mm ile eşleşen sabah hatırlatması */
-  @Cron('*/1 3-10 * * *')
+  /** Her dakika TSİ — tercih edilen HH:mm ile eşleşen sabah hatırlatması */
+  @Cron('*/1 * * * *', { timeZone: 'Europe/Istanbul' })
   async runExamDayMorningNotifications() {
     const today = getTodayTurkey();
     const nowTime = getNowHHmmTurkey();
@@ -84,11 +84,10 @@ export class ExamDutySchedulerService {
   }
 
   /**
-   * Her saat başı (UTC): İstanbul’daki şu anki HH:mm, app_config’taki bildirim saatiyle eşleşince
-   * son başvuru / onay / sınav±1 gün kutusu bildirimleri (Europe/Istanbul takvim günü).
+   * Her dakika TSİ: app_config bildirim saatiyle eşleşince son başvuru / onay / sınav±1 gün bildirimleri.
    * Yayın bildirimi: publish() içinde anında (publish_now).
    */
-  @Cron('0 * * * *')
+  @Cron('*/1 * * * *', { timeZone: 'Europe/Istanbul' })
   async runScheduledNotifications() {
     const today = getTodayTurkey();
     const tomorrow = addDays(today, 1);

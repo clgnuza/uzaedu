@@ -1,11 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { BookOpen, Calendar, Sparkles, Tag } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import {
+  AGENDA_DIALOG_WIDE,
+  AgendaFormActions,
+  agendaInput,
+  agendaLabel,
+  agendaSection,
+  agendaTextarea,
+} from './agenda-form-ui';
+import { AgendaStudentPicker } from './agenda-student-picker';
 
 type StudentNoteFormData = {
   studentId: string;
@@ -16,26 +24,60 @@ type StudentNoteFormData = {
   tags?: string[];
 };
 
+const TYPE_OPTIONS: {
+  id: StudentNoteFormData['noteType'];
+  label: string;
+  active: string;
+}[] = [
+  {
+    id: 'positive',
+    label: 'Olumlu',
+    active: 'border-emerald-500/50 bg-emerald-500/15 text-emerald-900 ring-1 ring-emerald-500/25 dark:text-emerald-100',
+  },
+  {
+    id: 'negative',
+    label: 'Olumsuz',
+    active: 'border-rose-500/50 bg-rose-500/15 text-rose-900 ring-1 ring-rose-500/25 dark:text-rose-100',
+  },
+  {
+    id: 'observation',
+    label: 'Gözlem',
+    active: 'border-teal-500/50 bg-teal-500/15 text-teal-900 ring-1 ring-teal-500/25 dark:text-teal-100',
+  },
+];
+
 export function StudentNoteFormModal({
   open,
   onOpenChange,
   onSubmit,
   students,
+  classes,
   subjects,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (data: StudentNoteFormData) => Promise<void>;
-  students: { id: string; name: string }[];
+  students: { id: string; name: string; classId?: string }[];
+  classes: { id: string; label: string }[];
   subjects: { id: string; label: string }[];
 }) {
   const [studentId, setStudentId] = useState('');
-  const [noteType, setNoteType] = useState<'positive' | 'negative' | 'observation'>('observation');
+  const [noteType, setNoteType] = useState<StudentNoteFormData['noteType']>('observation');
   const [description, setDescription] = useState('');
   const [subjectId, setSubjectId] = useState('');
   const [noteDate, setNoteDate] = useState(new Date().toISOString().slice(0, 10));
   const [tags, setTags] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setStudentId('');
+    setNoteType('observation');
+    setDescription('');
+    setSubjectId('');
+    setNoteDate(new Date().toISOString().slice(0, 10));
+    setTags('');
+  }, [open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,71 +90,37 @@ export function StudentNoteFormModal({
         description: description.trim() || undefined,
         subjectId: subjectId || undefined,
         noteDate,
-        tags: tags.trim() ? tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined as string[] | undefined,
+        tags: tags.trim() ? tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
       });
       onOpenChange(false);
-      setStudentId('');
-      setDescription('');
-      setSubjectId('');
-      setNoteDate(new Date().toISOString().slice(0, 10));
-      setTags('');
     } finally {
       setLoading(false);
     }
   };
 
-  const typeOptions: { id: StudentNoteFormData['noteType']; label: string; on: string; off: string }[] = [
-    {
-      id: 'positive',
-      label: 'Olumlu',
-      on: 'border-emerald-600 bg-emerald-600 text-white shadow-sm dark:border-emerald-500 dark:bg-emerald-600',
-      off: 'border-border/80 bg-muted/40 text-muted-foreground hover:bg-muted',
-    },
-    {
-      id: 'negative',
-      label: 'Olumsuz',
-      on: 'border-rose-600 bg-rose-600 text-white shadow-sm dark:border-rose-500 dark:bg-rose-600',
-      off: 'border-border/80 bg-muted/40 text-muted-foreground hover:bg-muted',
-    },
-    {
-      id: 'observation',
-      label: 'Gözlem',
-      on: 'border-teal-600 bg-teal-600 text-white shadow-sm dark:border-teal-500 dark:bg-teal-600',
-      off: 'border-border/80 bg-muted/40 text-muted-foreground hover:bg-muted',
-    },
-  ];
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="Öğrenci Notu Ekle">
-        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
-          <div>
-            <Label className="text-xs sm:text-sm">Öğrenci *</Label>
-            <select
-              value={studentId}
-              onChange={(e) => setStudentId(e.target.value)}
-              required
-              className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-11"
-            >
-              <option value="">Seçin</option>
-              {students.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label className="text-xs sm:text-sm">Not türü</Label>
-            <div className="mt-1 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden">
-              {typeOptions.map((o) => (
+      <DialogContent title="Öğrenci Notu Ekle" className={AGENDA_DIALOG_WIDE}>
+        <form onSubmit={handleSubmit} className="space-y-2">
+          <AgendaStudentPicker
+            students={students}
+            classes={classes}
+            value={studentId}
+            onChange={setStudentId}
+            required
+          />
+
+          <div className={agendaSection}>
+            <span className={agendaLabel}>Not türü</span>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {TYPE_OPTIONS.map((o) => (
                 <button
                   key={o.id}
                   type="button"
                   onClick={() => setNoteType(o.id)}
                   className={cn(
-                    'shrink-0 rounded-lg border px-3 py-2 text-center text-[11px] font-bold transition-all sm:py-1.5 sm:text-xs',
-                    noteType === o.id ? o.on : o.off,
+                    'rounded-md border border-border/70 px-2.5 py-1 text-[10px] font-semibold transition-colors',
+                    noteType === o.id ? o.active : 'bg-background/80 text-muted-foreground hover:bg-muted/50',
                   )}
                 >
                   {o.label}
@@ -120,53 +128,77 @@ export function StudentNoteFormModal({
               ))}
             </div>
           </div>
+
           <div>
-            <Label className="text-xs sm:text-sm">Açıklama</Label>
+            <span className={agendaLabel}>Açıklama</span>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              className="mt-1 min-h-[72px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-[80px] sm:py-2.5"
+              placeholder="Kısa gözlem veya not…"
+              rows={3}
+              className={agendaTextarea}
             />
           </div>
-          {subjects.length > 0 && (
-            <div>
-              <Label className="text-xs sm:text-sm">Ders</Label>
-              <select
-                value={subjectId}
-                onChange={(e) => setSubjectId(e.target.value)}
-                className="mt-1 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm sm:min-h-11"
-              >
-                <option value="">Seçin</option>
-                {subjects.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
+
+          <div className="grid grid-cols-2 gap-2">
+            {subjects.length > 0 && (
+              <div className={cn(agendaSection, 'col-span-2 sm:col-span-1')}>
+                <span className={cn(agendaLabel, 'inline-flex items-center gap-1')}>
+                  <BookOpen className="size-3 text-sky-500" aria-hidden />
+                  Ders
+                </span>
+                <select
+                  value={subjectId}
+                  onChange={(e) => setSubjectId(e.target.value)}
+                  className={cn(agendaInput, 'mt-1 w-full')}
+                >
+                  <option value="">Seçin</option>
+                  {subjects.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className={cn(agendaSection, subjects.length > 0 ? 'sm:col-span-1' : 'col-span-2')}>
+              <span className={cn(agendaLabel, 'inline-flex items-center gap-1')}>
+                <Calendar className="size-3 text-amber-500" aria-hidden />
+                Tarih *
+              </span>
+              <Input
+                type="date"
+                value={noteDate}
+                onChange={(e) => setNoteDate(e.target.value)}
+                required
+                className={cn(agendaInput, 'mt-1')}
+              />
             </div>
-          )}
-          <div>
-            <Label className="text-xs sm:text-sm">Tarih *</Label>
-            <Input type="date" value={noteDate} onChange={(e) => setNoteDate(e.target.value)} className="mt-1 min-h-10 sm:min-h-11" />
           </div>
-          <div>
-            <Label className="text-xs sm:text-sm">Etiketler</Label>
+
+          <div className={agendaSection}>
+            <span className={cn(agendaLabel, 'inline-flex items-center gap-1')}>
+              <Tag className="size-3 text-fuchsia-500" aria-hidden />
+              Etiketler
+            </span>
             <Input
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="Virgülle ayırın"
-              className="mt-1 min-h-10 sm:min-h-11"
+              className={cn(agendaInput, 'mt-1')}
             />
+            <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+              <Sparkles className="size-3 shrink-0 opacity-70" aria-hidden />
+              Örn. katılım, ödev, davranış
+            </p>
           </div>
-          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end sm:pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
-              İptal
-            </Button>
-            <Button type="submit" disabled={loading || !studentId} className="h-10 w-full rounded-xl sm:h-11 sm:w-auto">
-              Kaydet
-            </Button>
-          </div>
+
+          <AgendaFormActions
+            onCancel={() => onOpenChange(false)}
+            loading={loading}
+            submitLabel="Kaydet"
+            disabled={!studentId}
+          />
         </form>
       </DialogContent>
     </Dialog>

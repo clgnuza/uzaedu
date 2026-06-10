@@ -1385,7 +1385,7 @@ export class TeacherAgendaService {
         ? this.evaluationScoreRepo.find({
             where: { teacherId, studentId: In(studentIdsForScores) },
             relations: ['criterion'],
-            order: { noteDate: 'DESC' },
+            order: { noteDate: 'DESC', createdAt: 'DESC' },
           })
         : [],
       studentIdsForScores.length > 0

@@ -165,6 +165,14 @@ export const MENU_SIDEBAR: MenuConfig = [
         allowedRoles: ['teacher', 'school_admin', 'superadmin', 'moderator'],
         badgeKey: 'dutyNotificationsUnread',
       },
+    ],
+  },
+  {
+    title: 'Sınav Görevi Takip',
+    icon: ClipboardList,
+    allowedRoles: ['teacher'],
+    menuGroup: 'sky',
+    children: [
       {
         title: 'Sınav Görevleri',
         titleByRole: { teacher: 'Sınav görevlerim' },

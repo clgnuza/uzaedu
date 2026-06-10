@@ -2764,13 +2764,41 @@ html.pwa-app .min-h-full {
   }
 }
 
-/* Ana sayfa — dar mobil: hub kenar etiketleri orta logoyu kapatmasın */
+/* Ana sayfa — dar mobil: etiketler halka dışına radyal taşınır */
 @media (max-width: 639px) {
-  .landing-seal-hub .landing-seal-hub-nodes-ring {
-    transform: scale(1.06);
+  .landing-seal-hub {
+    overflow: visible;
   }
-  .landing-seal-hub .landing-seal-hub-center {
-    inset: 34%;
+  .landing-seal-hub .landing-seal-hub-nodes,
+  .landing-seal-hub .landing-seal-hub-nodes-ring {
+    overflow: visible;
+  }
+  .landing-seal-hub .landing-seal-hub-nodes-ring {
+    transform: scale(1.02);
+  }
+  .landing-seal-hub .landing-seal-hub-node-label {
+    font-size: clamp(6.5px, 1.7vmin, 8.5px);
+    text-shadow: 0 1px 5px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.85);
+  }
+  .landing-features-intro-copy h2 {
+    font-size: 1.125rem;
+    line-height: 1.22;
+  }
+  .landing-features-intro-copy p {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+  }
+}
+
+@media (min-width: 640px) {
+  .landing-seal-hub .landing-seal-hub-node-label {
+    font-size: clamp(7.5px, 1.35vmin, 9.5px);
+  }
+}
+
+@media (min-width: 1024px) {
+  .landing-seal-hub .landing-seal-hub-node-label {
+    font-size: clamp(8px, 1.2vmin, 10px);
   }
 }
 
@@ -2782,13 +2810,13 @@ html.pwa-app .min-h-full {
     padding-top: max(0.125rem, env(safe-area-inset-top, 0px));
   }
   html.pwa-app .landing-seal-hub {
-    max-width: min(86vw, 380px) !important;
+    max-width: min(80vw, 320px) !important;
   }
   html.pwa-app .landing-seal-hub .landing-seal-hub-nodes-ring {
-    transform: scale(1.08);
+    transform: scale(1.03);
   }
   html.pwa-app .landing-seal-hub .landing-seal-hub-center {
-    inset: 35%;
+    inset: 37%;
   }
   html.pwa-app .landing-features {
     margin-top: 0;

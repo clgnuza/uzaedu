@@ -22,6 +22,7 @@ import {
   getThemeForEventTypeDetailed,
   type ChannelTheme,
 } from '@/lib/notification-channel-theme';
+import { TURKEY_TZ } from '@/lib/exam-duty-turkey-time';
 import { formatNotificationRelativeTime } from '@/lib/notification-relative-time';
 import { notificationEventLabel } from '@/lib/notification-event-label';
 import { YollukFinalizedNotificationBody } from '@/components/notifications/yolluk-finalized-notification-body';
@@ -101,8 +102,8 @@ function groupItems(items: InboxNotificationItem[]): Group[] {
 
 function LockScreenClock() {
   const now = new Date();
-  const time = now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-  const date = now.toLocaleDateString('tr-TR', { weekday: 'short', day: 'numeric', month: 'short' });
+  const time = now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', timeZone: TURKEY_TZ });
+  const date = now.toLocaleDateString('tr-TR', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TURKEY_TZ });
   return (
     <div className="pointer-events-none mb-4 text-center sm:mb-5">
       <p className="text-sm font-medium text-white/75 dark:text-white/70">{date}</p>

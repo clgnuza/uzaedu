@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { isPwaDisplayMode } from '@/lib/pwa-display';
 import { trackPwaEvent } from '@/lib/pwa-analytics';
 import { markPwaOnboardingPending } from '@/components/pwa-onboarding';
+import { PWA_ONBOARDING_DONE_KEY, PWA_ONBOARDING_PENDING_KEY } from '@/lib/pwa-push-permission';
 
 /** Ana ekran / tam ekran modunda html sınıfı ve dokunma davranışı */
 export function PwaStandaloneEnhance() {
@@ -17,7 +18,10 @@ export function PwaStandaloneEnhance() {
         tracked = true;
         trackPwaEvent('pwa_display_mode');
         try {
-          if (localStorage.getItem('pwa-onboarding-v1-done') !== '1' && !localStorage.getItem('pwa-onboarding-pending')) {
+          if (
+            localStorage.getItem(PWA_ONBOARDING_DONE_KEY) !== '1' &&
+            !localStorage.getItem(PWA_ONBOARDING_PENDING_KEY)
+          ) {
             markPwaOnboardingPending();
           }
         } catch {

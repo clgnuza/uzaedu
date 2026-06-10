@@ -8,7 +8,7 @@ import { ReminderFormSection } from './reminder-form-section';
 import { Repeat, BellRing } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  AGENDA_DIALOG_CLASS,
+  AGENDA_DIALOG_WIDE,
   AgendaFormActions,
   AgendaPriorityPills,
   agendaInput,
@@ -16,6 +16,7 @@ import {
   agendaSection,
   agendaTextarea,
 } from './agenda-form-ui';
+import { AgendaStudentPicker } from './agenda-student-picker';
 
 function localTodayYMD(): string {
   const d = new Date();
@@ -41,6 +42,7 @@ export function TaskFormModal({
   initial,
   editTaskId,
   students = [],
+  classes = [],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -48,7 +50,8 @@ export function TaskFormModal({
   initialDate?: string;
   initial?: Partial<TaskFormData>;
   editTaskId?: string | null;
-  students?: { id: string; name: string }[];
+  students?: { id: string; name: string; classId?: string }[];
+  classes?: { id: string; label: string }[];
 }) {
   const [title, setTitle] = useState(initial?.title ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
@@ -148,7 +151,7 @@ export function TaskFormModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         title={editTaskId ? 'Görevi Düzenle' : 'Yeni Görev'}
-        className={AGENDA_DIALOG_CLASS}
+        className={AGENDA_DIALOG_WIDE}
       >
         <form onSubmit={handleSubmit} className="space-y-2">
           <div>
@@ -200,21 +203,13 @@ export function TaskFormModal({
             <AgendaPriorityPills value={priority} onChange={setPriority} />
           </div>
           {students.length > 0 && (
-            <div>
-              <span className={agendaLabel}>Öğrenci</span>
-              <select
-                value={studentId}
-                onChange={(e) => setStudentId(e.target.value)}
-                className={cn(agendaInput, 'w-full')}
-              >
-                <option value="">Seçin</option>
-                {students.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <AgendaStudentPicker
+              students={students}
+              classes={classes}
+              value={studentId}
+              onChange={setStudentId}
+              optional
+            />
           )}
 
           <details className={cn(agendaSection, 'group open:pb-1.5')}>

@@ -1016,6 +1016,7 @@ export class ExamDutySyncService {
             rssExamDateEnd,
             rssApplicationEnd,
             true,
+            this.globalScheduleDedupeOpts(examSyncOpts),
           )
         : null;
       const sessionDupRss =
@@ -1023,12 +1024,13 @@ export class ExamDutySyncService {
         this.sessionScheduleCollidesWithSlices(
           { categorySlug, examDate: rssExamDate, examDateEnd: rssExamDateEnd, applicationEnd: rssApplicationEnd },
           pendingScheduleSlices,
+          this.globalScheduleDedupeOpts(examSyncOpts),
         );
       if (scheduleDupRss || sessionDupRss) {
         skipped++;
         existingIds.delete(externalId);
         const dupUrl = scheduleDupRss?.sourceUrl?.trim();
-        addSkipped(title, link, 'Aynı sınav takvimi zaten kayıtlı (farklı haber)', rssPlace, dupUrl
+        addSkipped(title, link, 'Aynı kategori ve sınav günü zaten kayıtlı (farklı haber)', rssPlace, dupUrl
           ? {
               duplicate_of_url: dupUrl.slice(0, 1024),
               duplicate_of_source_key: scheduleDupRss?.sourceKey ?? null,
@@ -1140,13 +1142,6 @@ export class ExamDutySyncService {
       /** Sınav tarihi aralığına her iki uca ±N gün payı (örtüşme kontrolü) */
       dedupe_exam_range_pad_days?: number;
     } | null;
-
-    const clampDedupeDay = (v: unknown) =>
-      Math.min(7, Math.max(0, Number.isFinite(Number(v)) ? Number(v) : 0));
-    const scheduleDateDedupeOpts: ExamDutyDateDedupeOpts = {
-      appEndSlackDays: clampDedupeDay(config?.dedupe_application_end_slack_days),
-      examRangePadDays: clampDedupeDay(config?.dedupe_exam_range_pad_days),
-    };
 
     const maxProcessPerSync = config?.max_process_per_sync ?? 0;
     const latestContentCheckLimit = Math.min(
@@ -1384,6 +1379,13 @@ export class ExamDutySyncService {
     const gptAvailable = await this.gptService.isAvailable();
     const scrapeTimes = await this.appConfig.getExamDutyDefaultTimes();
     const examSyncOpts = await this.appConfig.getExamDutySyncOptions();
+    const clampDedupeDay = (v: unknown, fallback: number) =>
+      Math.min(7, Math.max(0, Number.isFinite(Number(v)) ? Number(v) : fallback));
+    const globalDedupe = this.globalScheduleDedupeOpts(examSyncOpts);
+    const scheduleDateDedupeOpts: ExamDutyDateDedupeOpts = {
+      appEndSlackDays: clampDedupeDay(config?.dedupe_application_end_slack_days, globalDedupe.appEndSlackDays ?? 0),
+      examRangePadDays: clampDedupeDay(config?.dedupe_exam_range_pad_days, globalDedupe.examRangePadDays ?? 0),
+    };
 
     const existingRows = await this.dutyRepo
       .createQueryBuilder('e')
@@ -1827,38 +1829,23 @@ export class ExamDutySyncService {
       }
 
       const dedupeSched = examSyncOpts.dedupe_exam_schedule !== false;
-      const ogretmenxStrict = dedupeSched && source.key === 'exam_duty_ogretmenx';
       const scheduleDupScrape = dedupeSched
-        ? ogretmenxStrict
-          ? await this.findDuplicateDutyByStrictExamSchedule(
-              categorySlug,
-              examDate,
-              examDateEnd,
-              applicationEnd,
-            )
-          : await this.findDuplicateDutyByExamSchedule(
-              categorySlug,
-              examDate,
-              examDateEnd,
-              applicationEnd,
-              true,
-              scheduleDateDedupeOpts,
-            )
+        ? await this.findDuplicateDutyByExamSchedule(
+            categorySlug,
+            examDate,
+            examDateEnd,
+            applicationEnd,
+            true,
+            scheduleDateDedupeOpts,
+          )
         : null;
       const sessionDupScrape =
         dedupeSched &&
-        (ogretmenxStrict
-          ? pendingScheduleSlices.some((p) =>
-              this.strictScheduleDuplicatePair(
-                { categorySlug, examDate, examDateEnd, applicationEnd },
-                p,
-              ),
-            )
-          : this.sessionScheduleCollidesWithSlices(
-              { categorySlug, examDate, examDateEnd, applicationEnd },
-              pendingScheduleSlices,
-              scheduleDateDedupeOpts,
-            ));
+        this.sessionScheduleCollidesWithSlices(
+          { categorySlug, examDate, examDateEnd, applicationEnd },
+          pendingScheduleSlices,
+          scheduleDateDedupeOpts,
+        );
       if (scheduleDupScrape || sessionDupScrape) {
         skipped++;
         existingIds.delete(externalId);
@@ -1866,9 +1853,7 @@ export class ExamDutySyncService {
         addSkipped(
           c.title,
           c.href,
-          ogretmenxStrict
-            ? 'Aynı kategoride son başvuru ve sınav günleri zaten kayıtlı'
-            : 'Aynı sınav takvimi zaten kayıtlı (farklı haber)',
+          'Aynı kategori ve sınav günü zaten kayıtlı (farklı haber; son başvuru farklı olsa da atlanır)',
           skipPlacement,
           dupUrl
             ? {
@@ -1965,6 +1950,44 @@ export class ExamDutySyncService {
     return d.toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
   }
 
+  private globalScheduleDedupeOpts(
+    examSyncOpts: Awaited<ReturnType<AppConfigService['getExamDutySyncOptions']>>,
+  ): ExamDutyDateDedupeOpts {
+    return {
+      appEndSlackDays: examSyncOpts.dedupe_application_end_slack_days ?? 0,
+      examRangePadDays: examSyncOpts.dedupe_exam_range_pad_days ?? 0,
+    };
+  }
+
+  /** Sınav günü (İstanbul) + kategori — son başvuru farklı olsa da aynı oturum sayılır */
+  private sameCategoryExamDay(a: ExamDutyScheduleSlice, b: ExamDutyScheduleSlice): boolean {
+    if (a.categorySlug !== b.categorySlug) return false;
+    const startA = this.ymdIstanbul(a.examDate);
+    const startB = this.ymdIstanbul(b.examDate);
+    if (startA && startB && startA === startB) return true;
+    const ra = this.examRangeTurkey(a.examDate, a.examDateEnd);
+    const rb = this.examRangeTurkey(b.examDate, b.examDateEnd);
+    return !!(ra && rb && this.rangesYmdOverlap(ra, rb));
+  }
+
+  /** Sınav tarihi henüz yokken: aynı kategoride son başvuru, bilinen sınav gününden önce makul aralıkta */
+  private draftApplicationLikelySameExam(
+    row: ExamDutyScheduleSlice,
+    needle: ExamDutyScheduleSlice,
+    maxDaysBeforeExam = 45,
+  ): boolean {
+    if (row.categorySlug !== needle.categorySlug) return false;
+    const examY = this.ymdIstanbul(needle.examDate);
+    if (!examY || this.ymdIstanbul(row.examDate)) return false;
+    const appY = this.ymdIstanbul(row.applicationEnd);
+    if (!appY) return false;
+    const examUd = this.ymdToUnixDay(examY);
+    const appUd = this.ymdToUnixDay(appY);
+    if (Number.isNaN(examUd) || Number.isNaN(appUd)) return false;
+    const diff = examUd - appUd;
+    return diff >= 0 && diff <= maxDaysBeforeExam;
+  }
+
   /** İstanbul YYYY-MM-DD aralığı (dahil); sınav yoksa null. */
   private examRangeTurkey(examDate: Date | null, examDateEnd: Date | null): { start: string; end: string } | null {
     const d1 = this.ymdIstanbul(examDate);
@@ -2038,13 +2061,15 @@ export class ExamDutySyncService {
     return null;
   }
 
-  /** Aynı kategori + sınav aralığı (±pay) / parmak izi / son başvuru günü (±slack, İstanbul) */
+  /** Aynı kategori + sınav günü/aralığı (öncelik) / parmak izi / son başvuru günü (±slack, İstanbul) */
   private schedulesDateDuplicatePair(
     a: ExamDutyScheduleSlice,
     b: ExamDutyScheduleSlice,
     opts?: ExamDutyDateDedupeOpts,
   ): boolean {
     if (a.categorySlug !== b.categorySlug) return false;
+    if (this.sameCategoryExamDay(a, b)) return true;
+    if (this.draftApplicationLikelySameExam(a, b) || this.draftApplicationLikelySameExam(b, a)) return true;
     const pad = opts?.examRangePadDays ?? 0;
     let newRange = this.examRangeTurkey(a.examDate, a.examDateEnd);
     let rowRange = this.examRangeTurkey(b.examDate, b.examDateEnd);
@@ -2079,19 +2104,6 @@ export class ExamDutySyncService {
       }
     }
     return false;
-  }
-
-  /** ÖğretmenX vb.: başlık değil; aynı İstanbul gününde son başvuru + aynı sınav aralığı (tam uçlar). */
-  private strictScheduleDuplicatePair(a: ExamDutyScheduleSlice, b: ExamDutyScheduleSlice): boolean {
-    if (a.categorySlug !== b.categorySlug) return false;
-    const ae = this.ymdIstanbul(a.applicationEnd);
-    const be = this.ymdIstanbul(b.applicationEnd);
-    if (ae !== be) return false;
-    const ra = this.examRangeTurkey(a.examDate, a.examDateEnd);
-    const rb = this.examRangeTurkey(b.examDate, b.examDateEnd);
-    const examMatch = ra && rb ? ra.start === rb.start && ra.end === rb.end : !ra && !rb;
-    if (!examMatch) return false;
-    return !!(ae || ra);
   }
 
   private sessionScheduleCollidesWithSlices(
@@ -2152,30 +2164,6 @@ export class ExamDutySyncService {
         applicationEnd: row.applicationEnd,
       };
       if (this.schedulesDateDuplicatePair(needle, slice, opts)) return row;
-    }
-    return null;
-  }
-
-  private async findDuplicateDutyByStrictExamSchedule(
-    categorySlug: string,
-    examDate: Date | null,
-    examDateEnd: Date | null,
-    applicationEnd: Date | null,
-  ): Promise<ExamDuty | null> {
-    const needle: ExamDutyScheduleSlice = { categorySlug, examDate, examDateEnd, applicationEnd };
-    const rows = await this.dutyRepo.find({
-      where: { categorySlug, deletedAt: IsNull() },
-      order: { createdAt: 'DESC' },
-      take: 5000,
-    });
-    for (const row of rows) {
-      const slice: ExamDutyScheduleSlice = {
-        categorySlug: row.categorySlug,
-        examDate: row.examDate,
-        examDateEnd: row.examDateEnd,
-        applicationEnd: row.applicationEnd,
-      };
-      if (this.strictScheduleDuplicatePair(needle, slice)) return row;
     }
     return null;
   }

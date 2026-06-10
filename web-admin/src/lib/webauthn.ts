@@ -136,25 +136,43 @@ export async function loginWithPasskey(
   });
 }
 
-export async function registerPasskey(token: string, name?: string, portal?: AuthPortal): Promise<void> {
-  return wrapWebAuthn('register', async () => {
+export type RegisterPasskeyResult = { alreadyExists: boolean };
+
+export async function registerPasskey(
+  token: string,
+  name?: string,
+  portal?: AuthPortal,
+  accountEmail?: string,
+): Promise<RegisterPasskeyResult> {
+  const hintEmail = accountEmail?.trim() || getRememberedLoginEmail();
+  try {
     const options = await apiFetch('/auth/webauthn/register/options', {
       method: 'POST',
       token,
     });
-    const attestation = await startRegistration({
-      optionsJSON: options as Parameters<typeof startRegistration>[0]['optionsJSON'],
-    });
-    await apiFetch('/auth/webauthn/register/verify', {
+    let attestation;
+    try {
+      attestation = await startRegistration({
+        optionsJSON: options as Parameters<typeof startRegistration>[0]['optionsJSON'],
+      });
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'InvalidStateError') {
+        if (portal && hintEmail) setPasskeyHint(portal, hintEmail);
+        return { alreadyExists: true };
+      }
+      throw e;
+    }
+    const verified = await apiFetch<{ ok: true; already_exists?: boolean }>('/auth/webauthn/register/verify', {
       method: 'POST',
       token,
       body: JSON.stringify({ response: attestation, name }),
     });
-    if (portal) {
-      const remembered = getRememberedLoginEmail();
-      if (remembered) setPasskeyHint(portal, remembered);
-    }
-  });
+    if (portal && hintEmail) setPasskeyHint(portal, hintEmail);
+    if (verified.already_exists) return { alreadyExists: true };
+    return { alreadyExists: false };
+  } catch (e) {
+    throw new Error(getWebAuthnErrorMessage(e, 'register'));
+  }
 }
 
 export type PasskeyCredentialRow = {

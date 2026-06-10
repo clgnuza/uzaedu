@@ -16,13 +16,42 @@ import {
 import { format, parseISO, isWithinInterval, startOfDay, endOfDay, addDays } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import type { AssignedUserView, WeekWithItems } from './academic-calendar-timeline';
-import { BelirliPill, OgretmenPill } from './academic-calendar-timeline';
+import {
+  BelirliPill,
+  OgretmenPill,
+  findWeekIndexForDate,
+  formatAcademicWeekHeading,
+  formatAcademicWeekShort,
+  getAcademicWeekKind,
+  getAcademicWeekKindLabel,
+  getCurrentWeekIndex,
+  isDateInAcademicWeek,
+  isNonTeachingWeek,
+} from './academic-calendar-timeline';
 import { cn } from '@/lib/utils';
 import { BILSEM_VIEW_TAB_STYLES } from '@/lib/bilsem-takvim-ui';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 
 const GUNLER = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+
+const WEEK_KIND_STYLES: Record<ReturnType<typeof getAcademicWeekKind>, string> = {
+  seminer: 'bg-violet-100 text-violet-900 dark:bg-violet-950/50 dark:text-violet-100',
+  ara_tatil: 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-100',
+  yariyil: 'bg-sky-100 text-sky-900 dark:bg-sky-950/50 dark:text-sky-100',
+  ozel: 'bg-muted text-muted-foreground',
+  ogretim: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100',
+};
+
+function WeekKindBadge({ week }: { week: WeekWithItems }) {
+  const kind = getAcademicWeekKind(week);
+  if (kind === 'ogretim') return null;
+  return (
+    <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', WEEK_KIND_STYLES[kind])}>
+      {getAcademicWeekKindLabel(week)}
+    </span>
+  );
+}
 
 /** Kart köşelerinde hafif pastel dekor (benzersiz gradient id) */
 function CardPastelMesh({ variant, className }: { variant: 'header' | 'amber' | 'sky'; className?: string }) {
@@ -78,38 +107,107 @@ interface AcademicCalendarViewProps {
   compact?: boolean;
 }
 
-/** Tek satır görevlendirme; yalnızca kişi varsa kullanın */
-function GorevlendirmeInline({ users, tone }: { users: AssignedUserView[]; tone: 'orange' | 'sky' }) {
-  const sorumlu = users.filter((u) => u.gorevTipi === 'sorumlu');
-  const yardimci = users.filter((u) => u.gorevTipi === 'yardimci');
-  const names = (arr: AssignedUserView[]) => arr.map((u) => u.displayName?.trim() || '—').join(', ');
-  const bits: string[] = [];
-  if (sorumlu.length) bits.push(`Sorumlu: ${names(sorumlu)}`);
-  if (yardimci.length) bits.push(`Yard.: ${names(yardimci)}`);
-  if (bits.length === 0) return null;
-  return (
-    <span
-      className={cn(
-        'text-[11px] leading-tight sm:text-xs',
-        tone === 'orange'
-          ? 'text-orange-950/90 dark:text-orange-100/95'
-          : 'text-sky-950/90 dark:text-sky-100/95'
-      )}
-    >
-      {bits.join(' · ')}
-    </span>
-  );
+const TEACHER_CARD_ACCENTS = {
+  orange: [
+    'border-orange-200/70 bg-gradient-to-br from-orange-50 to-amber-50/80 dark:border-orange-800/45 dark:from-orange-950/55 dark:to-amber-950/35',
+    'border-rose-200/70 bg-gradient-to-br from-rose-50/90 to-orange-50/70 dark:border-rose-900/40 dark:from-rose-950/45 dark:to-orange-950/35',
+    'border-amber-200/70 bg-gradient-to-br from-amber-50 to-yellow-50/75 dark:border-amber-800/40 dark:from-amber-950/50 dark:to-yellow-950/30',
+    'border-fuchsia-200/60 bg-gradient-to-br from-fuchsia-50/80 to-orange-50/70 dark:border-fuchsia-900/35 dark:from-fuchsia-950/40 dark:to-orange-950/30',
+    'border-red-200/60 bg-gradient-to-br from-red-50/75 to-orange-50/65 dark:border-red-900/35 dark:from-red-950/40 dark:to-orange-950/30',
+    'border-violet-200/60 bg-gradient-to-br from-violet-50/75 to-orange-50/65 dark:border-violet-900/35 dark:from-violet-950/40 dark:to-orange-950/30',
+  ],
+  sky: [
+    'border-sky-200/70 bg-gradient-to-br from-sky-50 to-cyan-50/80 dark:border-sky-800/45 dark:from-sky-950/55 dark:to-cyan-950/35',
+    'border-blue-200/70 bg-gradient-to-br from-blue-50/90 to-sky-50/70 dark:border-blue-900/40 dark:from-blue-950/45 dark:to-sky-950/35',
+    'border-teal-200/70 bg-gradient-to-br from-teal-50 to-cyan-50/75 dark:border-teal-800/40 dark:from-teal-950/50 dark:to-cyan-950/30',
+    'border-indigo-200/60 bg-gradient-to-br from-indigo-50/80 to-sky-50/70 dark:border-indigo-900/35 dark:from-indigo-950/40 dark:to-sky-950/30',
+    'border-emerald-200/60 bg-gradient-to-br from-emerald-50/75 to-sky-50/65 dark:border-emerald-900/35 dark:from-emerald-950/40 dark:to-sky-950/30',
+    'border-violet-200/60 bg-gradient-to-br from-violet-50/75 to-sky-50/65 dark:border-violet-900/35 dark:from-violet-950/40 dark:to-sky-950/30',
+  ],
+} as const;
+
+function teacherAccentIndex(userId: string): number {
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) >>> 0;
+  return h % TEACHER_CARD_ACCENTS.orange.length;
 }
 
-function formatCompactGorev(users: AssignedUserView[]): string {
-  if (users.length === 0) return '';
-  return users
-    .map((u) => {
-      const n = u.displayName?.trim() || '—';
-      const tag = u.gorevTipi === 'sorumlu' ? 'sor.' : 'yard.';
-      return `${n} (${tag})`;
-    })
-    .join(' · ');
+function teacherInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toLocaleUpperCase('tr-TR');
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toLocaleUpperCase('tr-TR');
+}
+
+function AssignedTeacherCards({
+  users,
+  tone,
+  compact = false,
+}: {
+  users: AssignedUserView[];
+  tone: 'orange' | 'sky';
+  compact?: boolean;
+}) {
+  if (users.length === 0) return null;
+  const accents = TEACHER_CARD_ACCENTS[tone];
+  const avatarTone =
+    tone === 'orange'
+      ? 'bg-white/80 text-orange-800 dark:bg-orange-950/60 dark:text-orange-100'
+      : 'bg-white/80 text-sky-800 dark:bg-sky-950/60 dark:text-sky-100';
+  const roleSorumlu =
+    tone === 'orange'
+      ? 'bg-orange-600/15 text-orange-900 dark:bg-orange-400/20 dark:text-orange-100'
+      : 'bg-sky-600/15 text-sky-900 dark:bg-sky-400/20 dark:text-sky-100';
+  const roleYardimci =
+    tone === 'orange'
+      ? 'bg-amber-600/12 text-amber-950 dark:bg-amber-400/15 dark:text-amber-100'
+      : 'bg-cyan-600/12 text-cyan-950 dark:bg-cyan-400/15 dark:text-cyan-100';
+
+  return (
+    <div className={cn('flex flex-wrap', compact ? 'gap-1' : 'gap-1.5')}>
+      {users.map((u) => {
+        const name = u.displayName?.trim() || '—';
+        const accent = accents[teacherAccentIndex(u.userId)];
+        return (
+          <div
+            key={`${u.userId}-${u.gorevTipi}`}
+            className={cn(
+              'inline-flex min-w-0 max-w-full items-center rounded-lg border shadow-sm',
+              compact ? 'gap-1 px-1 py-0.5' : 'gap-1.5 px-1.5 py-1',
+              accent,
+            )}
+            title={`${name} · ${u.gorevTipi === 'sorumlu' ? 'Sorumlu' : 'Yardımcı'}`}
+          >
+            <span
+              className={cn(
+                'flex shrink-0 items-center justify-center rounded-full font-bold tabular-nums',
+                avatarTone,
+                compact ? 'size-4 text-[8px]' : 'size-5 text-[9px]',
+              )}
+            >
+              {teacherInitials(name)}
+            </span>
+            <span
+              className={cn(
+                'min-w-0 truncate font-medium leading-tight text-foreground/90',
+                compact ? 'max-w-[5.5rem] text-[9px]' : 'max-w-[9rem] text-[10px] sm:max-w-[11rem] sm:text-[11px]',
+              )}
+            >
+              {name}
+            </span>
+            <span
+              className={cn(
+                'shrink-0 rounded px-1 py-px text-[7px] font-bold uppercase tracking-wide sm:text-[8px]',
+                u.gorevTipi === 'sorumlu' ? roleSorumlu : roleYardimci,
+              )}
+            >
+              {u.gorevTipi === 'sorumlu' ? 'Sor.' : 'Yrd.'}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function formatWeekOptionDates(startStr: string, endStr: string): string {
@@ -279,16 +377,19 @@ function WeekCardMain({
                               className="max-w-[min(100%,28rem)] border-orange-200/50 bg-orange-50/80 py-1 text-xs dark:border-orange-800/40 dark:bg-orange-950/30 dark:text-orange-100"
                             />
                             {isMyTask && (
-                              <span className="inline-flex items-center gap-0.5 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-900 dark:bg-violet-900/45 dark:text-violet-100">
+                              <span className="inline-flex items-center gap-0.5 rounded-full bg-linear-to-r from-fuchsia-500 to-violet-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
                                 <UserCheck className="size-3 shrink-0" aria-hidden />
                                 Sizin
                               </span>
                             )}
                           </div>
                           {assigned.length > 0 && (
-                            <div className="mt-1.5 flex items-start gap-1.5 border-t border-orange-100/80 pt-1.5 dark:border-orange-900/30">
-                              <Users className="mt-0.5 size-3 shrink-0 text-orange-500/80 dark:text-orange-400/80" aria-hidden />
-                              <GorevlendirmeInline users={assigned} tone="orange" />
+                            <div className="mt-1.5 border-t border-orange-100/80 pt-1.5 dark:border-orange-900/30">
+                              <div className="mb-1 flex items-center gap-1">
+                                <Users className="size-3 shrink-0 text-orange-500/80 dark:text-orange-400/80" aria-hidden />
+                                <span className="text-[10px] font-medium text-orange-800/75 dark:text-orange-200/80">Görevliler</span>
+                              </div>
+                              <AssignedTeacherCards users={assigned} tone="orange" />
                             </div>
                           )}
                         </div>
@@ -334,16 +435,19 @@ function WeekCardMain({
                               className="max-w-[min(100%,28rem)] border-sky-200/50 bg-sky-50/80 py-1 text-xs dark:border-sky-800/40 dark:bg-sky-950/30 dark:text-sky-100"
                             />
                             {isMyTask && (
-                              <span className="inline-flex items-center gap-0.5 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-900 dark:bg-violet-900/45 dark:text-violet-100">
+                              <span className="inline-flex items-center gap-0.5 rounded-full bg-linear-to-r from-fuchsia-500 to-violet-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
                                 <UserCheck className="size-3 shrink-0" aria-hidden />
                                 Sizin
                               </span>
                             )}
                           </div>
                           {assigned.length > 0 && (
-                            <div className="mt-1.5 flex items-start gap-1.5 border-t border-sky-100/80 pt-1.5 dark:border-sky-900/30">
-                              <Users className="mt-0.5 size-3 shrink-0 text-sky-500/80 dark:text-sky-400/80" aria-hidden />
-                              <GorevlendirmeInline users={assigned} tone="sky" />
+                            <div className="mt-1.5 border-t border-sky-100/80 pt-1.5 dark:border-sky-900/30">
+                              <div className="mb-1 flex items-center gap-1">
+                                <Users className="size-3 shrink-0 text-sky-500/80 dark:text-sky-400/80" aria-hidden />
+                                <span className="text-[10px] font-medium text-sky-800/75 dark:text-sky-200/80">Görevliler</span>
+                              </div>
+                              <AssignedTeacherCards users={assigned} tone="sky" />
                             </div>
                           )}
                         </div>
@@ -379,13 +483,7 @@ function WeekCardCompact({
   onClick?: () => void;
   currentUserId?: string | null;
 }) {
-  const isCurrentWeek =
-    week.dateStart &&
-    week.dateEnd &&
-    isWithinInterval(new Date(), {
-      start: startOfDay(parseISO(week.dateStart)),
-      end: endOfDay(parseISO(week.dateEnd)),
-    });
+  const isCurrentWeek = isDateInAcademicWeek(week);
   const belirli = week.belirliGunHafta?.length ?? 0;
   const ogretmen = week.ogretmenIsleri?.length ?? 0;
   const total = belirli + ogretmen;
@@ -414,7 +512,8 @@ function WeekCardCompact({
         </svg>
         <div className="relative min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-bold tabular-nums sm:text-lg md:text-base">{week.weekNumber}. hafta</span>
+            <span className="text-sm font-bold leading-snug sm:text-lg md:text-base">{formatAcademicWeekHeading(week)}</span>
+            <WeekKindBadge week={week} />
             {isCurrentWeek && (
               <span className="rounded-full bg-emerald-200/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100">
                 Bu hafta
@@ -444,7 +543,7 @@ function WeekCardCompact({
         {total > 0 && (
           <div className="flex flex-col gap-1.5 text-left">
             {hasMyTaskInWeek && (
-              <p className="rounded-md bg-violet-100/80 px-2 py-0.5 text-center text-[10px] font-medium text-violet-900 dark:bg-violet-900/35 dark:text-violet-100">
+              <p className="rounded-lg bg-linear-to-r from-fuchsia-500/15 to-violet-500/15 px-2 py-1 text-center text-[10px] font-bold text-fuchsia-900 dark:from-fuchsia-500/20 dark:to-violet-500/20 dark:text-fuchsia-100">
                 Size atanan görev bu hafta
               </p>
             )}
@@ -461,9 +560,7 @@ function WeekCardCompact({
                         Sizin
                       </span>
                     )}
-                    {au.length > 0 && (
-                      <span className="text-[10px] leading-tight text-muted-foreground">{formatCompactGorev(au)}</span>
-                    )}
+                    {au.length > 0 && <AssignedTeacherCards users={au} tone="orange" compact />}
                   </div>
                 </div>
               );
@@ -499,50 +596,34 @@ export function AcademicCalendarView({
   currentUserId,
   compact = false,
 }: AcademicCalendarViewProps) {
-  const initialWeekIndex = useMemo(() => {
-    const target = defaultDate ?? new Date();
-    const idx = weeks.findIndex((w) => {
-      if (!w.dateStart || !w.dateEnd) return false;
-      const start = startOfDay(parseISO(w.dateStart));
-      const end = endOfDay(parseISO(w.dateEnd));
-      return isWithinInterval(target, { start, end });
-    });
-    return idx >= 0 ? idx : 0;
-  }, [weeks, defaultDate]);
+  const resolveCenterIndex = useCallback(
+    (weekList: WeekWithItems[]) => {
+      if (weekList.length === 0) return 0;
+      const anchor =
+        defaultDate != null && !Number.isNaN(defaultDate.getTime()) ? defaultDate : new Date();
+      let idx = findWeekIndexForDate(weekList, anchor);
+      if (idx < 0) idx = findWeekIndexForDate(weekList, new Date());
+      if (idx < 0) idx = 0;
+      return Math.min(Math.max(0, idx), weekList.length - 1);
+    },
+    [defaultDate],
+  );
 
-  const [centerIndex, setCenterIndex] = useState(initialWeekIndex);
-
-  const defaultAnchorMs =
-    defaultDate != null && !Number.isNaN(defaultDate.getTime()) ? defaultDate.getTime() : null;
+  const [centerIndex, setCenterIndex] = useState(0);
+  const activeWeekBtnRef = useRef<HTMLButtonElement>(null);
+  const weeksLoadedRef = useRef(false);
 
   useEffect(() => {
     if (weeks.length === 0) return;
-    const target = defaultAnchorMs != null ? new Date(defaultAnchorMs) : new Date();
-    const idx = weeks.findIndex((w) => {
-      if (!w.dateStart || !w.dateEnd) return false;
-      const start = startOfDay(parseISO(w.dateStart));
-      const end = endOfDay(parseISO(w.dateEnd));
-      return isWithinInterval(target, { start, end });
-    });
-    const next = idx >= 0 ? idx : 0;
-    const clamped = Math.min(Math.max(0, next), weeks.length - 1);
-    setCenterIndex(clamped);
-  }, [weeks, defaultAnchorMs]);
+    setCenterIndex(resolveCenterIndex(weeks));
+    weeksLoadedRef.current = true;
+  }, [weeks, resolveCenterIndex]);
 
   const centerWeek = weeks[centerIndex];
   const goPrev = () => setCenterIndex((i) => Math.max(0, i - 1));
   const goNext = () => setCenterIndex((i) => Math.min(weeks.length - 1, i + 1));
 
-  const currentWeekIndex = useMemo(() => {
-    const now = new Date();
-    return weeks.findIndex((w) => {
-      if (!w.dateStart || !w.dateEnd) return false;
-      return isWithinInterval(now, {
-        start: startOfDay(parseISO(w.dateStart)),
-        end: endOfDay(parseISO(w.dateEnd)),
-      });
-    });
-  }, [weeks]);
+  const currentWeekIndex = useMemo(() => getCurrentWeekIndex(weeks), [weeks]);
 
   const goToTodayWeek = useCallback(() => {
     if (currentWeekIndex >= 0) setCenterIndex(currentWeekIndex);
@@ -560,8 +641,12 @@ export function AcademicCalendarView({
 
   useLayoutEffect(() => {
     if (weeks.length === 0) return;
-    if (view !== 'month' || currentWeekIndex < 0 || centerIndex !== currentWeekIndex) return;
-    monthListActiveElRef.current?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    if (view === 'month' && currentWeekIndex >= 0 && centerIndex === currentWeekIndex) {
+      monthListActiveElRef.current?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    }
+    if (view === 'week' && weeksLoadedRef.current) {
+      activeWeekBtnRef.current?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'auto' });
+    }
   }, [weeks.length, view, centerIndex, currentWeekIndex]);
 
   const quickNavWeeks = useMemo(() => {
@@ -575,22 +660,18 @@ export function AcademicCalendarView({
 
   if (weeks.length === 0) return null;
 
-  const isCenterCurrentWeek =
-    centerWeek?.dateStart &&
-    centerWeek?.dateEnd &&
-    isWithinInterval(new Date(), {
-      start: startOfDay(parseISO(centerWeek.dateStart)),
-      end: endOfDay(parseISO(centerWeek.dateEnd)),
-    });
+  const isCenterCurrentWeek = centerWeek ? isDateInAcademicWeek(centerWeek) : false;
 
   return (
-    <div className={cn(compact ? 'flex flex-col gap-2 sm:gap-5 md:gap-3' : 'flex flex-col gap-3 sm:gap-6 md:gap-4', className)}>
+    <div className={cn(compact ? 'flex flex-col gap-2.5 sm:gap-4' : 'flex flex-col gap-3 sm:gap-6 md:gap-4', className)}>
       <div
         className={cn(
-          'sticky z-20 w-full rounded-lg border border-indigo-100/60 bg-white/95 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/90 dark:border-indigo-900/45 dark:bg-zinc-950/95 md:rounded-2xl md:border-violet-100/80 md:bg-background/90 md:shadow-sm md:dark:border-violet-900/40 md:dark:bg-background/90',
+          'sticky z-20 w-full shadow-sm backdrop-blur-md',
           compact
-            ? 'flex flex-col gap-1 p-1 max-sm:rounded-md sm:gap-2.5 sm:p-3 md:gap-2 md:p-2'
-            : 'flex flex-col gap-1 p-1 max-sm:rounded-md sm:gap-2.5 sm:p-3 md:gap-2 md:p-2',
+            ? 'rounded-2xl border border-violet-200/60 bg-linear-to-br from-violet-50/90 via-white/95 to-amber-50/50 p-2.5 dark:border-violet-900/40 dark:from-violet-950/50 dark:via-zinc-950/95 dark:to-amber-950/20 sm:p-3'
+            : 'rounded-lg border border-indigo-100/60 bg-white/95 supports-[backdrop-filter]:bg-white/90 dark:border-indigo-900/45 dark:bg-zinc-950/95 md:rounded-2xl md:border-violet-100/80 md:bg-background/90 md:dark:border-violet-900/40 md:dark:bg-background/90',
+          !compact && 'flex flex-col gap-1 p-1 max-sm:rounded-md sm:gap-2.5 sm:p-3 md:gap-2 md:p-2',
+          compact && 'flex flex-col gap-2',
         )}
         style={{
           top: 'max(env(safe-area-inset-top, 0px), var(--app-header-sticky-top, var(--header-height, 0px)))',
@@ -598,23 +679,25 @@ export function AcademicCalendarView({
       >
         <p className="sr-only" aria-live="polite" aria-atomic>
           {centerWeek
-            ? `Seçili ${centerWeek.weekNumber}. hafta, ${centerWeek.dateStart && centerWeek.dateEnd ? formatDateRangeProminent(centerWeek.dateStart, centerWeek.dateEnd) : ''}`
+            ? `Seçili ${formatAcademicWeekHeading(centerWeek)}, ${centerWeek.dateStart && centerWeek.dateEnd ? formatDateRangeProminent(centerWeek.dateStart, centerWeek.dateEnd) : ''}`
             : ''}
         </p>
         <div
           className={cn(
-            '-mx-0.5 hidden max-w-full flex-nowrap items-center justify-center gap-x-2 gap-y-0.5 overflow-x-auto px-0.5 pb-0.5 text-[10px] text-muted-foreground sm:flex sm:justify-start sm:flex-wrap sm:gap-x-3 sm:text-xs',
-            compact && 'sm:pb-0',
+            'flex max-w-full flex-wrap items-center gap-2 text-[10px] sm:text-xs',
+            compact ? 'text-muted-foreground' : '-mx-0.5 hidden sm:flex sm:justify-start sm:gap-x-3',
           )}
         >
-          <span className="shrink-0 font-medium text-indigo-950 dark:text-indigo-100 sm:text-foreground">Renk</span>
-          <span className="inline-flex shrink-0 items-center gap-1">
-            <span className="size-2 shrink-0 rounded-full bg-amber-400 ring-1 ring-amber-500/35" aria-hidden />
-            Belirli
+          <span className={cn('shrink-0 font-semibold', compact ? 'text-foreground' : 'text-indigo-950 dark:text-indigo-100 sm:text-foreground')}>
+            {compact ? 'Renk kodları' : 'Renk'}
           </span>
-          <span className="inline-flex shrink-0 items-center gap-1">
-            <span className="size-2 shrink-0 rounded-full bg-cyan-400 ring-1 ring-cyan-500/35" aria-hidden />
-            İş
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100/80 px-2 py-0.5 font-medium text-amber-900 dark:bg-amber-950/50 dark:text-amber-100">
+            <span className="size-2 shrink-0 rounded-full bg-amber-500" aria-hidden />
+            Belirli gün
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-sky-100/80 px-2 py-0.5 font-medium text-sky-900 dark:bg-sky-950/50 dark:text-sky-100">
+            <span className="size-2 shrink-0 rounded-full bg-sky-500" aria-hidden />
+            Öğretmen işi
           </span>
         </div>
 
@@ -640,14 +723,14 @@ export function AcademicCalendarView({
             >
               {weeks.map((w) => (
                 <option key={w.id} value={w.id}>
-                  {w.weekNumber}. hafta
+                  {formatAcademicWeekHeading(w)}
                   {w.dateStart && w.dateEnd ? ` · ${formatWeekOptionDates(w.dateStart, w.dateEnd)}` : ''}
                 </option>
               ))}
             </select>
           </div>
-          {onViewChange && (
-            <div className={cn('flex min-w-0 flex-col sm:min-w-[11rem]', compact ? 'gap-0.5 sm:gap-1.5' : 'gap-0.5 sm:gap-2')}>
+          {onViewChange && !compact && (
+            <div className={cn('flex min-w-0 flex-col sm:min-w-[11rem]', 'gap-0.5 sm:gap-2')}>
               <span className="block text-[9px] font-medium leading-none text-muted-foreground sm:text-sm">Görünüm</span>
               <div className="grid grid-cols-2 gap-px rounded-md border border-border/50 bg-muted/20 p-px dark:bg-muted/10 sm:flex sm:gap-1 sm:rounded-xl sm:border-0 sm:bg-transparent sm:p-0">
                 <button
@@ -707,15 +790,23 @@ export function AcademicCalendarView({
 
       <div
         className={cn(
-          'flex w-full flex-col rounded-lg border border-indigo-100/50 bg-gradient-to-br from-indigo-50/30 via-background to-teal-50/15 shadow-sm dark:border-indigo-900/40 dark:from-indigo-950/20 dark:to-slate-950/30 md:flex-row md:items-center md:justify-between md:rounded-2xl md:border-violet-100/70 md:from-violet-50/40 md:to-sky-50/30 md:shadow-sm md:dark:border-violet-900/35 md:dark:from-violet-950/25',
-          compact ? 'gap-1.5 p-1.5 max-sm:rounded-md sm:gap-4 sm:p-4 md:gap-3 md:p-3' : 'gap-2 p-2 max-sm:rounded-md sm:gap-4 sm:p-5 md:gap-3 md:p-3',
+          'flex w-full flex-col shadow-sm md:flex-row md:items-center md:justify-between',
+          compact
+            ? 'gap-2 rounded-2xl border border-violet-200/50 bg-linear-to-r from-violet-500/8 via-fuchsia-500/5 to-amber-500/8 p-2.5 dark:border-violet-900/35 sm:gap-3 sm:p-3'
+            : 'gap-2 rounded-lg border border-indigo-100/50 bg-gradient-to-br from-indigo-50/30 via-background to-teal-50/15 p-2 max-sm:rounded-md dark:border-indigo-900/40 dark:from-indigo-950/20 dark:to-slate-950/30 sm:gap-4 sm:p-5 md:gap-3 md:p-3 md:rounded-2xl md:border-violet-100/70 md:from-violet-50/40 md:to-sky-50/30 md:dark:border-violet-900/35 md:dark:from-violet-950/25',
         )}
       >
         <div className="order-1 flex min-w-0 flex-1 flex-col items-center gap-0.5 px-0 text-center max-sm:gap-1 md:order-2 md:gap-1.5 md:px-1">
           <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-2">
-            <span className="inline-flex items-center rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-2 py-px text-[10px] font-bold tabular-nums text-white shadow-sm dark:from-indigo-500 dark:to-violet-600 sm:px-4 sm:py-2 sm:text-sm md:px-3 md:py-1 md:text-xs">
-              {centerWeek?.weekNumber ?? centerIndex + 1}. hafta
+            <span
+              className={cn(
+                'inline-flex max-w-[min(100%,20rem)] items-center rounded-full bg-linear-to-r from-violet-600 to-fuchsia-600 px-2 py-px text-[10px] font-bold text-white shadow-sm sm:px-4 sm:py-2 sm:text-sm',
+                !compact && 'md:px-3 md:py-1 md:text-xs dark:from-indigo-500 dark:to-violet-600',
+              )}
+            >
+              {centerWeek ? formatAcademicWeekHeading(centerWeek) : `${centerIndex + 1}. hafta`}
             </span>
+            {centerWeek && <WeekKindBadge week={centerWeek} />}
             {isCenterCurrentWeek && (
               <span className="rounded-full bg-emerald-200/80 px-1.5 py-px text-[9px] font-semibold text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100 sm:px-2.5 sm:py-1 sm:text-xs md:px-2 md:py-0.5">
                 Şu an
@@ -727,10 +818,14 @@ export function AcademicCalendarView({
               ? formatDateRangeProminent(centerWeek.dateStart, centerWeek.dateEnd)
               : centerWeek?.title ?? '—'}
           </p>
-          <p className="text-[9px] leading-tight text-muted-foreground max-sm:max-w-[14rem] sm:hidden">
-            Üst satır: hafta. Ok veya şerit.
-          </p>
-          <p className="hidden text-[10px] text-muted-foreground sm:block md:hidden">İleri / geri veya listeden hafta.</p>
+          {!compact && (
+            <>
+              <p className="text-[9px] leading-tight text-muted-foreground max-sm:max-w-[14rem] sm:hidden">
+                Üst satır: hafta. Ok veya şerit.
+              </p>
+              <p className="hidden text-[10px] text-muted-foreground sm:block md:hidden">İleri / geri veya listeden hafta.</p>
+            </>
+          )}
         </div>
         <div className="order-2 flex w-full flex-wrap items-center justify-center gap-1 max-sm:pt-0.5 md:order-1 md:w-auto md:justify-start md:gap-2">
           <Button
@@ -769,33 +864,43 @@ export function AcademicCalendarView({
       {view === 'week' && centerWeek && (
         <div className="w-full space-y-2 md:space-y-4 lg:space-y-5">
           <WeekCardMain week={centerWeek} currentUserId={currentUserId} />
-          <div className="rounded-lg border border-indigo-100/55 bg-indigo-50/20 p-1 dark:border-indigo-900/40 dark:bg-indigo-950/25 max-sm:py-1 sm:rounded-2xl sm:border-violet-100/60 sm:bg-violet-50/25 sm:p-5 sm:dark:border-violet-900/35 sm:dark:bg-violet-950/20 md:p-3">
-            <p className="mb-1 text-center text-[9px] text-muted-foreground sm:mb-3 sm:hidden">
-              Şeridi <span className="font-medium text-foreground">kaydır</span>
-            </p>
-            <p className="mb-2 hidden text-center text-sm text-muted-foreground sm:mb-3 sm:block md:mb-2 md:text-xs">
-              Yakın haftalar — <span className="font-medium text-foreground">dokun</span> veya mobilde{' '}
-              <span className="font-medium text-foreground">yana kaydır</span>
+          <div
+            className={cn(
+              'rounded-2xl border p-1.5 sm:p-3',
+              compact
+                ? 'border-violet-200/50 bg-linear-to-br from-violet-50/40 to-amber-50/25 dark:border-violet-900/35 dark:from-violet-950/25 dark:to-amber-950/15'
+                : 'border-indigo-100/55 bg-indigo-50/20 dark:border-indigo-900/40 dark:bg-indigo-950/25 sm:border-violet-100/60 sm:bg-violet-50/25 sm:dark:border-violet-900/35 sm:dark:bg-violet-950/20',
+            )}
+          >
+            <p className={cn('mb-2 text-center text-[10px] text-muted-foreground sm:text-xs', compact && 'font-medium')}>
+              {compact ? (
+                <>Yakın haftalar — kaydır veya dokun</>
+              ) : (
+                <>
+                  <span className="sm:hidden">
+                    Şeridi <span className="font-medium text-foreground">kaydır</span>
+                  </span>
+                  <span className="hidden sm:inline">
+                    Yakın haftalar — <span className="font-medium text-foreground">dokun</span> veya mobilde{' '}
+                    <span className="font-medium text-foreground">yana kaydır</span>
+                  </span>
+                </>
+              )}
             </p>
             <div className="-mx-0.5 flex max-w-full snap-x snap-mandatory flex-nowrap justify-center gap-0.5 overflow-x-auto px-0.5 pb-0 [-webkit-overflow-scrolling:touch] sm:-mx-1 sm:gap-2 sm:px-1 sm:pb-1 sm:flex-wrap sm:justify-center sm:overflow-visible">
               {quickNavWeeks.map((w) => {
                 const isSelected = w.id === centerWeek.id;
-                const isCurrent =
-                  w.dateStart &&
-                  w.dateEnd &&
-                  isWithinInterval(new Date(), {
-                    start: startOfDay(parseISO(w.dateStart)),
-                    end: endOfDay(parseISO(w.dateEnd)),
-                  });
+                const isCurrent = isDateInAcademicWeek(w);
                 return (
                   <button
                     key={w.id}
+                    ref={isSelected ? activeWeekBtnRef : undefined}
                     type="button"
                     onClick={() => setCenterIndex(weeks.findIndex((x) => x.id === w.id))}
                     className={cn(
                       'min-h-7 min-w-16 shrink-0 snap-center rounded-md border px-1 py-0.5 text-[10px] font-semibold tabular-nums transition-colors active:scale-[0.98] sm:min-h-11 sm:min-w-[5.5rem] sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm md:min-h-8 md:min-w-20 md:px-2 md:py-1 md:text-xs',
                       isSelected &&
-                        'border-indigo-600 bg-gradient-to-b from-indigo-600 to-violet-600 text-white shadow-md dark:border-indigo-500 sm:shadow-sm',
+                        'border-violet-600 bg-linear-to-b from-violet-600 to-fuchsia-600 text-white shadow-md dark:border-violet-500',
                       !isSelected &&
                         isCurrent &&
                         'border-teal-300/80 bg-teal-50 text-teal-900 dark:border-teal-700 dark:bg-teal-950/45 dark:text-teal-100 sm:border-emerald-200 sm:bg-emerald-100/80 sm:text-emerald-900 sm:dark:border-emerald-800 sm:dark:bg-emerald-950/50 sm:dark:text-emerald-100',
@@ -804,7 +909,7 @@ export function AcademicCalendarView({
                         'border-indigo-100/90 bg-white/95 text-muted-foreground hover:border-indigo-200 hover:bg-indigo-50/60 dark:border-indigo-900/50 dark:bg-zinc-900/40 dark:hover:bg-indigo-950/40 sm:border-violet-100 sm:hover:border-violet-200 sm:hover:bg-violet-50 sm:dark:border-violet-900 sm:dark:bg-violet-950/40 sm:dark:hover:bg-violet-900/40'
                     )}
                   >
-                    {w.weekNumber}. hafta
+                    {formatAcademicWeekShort(w)}
                   </button>
                 );
               })}
