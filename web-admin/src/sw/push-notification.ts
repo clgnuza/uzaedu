@@ -1,3 +1,7 @@
+/// <reference lib="webworker" />
+
+declare const self: ServiceWorkerGlobalScope;
+
 export type PushPayload = {
   id?: string;
   title?: string;
